@@ -11,6 +11,7 @@
   "dependencies": {
     "@prisma/client": "^6.1.0",
     "@prisma/extension-accelerate": "latest",
+    "@vercel/blob": "^0.27.0",
     "@vercel/edge-config": "latest",
     "bcryptjs": "^2.4.3",
     "lucide-react": "^0.469.0",

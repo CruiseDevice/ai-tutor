@@ -1,3 +1,4 @@
+// app/components/Navbar.tsx
 import LogoutButton from './LogoutButton';
 
 export default function Navbar() {

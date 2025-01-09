@@ -1,5 +1,4 @@
 // app/components/Dashboard.tsx
-
 "use client";
 
 import { Mic, Send, Upload } from "lucide-react";

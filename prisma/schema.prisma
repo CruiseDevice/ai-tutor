@@ -8,7 +8,7 @@ datasource db {
 }
 
 model Session {
-  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  id    String @id @default(cuid()) @map("_id") @db.ObjectId
   userId String @db.ObjectId
   token String @unique
   expiresAt DateTime
@@ -18,10 +18,44 @@ model Session {
 }
 
 model User {
-  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  id    String @id @default(cuid()) @map("_id") @db.ObjectId
   email String @unique
   password String  // Will store hashed password
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   sessions Session[]
+  documents Document[]
+  conversations Conversation[]
+}
+
+model Document {
+  id String @id @default(cuid()) @map("_id") @db.ObjectId
+  title String
+  url String  // URL to access the file
+  blobPath String // Path in blob storage
+  userId String @db.ObjectId
+  user User @relation(fields: [userId], references: [id])
+  conversation Conversation?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Conversation {
+  id String @id @default(cuid()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user User @relation(fields: [userId], references: [id])
+  documentId String @unique @db.ObjectId
+  document Document @relation(fields: [documentId], references: [id])
+  messages Message[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Message {
+  id String @id @default(cuid()) @map("_id") @db.ObjectId
+  content String
+  role String
+  conversationId String @db.ObjectId
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  createdAt DateTime @default(now())
 }

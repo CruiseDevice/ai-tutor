@@ -1,3 +1,5 @@
+// /src/app/api/auth/register/route.ts
+
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 import { z } from "zod"
