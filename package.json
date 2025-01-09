@@ -13,6 +13,7 @@
     "@prisma/extension-accelerate": "latest",
     "@vercel/edge-config": "latest",
     "bcryptjs": "^2.4.3",
+    "lucide-react": "^0.469.0",
     "mongodb": "^6.12.0",
     "next": "15.1.3",
     "react": "^19.0.0",
