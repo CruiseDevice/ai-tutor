@@ -36,7 +36,6 @@ export default function LoginForm() {
         body: JSON.stringify(formData),
       });
 
-      console.log(response);
       const data = await response.json();
       if(!response.ok) {
         throw new Error(data.error || 'Login failed');

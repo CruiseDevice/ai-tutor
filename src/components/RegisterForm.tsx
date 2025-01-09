@@ -51,7 +51,8 @@ export default function RegisterForm () {
           password: formData.password
         })
       });
-
+      
+      console.log(response);
       const data = await response.json();
       if(!response.ok) {
         throw new Error(data.error || 'Registration failed');
@@ -60,6 +61,7 @@ export default function RegisterForm () {
       // Registration successful - redirect to dashboard or home
       router.push('/dashboard')
     } catch (error) {
+      console.log(typeof error)
       setError(error instanceof Error ? error.message : 'Something went wrong');
     } finally {
       setLoading(false);
