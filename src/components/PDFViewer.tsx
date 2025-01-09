@@ -3,18 +3,15 @@ import React, { useRef } from "react"
 
 interface PDFViewerProps {
   currentPDF: string | null;
-  onFileUpload: (file: File) => void;
+  onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-export default function PDFViewer({currentPDF, onFileUpload}: PDFViewerProps) {
+export default function PDFViewer({
+  currentPDF, 
+  onFileUpload}: PDFViewerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if(file && file.type === 'application/pdf') {
-      onFileUpload(file);
-    }
-  }
+
   return (
     <div className="w-1/2 bg-white border-r border-gray-200 p-4">
       {currentPDF ? (
@@ -35,7 +32,7 @@ export default function PDFViewer({currentPDF, onFileUpload}: PDFViewerProps) {
           <input 
             type="file"
             ref={fileInputRef}
-            onChange={handleFileChange}
+            onChange={onFileUpload}
             accept="application/pdf"
             className="hidden"
           />

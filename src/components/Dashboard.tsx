@@ -6,12 +6,46 @@ import { useRef, useState } from "react"
 import PDFViewer from "./PDFViewer";
 import ChatInterface from "./ChatInterface";
 
-export default function Dashboard () {
-  const [currentPDF, setCurrentPDF] = useState(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+// message interface for type safety
+interface Message {
+  role: 'user' | 'assistant';
+  content: string
+}
 
-  const handleFileUpload = (e) => {
+export default function Dashboard () {
+  const [currentPDF, setCurrentPDF] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
    // handlefileupload function triggered
+    const file = e.target.files?.[0];
+    console.log(file);
+
+    if(!file) return;
+
+    if(file.type !== 'application/pdf') {
+      setError('Please upload a PDF file');
+      return;
+    }
+
+    //  validate file size(e.g., 10MB limit)
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setError('File size should be less than 10MB');
+      return;
+    }
+
+    // create form data
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // upload file
+    const response = await fetch('/api/documents', {
+      method: 'POST',
+      body: formData,
+    });
+    console.log(response);
   }
 
   const handleSendMessage = (e) => {
