@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { Configuration, OpenAIApi } from "openai-edge";
 
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string;
+}
+
 // create openai configuration
 const config = new Configuration({
   apiKey: process.env.OPENAI_API_KEY
@@ -49,7 +54,7 @@ export async function POST(req: NextRequest) {
           userId,
           documentId,
           messages: {
-            create: messages.map((msg: any) => ({
+            create: messages.map((msg: ChatMessage) => ({
               content: msg.content,
               role: msg.role
             }))

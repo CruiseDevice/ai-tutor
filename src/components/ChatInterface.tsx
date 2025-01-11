@@ -1,8 +1,8 @@
 import { Mic, Send } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
-interface Message {
-  role: 'user' | 'assistant';
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
@@ -17,12 +17,12 @@ export default function ChatInterface({
   userId,
   onVoiceRecord
 }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

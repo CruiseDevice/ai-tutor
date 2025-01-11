@@ -1,8 +1,8 @@
 // app/api/auth/user/route.ts
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     // get the session token from cookies
     const cookieStore = cookies();

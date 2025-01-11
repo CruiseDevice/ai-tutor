@@ -5,12 +5,6 @@ import { useEffect, useState } from "react"
 import PDFViewer from "./PDFViewer";
 import ChatInterface from "./ChatInterface";
 
-// message interface for type safety
-interface Message {
-  role: 'user' | 'assistant';
-  content: string
-}
-
 export default function Dashboard () {
   const [currentPDF, setCurrentPDF] = useState('');
   const [documentId, setDocumentId] = useState('');
@@ -62,7 +56,7 @@ export default function Dashboard () {
     }
 
     // create a temporary URL for the uploaded file
-    const fileURL = URL.createObjectURL(file);
+    // const fileURL = URL.createObjectURL(file);
     // setCurrentPDF(fileURL);
 
     // create form data
