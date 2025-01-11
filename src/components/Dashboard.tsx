@@ -1,8 +1,7 @@
 // app/components/Dashboard.tsx
 "use client";
 
-import { Mic, Send, Upload } from "lucide-react";
-import { useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import PDFViewer from "./PDFViewer";
 import ChatInterface from "./ChatInterface";
 
@@ -13,9 +12,35 @@ interface Message {
 }
 
 export default function Dashboard () {
-  const [currentPDF, setCurrentPDF] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [currentPDF, setCurrentPDF] = useState('');
+  const [documentId, setDocumentId] = useState('');
+  const [userId, setUserId] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // fetch user ID on component mount
+  useEffect(() => {
+    const fetchUserId = async () => {
+      try {
+        const response = await fetch('/api/auth/user');
+        const data = await response.json();
+        if(response.ok) {
+          console.log('Fetched user ID: ', data.id);
+          setUserId(data.id);
+        } else {
+          console.error('Failed to fetch user: ', data);
+        }
+        console.log(data)
+      } catch (error) {
+        console.error('Error fetching user:', error);
+      }
+    };
+    fetchUserId();
+  }, []);
+
+  // log state changes
+  useEffect(() => {
+    console.log('Current state: ', {userId, documentId, currentPDF});
+  }, [userId, documentId, currentPDF]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
    // handlefileupload function triggered
@@ -36,26 +61,40 @@ export default function Dashboard () {
       return;
     }
 
+    // create a temporary URL for the uploaded file
+    const fileURL = URL.createObjectURL(file);
+    setCurrentPDF(fileURL);
+
     // create form data
     const formData = new FormData();
     formData.append('file', file);
 
-    // upload file
-    const response = await fetch('/api/documents', {
-      method: 'POST',
-      body: formData,
-    });
-    console.log(response);
-  }
-
-  const handleSendMessage = (e) => {
-    // send message logic
-    console.log('Sendm message function triggered')
+    try{
+      // upload file
+      const response = await fetch('/api/documents', {
+        method: 'POST',
+        body: formData,
+      });
+  
+      if(!response.ok) {
+        throw new Error('Failed to upload document');
+      }
+  
+      const data = await response.json();
+      setCurrentPDF(data.url);
+      setDocumentId(data.id);
+    } catch (error) {
+      console.error('Upload error:', error);
+      setError('Failed to upload document');
+    }
   }
 
   const handleVoiceRecord = () => {
     // implement voice recording logic later
     console.log('Voice recording toggled');
+  }
+  if (error) {
+    return <div className="p-4 text-red-500">{error}</div>
   }
   return (
     <div className="h-screen flex">
@@ -65,9 +104,9 @@ export default function Dashboard () {
         onFileUpload={handleFileUpload}
       />
       {/* Chat Section */}
-      <ChatInterface 
-        messages={messages}
-        onSendMessage={handleSendMessage}
+      <ChatInterface
+        documentId={documentId}
+        userId={userId}
         onVoiceRecord={handleVoiceRecord}
       />
     </div>

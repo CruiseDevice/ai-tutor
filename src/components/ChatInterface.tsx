@@ -1,5 +1,5 @@
 import { Mic, Send } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface Message {
   role: 'user' | 'assistant';
@@ -7,26 +7,67 @@ interface Message {
 }
 
 interface ChatInterfaceProps {
-  messages: Message[];
-  onSendMessage: (message: string) => void;
+  documentId: string;
+  userId: string;
   onVoiceRecord: () => void;
 }
 
 export default function ChatInterface({
-  messages,
-  onSendMessage,
+  documentId,
+  userId,
   onVoiceRecord
 }: ChatInterfaceProps) {
-  const [inputMessage, setInputMessage] = useState('');
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [inputMessage, setInputMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(inputMessage.trim()) {
-      onSendMessage(inputMessage);
-      setInputMessage('');
+    if (!inputMessage.trim() || isLoading) return;
+
+    const userMessage = {
+      role: 'user' as const,
+      content: inputMessage.trim()
+    };
+
+    // Add user message to chat
+    setMessages(prev => [...prev, userMessage]);
+    setInputMessage('');
+    setIsLoading(true);
+
+    try {
+      const payload = {
+        messages: [...messages, userMessage],
+        documentId,
+        userId
+      };
+      console.log('Sending to API: ', payload);
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
+      
+      const assistantMessage = await response.json();
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Chat error:', error);
+      // TODO: Show error to user
+    } finally {
+      setIsLoading(false)
     }
-  };
+
+  }
 
   const handleVoiceRecord = () => {
     setIsRecording(!isRecording);
@@ -77,7 +118,7 @@ export default function ChatInterface({
             />
             <button
               type="submit"
-              disabled={!inputMessage.trim()}
+              disabled={!inputMessage.trim() || isLoading}
               className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send size={20}/>

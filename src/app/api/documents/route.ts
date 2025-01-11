@@ -42,7 +42,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
     });
 
-    return NextResponse.json({ document });
+    return NextResponse.json({ 
+      url: blob.url,
+      id: document.id
+     });
   } catch (error) {
     console.log(error);
     return NextResponse.json({ error: 'An error occurred' });

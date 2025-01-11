@@ -57,11 +57,17 @@ export async function middleware(request: NextRequest) {
         requestHeaders.set('x-user-email', session.userEmail)
         
         // return response with modified headers
-        return NextResponse.next({
+        const newResponse = NextResponse.next({
           request: {
             headers: requestHeaders,
           }
         });
+
+        // Also set the headers in the response
+        newResponse.headers.set('x-user-id', session.userId);
+        newResponse.headers.set('x-user-email', session.userEmail);
+
+        return newResponse
       }
     }
     
@@ -78,6 +84,7 @@ export async function middleware(request: NextRequest) {
     if(authRoutes.some(route => path.startsWith(route))) {
       return NextResponse.next();
     }
+
     return NextResponse.next();
 
   } catch(error) {
