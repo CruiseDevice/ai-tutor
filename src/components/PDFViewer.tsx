@@ -23,7 +23,7 @@ export default function PDFViewer({
       ) : (
         <div className="h-full flex items-center justify-center">
           <button 
-            onClick={() => fileInputRef.current.click()}
+            onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
           >
             <Upload size={20}/>
