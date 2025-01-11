@@ -48,21 +48,47 @@ export async function POST(req: NextRequest) {
       where: {documentId}
     });
 
-    if (!conversation){
-      conversation = await prisma?.conversation.create({
-        data: {
-          userId,
-          documentId,
-          messages: {
-            create: messages.map((msg: ChatMessage) => ({
-              content: msg.content,
-              role: msg.role
-            }))
+    if (!conversation) {
+      try {
+        conversation = await prisma?.conversation.create({
+          data: {
+            userId,
+            documentId,
+            messages: {
+              create: messages.map((msg: ChatMessage) => ({
+                content: msg.content,
+                role: msg.role
+              }))
+            }
           }
-        }
-      });
-    } else {
-      // Add new message to existing conversation
+        });
+      } catch (error) {
+        console.error('Error creating conversation: ', error);
+        return new Response(
+          JSON.stringify({
+            error: 'Failed to create conversation'
+          }),
+          {
+            status: 500, 
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+      }
+    }
+
+    // double-check that we have a valid conversation
+    if(!conversation) {
+      console.error('Failed to get or create conversation');
+      return new Response(
+        JSON.stringify({error: 'Failed to get or create conversation'}),
+        {status: 500, headers: {'Content-Type': 'application/json'}}
+      );
+    }
+
+    // save the user's message if conversation exists
+    try{
       await prisma?.message.create({
         data: {
           content: messages[messages.length - 1].content,
@@ -70,6 +96,8 @@ export async function POST(req: NextRequest) {
           conversationId: conversation.id
         }
       });
+    } catch (error) {
+      console.error('Error saving user message: ', error);
     }
 
     console.log('conversation:', conversation);
@@ -88,13 +116,17 @@ export async function POST(req: NextRequest) {
     const assistantMessage = chatResponse.choices[0].message;
 
     // save the assistant's response
-    await prisma?.message.create({
-      data: {
-        content: assistantMessage.content,
-        role: 'assistant',
-        conversationId: conversation.id
-      }
-    });
+    try{
+      await prisma?.message.create({
+        data: {
+          content: assistantMessage.content,
+          role: 'assistant',
+          conversationId: conversation.id
+        }
+      });  
+    } catch (error) {
+      console.error('Error saving assistant message:', error)
+    }
 
     return new Response(JSON.stringify(assistantMessage), {
       headers: {
@@ -104,5 +136,11 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.log(error)
+    return new Response(JSON.stringify({error: 'Error processing chat message'}), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
   }
 }
