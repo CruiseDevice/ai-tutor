@@ -63,7 +63,7 @@ export default function Dashboard () {
 
     // create a temporary URL for the uploaded file
     const fileURL = URL.createObjectURL(file);
-    setCurrentPDF(fileURL);
+    // setCurrentPDF(fileURL);
 
     // create form data
     const formData = new FormData();
@@ -108,6 +108,7 @@ export default function Dashboard () {
         documentId={documentId}
         userId={userId}
         onVoiceRecord={handleVoiceRecord}
+        // pdfUrl={currentPDF}
       />
     </div>
   )
