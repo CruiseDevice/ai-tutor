@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       data: {
         userId: user.id,
         token: randomUUID(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       },
     })
 
@@ -71,11 +71,14 @@ export async function POST(req: Request) {
       { status: 200 }
     )
 
-    response.cookies.set('session_token', session.token, {
+    // set session cookie
+    response.cookies.set({
+      name:'session_token',
+      value: session.token,
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60, // 30 days
+      sameSite: 'lax',
+      expires: session.expiresAt,
       path: '/',
     })
 

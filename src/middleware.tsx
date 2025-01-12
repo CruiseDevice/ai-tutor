@@ -8,17 +8,6 @@ const publicRoutes = [
   '/api/auth/verify-session'
 ]
 
-const authRoutes = [
-  '/login', 
-  '/register',
-]
-
-const protectedRoutes = [
-  '/dashboard',
-  '/logout',
-  '/Navbar',
-]
-
 export async function middleware(request: NextRequest) {
 
   // get the pathname
@@ -27,8 +16,12 @@ export async function middleware(request: NextRequest) {
   if(publicRoutes.some(route => path.startsWith(route))) {
     return NextResponse.next()
   }
+
   // get session token from cookies
   const sessionToken = request.cookies.get('session_token')?.value;
+
+  // check if it is an auth route (login/register)
+  const isAuthRoute = path === '/login' || path === '/register';
 
   try {
     if (sessionToken){
@@ -45,7 +38,7 @@ export async function middleware(request: NextRequest) {
 
         // if user is logged in and trying to access auth routes (login/register)
         // redirect them to dashboard
-        if(authRoutes.some(route => path.startsWith(route))) {
+        if(isAuthRoute) {
           return NextResponse.redirect(new URL('/dashboard', request.url));
         }
 
@@ -60,45 +53,40 @@ export async function middleware(request: NextRequest) {
             headers: requestHeaders,
           }
         });
-
         // Also set the headers in the response
         newResponse.headers.set('x-user-id', session.userId);
         newResponse.headers.set('x-user-email', session.userEmail);
-
         return newResponse
       }
     }
-    
-    // invalid or no session
-    // if trying to access protected routes, redirect to login
-    if(protectedRoutes.some(route => path.startsWith(route))) {
-      // clear invalid session cookie
-      const response = NextResponse.redirect(new URL('/login', request.url));
-      response.cookies.delete('session_token');
-      return response;
-    }
 
-    // Allow access to auth routes for non-authenticated users
-    if(authRoutes.some(route => path.startsWith(route))) {
-      return NextResponse.next();
+    // no valid session
+    if (!isAuthRoute && path !== '/login') {
+      // redirect to login for protected routes
+      return NextResponse.redirect(new URL('/login', request.url));
     }
 
     return NextResponse.next();
-
   } catch(error) {
-    console.error('Session verification error: ', error)
+    console.error('Middleware error: ', error)
 
-    // on error, redirect to login for protected routes
-    if(protectedRoutes.some(route => path.startsWith(route))) {
-      return NextResponse.redirect(new URL('/login', request.url));
+    if(!isAuthRoute && path !== '/') {
+      return NextResponse.redirect(new URL('/login', request.url))
     }
+
     return NextResponse.next();
   }
 }
 
 export const config = {
   matcher: [
-    // Match all paths except static files, api routes, and other public assets
-    '/((?!_next/static|_next/image|favicon.ico|public|api/).*)',
-  ]
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public (public files)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|public/).*)',
+  ],
 }

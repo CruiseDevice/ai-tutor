@@ -4,14 +4,38 @@
 import { useEffect, useState } from "react"
 import PDFViewer from "./PDFViewer";
 import ChatInterface from "./ChatInterface";
+import { useRouter } from "next/navigation";
 
 export default function Dashboard () {
+  const router = useRouter();
   const [currentPDF, setCurrentPDF] = useState('');
   const [documentId, setDocumentId] = useState('');
   const [userId, setUserId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // fetch user ID on component mount
+  useEffect(() => {
+    // debugging log
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/verify-session');
+        console.log('Session check response: ', response);
+
+        if(!response.ok) {
+          console.log('No valid session, redirecting to login');
+          router.push('/login')
+        } else {
+          const data = await response.json();
+          console.log('Session data:', data);
+        }
+      } catch (error) {
+        console.error('Auth check error: ', error);
+        router.push('/login');
+      }
+    };
+    checkAuth();
+  }, [router])
+  
   useEffect(() => {
     const fetchUserId = async () => {
       try {
