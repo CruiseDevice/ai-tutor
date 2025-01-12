@@ -15,7 +15,7 @@ interface ChatInterfaceProps {
 export default function ChatInterface({
   documentId,
   userId,
-  onVoiceRecord
+  onVoiceRecord,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -59,6 +59,7 @@ export default function ChatInterface({
       }
       
       const assistantMessage = await response.json();
+      console.log(assistantMessage)
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Chat error:', error);

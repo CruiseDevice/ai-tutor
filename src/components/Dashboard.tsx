@@ -126,7 +126,6 @@ export default function Dashboard () {
         documentId={documentId}
         userId={userId}
         onVoiceRecord={handleVoiceRecord}
-        // pdfUrl={currentPDF}
       />
     </div>
   )
