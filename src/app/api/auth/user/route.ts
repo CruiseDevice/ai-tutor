@@ -1,6 +1,7 @@
 // app/api/auth/user/route.ts
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import prisma from '@/lib/db';
 
 export async function GET() {
   try {

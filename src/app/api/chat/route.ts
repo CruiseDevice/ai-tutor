@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { Configuration, OpenAIApi } from "openai-edge";
+import prisma from "@/lib/db";
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
