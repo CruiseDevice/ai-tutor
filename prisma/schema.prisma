@@ -55,6 +55,7 @@ model Message {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   content String
   role String
+  context Json?
   conversationId String @db.ObjectId
   conversation Conversation @relation(fields: [conversationId], references: [id])
   createdAt DateTime @default(now())
