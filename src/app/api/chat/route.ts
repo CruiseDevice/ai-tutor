@@ -5,6 +5,7 @@ import prisma from "@/lib/db";
 import OpenAI from 'openai';
 import { PrismaClient, Conversation } from "@prisma/client";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { Prisma } from "@prisma/client";
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -16,7 +17,6 @@ type DocumentChunkWithPage = {
   pageNumber: number;
 }
 
-import { Prisma } from "@prisma/client";
 
 type MongoDBCommandResponse = {
   ok: number;
@@ -33,27 +33,100 @@ type MongoDBCommandResponse = {
   };
 }
 
+// Constants
+const CHUNK_LIMIT = 3;
+const MODEL_NAME = "text-embedding-3-small";
+const VECTOR_INDEX = "vector_index";
+const GPT_MODEL = "gpt-4";
+
 const prismaRaw = new PrismaClient();
+
+// helper function
+async function getOrCreateConversation(userId: string, documentId:  string, messages: ChatMessage[]): Promise<Conversation> {
+  let conversation = await prisma.conversation.findFirst({
+    where: { documentId }
+  });
+
+  if (!conversation) {
+    conversation = await prisma.conversation.create({
+      data: {
+        userId,
+        documentId,
+        messages: {
+          create: messages.map(msg => ({
+            content: msg.content,
+            role: msg.role
+          }))
+        }
+      }
+    });
+  }
+
+  return conversation;
+}
+
+async function performVectorSearch(documentId: string, embedding: number[], apiKey: string) {
+  const result = await prismaRaw.$runCommandRaw({
+    aggregate: "DocumentChunk",
+    pipeline: [
+      {
+        $vectorSearch: {
+          index: VECTOR_INDEX,
+          path: "embedding",
+          queryVector: embedding,
+          numCandidates: 20,
+          limit: CHUNK_LIMIT
+        }
+      },
+      {
+        $match: {
+          documentId: documentId
+        }
+      }
+    ],
+    cursor: {}
+  }) as MongoDBCommandResponse;
+
+  return result?.cursor?.firstBatch || [];
+}
+
+async function getFallbackChunks(documentId: string) {
+  return await prisma.documentChunk.findMany({
+    where: { documentId },
+    take: CHUNK_LIMIT,
+    orderBy: { createdAt: 'desc' }
+  });
+}
+
+async function saveMessage(content: string, role: string, conversationId: string) {
+  try {
+    await prisma.message.create({
+      data: {
+        content,
+        role,
+        conversationId
+      }
+    });
+  } catch (error) {
+    console.error(`Error saving ${role} message:`, error);
+    // Don't throw - message saving shouldn't break the chat flow
+  }
+}
+
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {messages, documentId, userId} = body;
 
-    if(!messages || !documentId) {
-      console.error('Missing required fields: ', {messages, documentId});
+    if(!messages?.length || !documentId || !userId) {
       return NextResponse.json({
         error: 'Missing required fields',
         received: {messages, documentId}
       }, {status: 400})
     }
 
-    const userQuestion = messages[messages.length - 1].content;
-    if (!userId) {
-      return NextResponse.json({error: 'Unauthorized'}, {status: 401});
-    }
-
-    // get user's API key
+    // get user and user's API key
     const user = await prisma.user.findUnique({
       where: {id: userId},
       select: {apiKey: true}
@@ -80,115 +153,36 @@ export async function POST(req: NextRequest) {
     }
 
     // generate embedding for the questions
+    const userQuestion = messages[messages.length - 1].content;
     const embeddings = new OpenAIEmbeddings({
       openAIApiKey: document?.user.apiKey,
-      modelName: "text-embedding-3-small"
+      modelName: MODEL_NAME
     });
 
     const questionEmbedding = await embeddings.embedQuery(userQuestion);
 
+    // get or create conversation
+    const conversation = await getOrCreateConversation(userId, documentId, messages);
+
     // Perform vector similarity search using MongoDB
     try {
-      // Use the exact MongoDB Atlas vector search syntax
-      const result = await prismaRaw.$runCommandRaw({
-        aggregate: "DocumentChunk",
-        pipeline: [
-          {
-            $vectorSearch: {
-              index: "vector_index",
-              path: "embedding",
-              queryVector: questionEmbedding,
-              numCandidates: 20,
-              limit: 3
-            }
-          },
-          {
-            $match: {
-              documentId: documentId
-            }
-          }
-        ],
-        cursor: {}
-      }) as MongoDBCommandResponse;
-
-      console.log('Vector search executed:', !!result);
-      
-      const similarChunks = result?.cursor?.firstBatch || [];
-      console.log('Similar chunks found:', similarChunks.length);
-
+      const similarChunks = await performVectorSearch(documentId, questionEmbedding, user.apiKey);
       if (similarChunks.length === 0) {
         console.log('No similar chunks found, falling back to recent chunks');
-        const fallbackChunks = await prisma.documentChunk.findMany({
-          where: { documentId },
-          take: 3,
-          orderBy: { createdAt: 'desc' }
-        });
+        const fallbackChunks = await getFallbackChunks(documentId);
         return handleChatCompletion(fallbackChunks, messages, conversation, user.apiKey);
-      }
-
-      // Get or create conversation
-      let conversation = await prisma.conversation.findFirst({
-        where: {documentId}
-      });
-
-      if(!conversation) {
-        conversation = await prisma.conversation.create({
-          data: {
-            userId,
-            documentId,
-            messages: {
-              create: messages.map((msg: ChatMessage) => ({
-                content: msg.content,
-                role: msg.role
-              }))
-            }
-          }
-        });
       }
       return handleChatCompletion(similarChunks, messages, conversation, user.apiKey);
     } catch (searchError) {
       console.error('Vector search error:', searchError);
-      // Log the full error details
-      if (searchError instanceof Error) {
-        console.error('Error name:', searchError.name);
-        console.error('Error message:', searchError.message);
-        console.error('Error stack:', searchError.stack);
-      }
-      
       // Fallback to basic search if vector search fails
-      const fallbackChunks = await prisma.documentChunk.findMany({
-        where: { documentId },
-        take: 3,
-        orderBy: { createdAt: 'desc' }
-      });
-      
-      let conversation = await prisma.conversation.findFirst({
-        where: {documentId}
-      });
-
-      if(!conversation) {
-        conversation = await prisma.conversation.create({
-          data: {
-            userId,
-            documentId,
-            messages: {
-              create: messages.map((msg: ChatMessage) => ({
-                content: msg.content,
-                role: msg.role
-              }))
-            }
-          }
-        });
-      }
-
+      const fallbackChunks = await getFallbackChunks(documentId);
       return handleChatCompletion(fallbackChunks, messages, conversation, user.apiKey);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occured';
-    console.error('Chat API Error:', errorMessage);
-
+    console.error('Chat API Error:', error);
     return NextResponse.json(
-      { error: 'Error processing chat message', details: errorMessage },
+      { error: 'Error processing chat message'},
       { status: 500 }
     );
   }
@@ -199,20 +193,11 @@ async function handleChatCompletion(
   messages: ChatMessage[],
   conversation: Conversation,
   apiKey: string
-) {
+): Promise<Response> {
   try {
     // save the user's message if conversation exists
-    try {
-      await prisma?.message.create({
-        data: {
-          content: messages[messages.length - 1].content,
-          role: messages[messages.length - 1].role,
-          conversationId: conversation.id
-        }
-      });
-    } catch (error) {
-      console.error(error);
-    }
+    const userMessage = messages[messages.length - 1];
+    await saveMessage(userMessage.content, userMessage.role, conversation.id);
 
     const openai = new OpenAI({apiKey});
 
@@ -223,54 +208,35 @@ async function handleChatCompletion(
           .join('\n\n')}`
       : 'No specific context found in the document.';
 
-    console.log(similarChunks);
-    console.log('contextPrompt: ', contextPrompt)
-      // Ensure messages are in the correct format
-    const formattedMessages = messages.map((msg: ChatMessage) => ({
-      role: msg.role,
-      content: msg.content
-    }));
-
     // create chat completion
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: GPT_MODEL,
       messages: [
         {
           role: 'system',
-          content: `You are a helpful AI tutor. Help the student understand the document they are reading. Be concise but thorough in your explanation. Here is relevant context from the document:\n\n${contextPrompt}`
+          content: `You are a helpful AI tutor. Help the student understand the document they are reading. 
+                   Be concise but thorough in your explanation. Here is relevant context from the document:\n\n${contextPrompt}`
         },
-        ...formattedMessages
+        ...messages.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }))
       ]
     });
 
     const assistantResponse = completion.choices[0].message.content || '';
 
-    // save the assistant's response
-    try {
-      await prisma?.message.create({
-        data: {
-          content: assistantResponse,
-          role: 'assistant',
-          conversationId: conversation.id
-        }
-      });
-    } catch (error) {
-      console.error('Error saving assistant message:', error);
-    }
+    await saveMessage(assistantResponse, 'assistant', conversation.id);
 
-    const formattedResponse: ChatMessage = {
+    return new Response(JSON.stringify({
       role: 'assistant',
       content: assistantResponse
-    };
-
-    return new Response(JSON.stringify(formattedResponse), {
+    } as ChatMessage), {
       headers: {
         'Content-Type': 'application/json'
       }
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error in chat completion';
-    console.error('Chat completion error:', errorMessage);
-    throw new Error(errorMessage);
+    console.error('Chat completion error:', error);
   }
 }
