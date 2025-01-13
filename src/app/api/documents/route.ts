@@ -17,6 +17,33 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
+    // Get session token from cookie
+     const sessionToken = req.headers.get('cookie')
+     ?.split(';')
+     ?.find(c => c.trim().startsWith('session_token='))
+     ?.split('=')[1];
+
+    if (!sessionToken) {
+       return NextResponse.json({ error: 'No session token' }, { status: 401 });
+    }
+
+    // Verify session
+    const session = await prisma.session.findFirst({
+      where: {
+        token: sessionToken,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!session) {
+      return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
+    }
+
     const formData = await req.formData();
     const file = formData.get('file') as File;
 
@@ -41,6 +68,28 @@ export async function POST(req: Request): Promise<NextResponse> {
         conversation: true,
       }
     });
+
+    // Trigger documenr processing
+    const processResponse = await fetch(`${req.headers.get('origin')}/api/documents/process`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': `session_token=${sessionToken}`
+      },
+      body: JSON.stringify({documentId: document.id}),
+    });
+
+    const responseText = await processResponse.text();
+    try {
+      const responseData = JSON.parse(responseText);
+      console.log('Process Response:', responseData);
+    } catch (error) {
+      console.error('Error parsing process response:', error);
+    }
+
+    if (!processResponse.ok) {
+      return NextResponse.json({ error: 'Document processing failed' }, { status: 500 });
+    }
 
     return NextResponse.json({ 
       url: blob.url,

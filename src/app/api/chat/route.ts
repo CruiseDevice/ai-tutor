@@ -3,19 +3,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import OpenAI from 'openai';
+import { PrismaClient, Conversation } from "@prisma/client";
+import { OpenAIEmbeddings } from "@langchain/openai";
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string;
 }
 
+import { Prisma } from "@prisma/client";
+
+type MongoDBCommandResponse = {
+  ok: number;
+  cursor: {
+    firstBatch: Array<{
+      _id: string;
+      content: string;
+      pageNumber: number;
+      embedding: Prisma.JsonValue;
+      documentId: string;
+    }>;
+    id?: number;
+    ns?: string;
+  };
+}
+
+const prismaRaw = new PrismaClient();
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    console.log('Received request body: ', body);
-
     const {messages, documentId, userId} = body;
 
+    if(!messages || !documentId) {
+      console.error('Missing required fields: ', {messages, documentId});
+      return NextResponse.json({
+        error: 'Missing required fields',
+        received: {messages, documentId}
+      }, {status: 400})
+    }
+
+    const userQuestion = messages[messages.length - 1].content;
     if (!userId) {
       return NextResponse.json({error: 'Unauthorized'}, {status: 401});
     }
@@ -33,33 +61,73 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!messages || !documentId) {
-      console.error('Missing required fields: ', {
-        messages,
-        documentId,
-      });
-      return new Response(
-        JSON.stringify({
-          error: 'Missing required fields',
-          received: {messages, documentId}
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
+    // get document and user info
+    const document = await prisma.document.findUnique({
+      where: {id: documentId},
+      include: {user: true}
+    });
+
+    if(!document?.user?.apiKey) {
+      return NextResponse.json(
+        {error: 'OpenAI API key not found'},
+        {status: 400}
       );
     }
 
-    // Get the conversation or create a new one
-    let conversation = await prisma?.conversation.findFirst({
-      where: {documentId}
+    // generate embedding for the questions
+    const embeddings = new OpenAIEmbeddings({
+      openAIApiKey: document?.user.apiKey,
+      modelName: "text-embedding-3-small"
     });
 
-    if (!conversation) {
-      try {
-        conversation = await prisma?.conversation.create({
+    const questionEmbedding = await embeddings.embedQuery(userQuestion);
+
+    // Perform vector similarity search using MongoDB
+    try {
+      // Use the exact MongoDB Atlas vector search syntax
+      const result = await prismaRaw.$runCommandRaw({
+        aggregate: "DocumentChunk",
+        pipeline: [
+          {
+            $vectorSearch: {
+              index: "vector_index",
+              path: "embedding",
+              queryVector: questionEmbedding,
+              numCandidates: 20,
+              limit: 3
+            }
+          },
+          {
+            $match: {
+              documentId: documentId
+            }
+          }
+        ],
+        cursor: {}
+      }) as MongoDBCommandResponse;
+
+      console.log('Vector search executed:', !!result);
+      
+      const similarChunks = result?.cursor?.firstBatch || [];
+      console.log('Similar chunks found:', similarChunks.length);
+
+      if (similarChunks.length === 0) {
+        console.log('No similar chunks found, falling back to recent chunks');
+        const fallbackChunks = await prisma.documentChunk.findMany({
+          where: { documentId },
+          take: 3,
+          orderBy: { createdAt: 'desc' }
+        });
+        return handleChatCompletion(fallbackChunks, messages, conversation, user.apiKey);
+      }
+
+      // Get or create conversation
+      let conversation = await prisma.conversation.findFirst({
+        where: {documentId}
+      });
+
+      if(!conversation) {
+        conversation = await prisma.conversation.create({
           data: {
             userId,
             documentId,
@@ -71,33 +139,65 @@ export async function POST(req: NextRequest) {
             }
           }
         });
-      } catch (error) {
-        console.error('Error creating conversation: ', error);
-        return new Response(
-          JSON.stringify({
-            error: 'Failed to create conversation'
-          }),
-          {
-            status: 500, 
-            headers: {
-              'Content-Type': 'application/json'
+      }
+      return handleChatCompletion(similarChunks, messages, conversation, user.apiKey);
+    } catch (searchError) {
+      console.error('Vector search error:', searchError);
+      // Log the full error details
+      if (searchError instanceof Error) {
+        console.error('Error name:', searchError.name);
+        console.error('Error message:', searchError.message);
+        console.error('Error stack:', searchError.stack);
+      }
+      
+      // Fallback to basic search if vector search fails
+      const fallbackChunks = await prisma.documentChunk.findMany({
+        where: { documentId },
+        take: 3,
+        orderBy: { createdAt: 'desc' }
+      });
+      
+      let conversation = await prisma.conversation.findFirst({
+        where: {documentId}
+      });
+
+      if(!conversation) {
+        conversation = await prisma.conversation.create({
+          data: {
+            userId,
+            documentId,
+            messages: {
+              create: messages.map((msg: ChatMessage) => ({
+                content: msg.content,
+                role: msg.role
+              }))
             }
           }
-        );
+        });
       }
-    }
 
-    // double-check that we have a valid conversation
-    if(!conversation) {
-      console.error('Failed to get or create conversation');
-      return new Response(
-        JSON.stringify({error: 'Failed to get or create conversation'}),
-        {status: 500, headers: {'Content-Type': 'application/json'}}
-      );
+      return handleChatCompletion(fallbackChunks, messages, conversation, user.apiKey);
     }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occured';
+    console.error('Chat API Error:', errorMessage);
 
+    return NextResponse.json(
+      { error: 'Error processing chat message', details: errorMessage },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleChatCompletion(
+  similarChunks: Array<{content: string; pageNumber: number}>,
+  messages: ChatMessage[],
+  conversation: Conversation,
+  apiKey: string
+) {
+  try {
     // save the user's message if conversation exists
-    try{
+    try {
       await prisma?.message.create({
         data: {
           content: messages[messages.length - 1].content,
@@ -106,20 +206,25 @@ export async function POST(req: NextRequest) {
         }
       });
     } catch (error) {
-      console.error('Error saving user message: ', error);
+      console.error(error);
     }
 
-    console.log('conversation:', conversation);
+    const openai = new OpenAI({apiKey});
 
-    const openai = new OpenAI({apiKey: user.apiKey});
+    // Create completion with context from similar chunks
+    const contextPrompt = similarChunks.length > 0
+      ? `Context from the document:\n${similarChunks
+          .map(chunk => `[Page ${chunk.pageNumber}]: ${chunk.content}`)
+          .join('\n\n')}`
+      : 'No specific context found in the document.';
 
-    // Create chat completion with enhanced system prompt
-    // Ensure messages are in the correct format
+    console.log(similarChunks);
+    console.log('contextPrompt: ', contextPrompt)
+      // Ensure messages are in the correct format
     const formattedMessages = messages.map((msg: ChatMessage) => ({
       role: msg.role,
       content: msg.content
     }));
-
 
     // create chat completion
     const completion = await openai.chat.completions.create({
@@ -127,7 +232,7 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: 'You are a helpful AI tutor. Help the student understand the document they are reading. Be concise but thorough in your explanation.'
+          content: `You are a helpful AI tutor. Help the student understand the document they are reading. Be concise but thorough in your explanation. Here is relevant context from the document:\n\n${contextPrompt}`
         },
         ...formattedMessages
       ]
@@ -136,7 +241,7 @@ export async function POST(req: NextRequest) {
     const assistantResponse = completion.choices[0].message.content || '';
 
     // save the assistant's response
-    try{
+    try {
       await prisma?.message.create({
         data: {
           content: assistantResponse,
@@ -145,7 +250,7 @@ export async function POST(req: NextRequest) {
         }
       });
     } catch (error) {
-      console.error('Error saving assistant message:', error)
+      console.error('Error saving assistant message:', error);
     }
 
     const formattedResponse: ChatMessage = {
@@ -158,14 +263,9 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       }
     });
-
   } catch (error) {
-    console.log(error)
-    return new Response(JSON.stringify({error: 'Error processing chat message'}), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error in chat completion';
+    console.error('Chat completion error:', errorMessage);
+    throw new Error(errorMessage);
   }
 }
