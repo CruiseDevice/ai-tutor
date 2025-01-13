@@ -11,6 +11,11 @@ interface ChatMessage {
   content: string;
 }
 
+type DocumentChunkWithPage = {
+  content: string;
+  pageNumber: number;
+}
+
 import { Prisma } from "@prisma/client";
 
 type MongoDBCommandResponse = {
@@ -190,7 +195,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleChatCompletion(
-  similarChunks: Array<{content: string; pageNumber: number}>,
+  similarChunks: DocumentChunkWithPage[],
   messages: ChatMessage[],
   conversation: Conversation,
   apiKey: string
