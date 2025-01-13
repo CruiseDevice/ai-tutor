@@ -65,7 +65,7 @@ async function getOrCreateConversation(userId: string, documentId:  string, mess
   return conversation;
 }
 
-async function performVectorSearch(documentId: string, embedding: number[], apiKey: string) {
+async function performVectorSearch(documentId: string, embedding: number[]) {
   const result = await prismaRaw.$runCommandRaw({
     aggregate: "DocumentChunk",
     pipeline: [
@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
 
     // Perform vector similarity search using MongoDB
     try {
-      const similarChunks = await performVectorSearch(documentId, questionEmbedding, user.apiKey);
+      const similarChunks = await performVectorSearch(documentId, questionEmbedding);
       if (similarChunks.length === 0) {
         console.log('No similar chunks found, falling back to recent chunks');
         const fallbackChunks = await getFallbackChunks(documentId);
@@ -238,5 +238,17 @@ async function handleChatCompletion(
     });
   } catch (error) {
     console.error('Chat completion error:', error);
+    return new Response(
+      JSON.stringify({
+        role: 'assistant',
+        content: 'I apologize, but I encountered an error while processing your request. Please try again.'
+      } as ChatMessage),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    )
   }
 }
