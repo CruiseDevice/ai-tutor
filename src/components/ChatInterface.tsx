@@ -1,3 +1,4 @@
+// app/components/ChatInterface.tsx
 import { Mic, Send } from "lucide-react";
 import { useState } from "react";
 
@@ -75,7 +76,7 @@ export default function ChatInterface({
     onVoiceRecord();
   }
   return (
-    <div className="w-1/2 flex flex-col bg-gray-50">
+    <div className="w-1/2 h-full flex flex-col bg-gray-50 min-h-0">
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message, index) => (

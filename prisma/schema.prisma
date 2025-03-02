@@ -1,15 +1,17 @@
 generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "mongodb"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 model Session {
-  id    String @id @default(auto()) @map("_id") @db.ObjectId
-  userId String @db.ObjectId
+  id    String @id @default(uuid())
+  userId String
   token String @unique
   expiresAt DateTime
   user User @relation(fields: [userId], references: [id])
@@ -18,7 +20,7 @@ model Session {
 }
 
 model User {
-  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  id    String @id @default(uuid())
   email String @unique
   password String  // Will store hashed password
   apiKey String?  // OpenAI API key
@@ -30,25 +32,25 @@ model User {
 }
 
 model Document {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
+  id String @id @default(uuid())
   title String
   url String  // URL to access the file
   blobPath String // Path in blob storage
-  chunks DocumentChunk[]
-  userId String @db.ObjectId
+  userId String 
   user User @relation(fields: [userId], references: [id])
   conversation Conversation?
+  chunks DocumentChunk[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model DocumentChunk {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
+  id String @id @default(uuid())
   content String
   pageNumber Int
-  embedding Json  // Vector embedding stored as array
-  documentId String @db.ObjectId
-  document Document @relation(fields: [documentId], references: [id])
+  embedding Unsupported("vector(1536)")  // Adjust vector dimensions based on your model
+  documentId String
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -56,10 +58,10 @@ model DocumentChunk {
 }
 
 model Conversation {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-  userId String @db.ObjectId
+  id String @id @default(uuid())
+  userId String 
   user User @relation(fields: [userId], references: [id])
-  documentId String @unique @db.ObjectId
+  documentId String @unique
   document Document @relation(fields: [documentId], references: [id])
   messages Message[]
   createdAt DateTime @default(now())
@@ -67,11 +69,11 @@ model Conversation {
 }
 
 model Message {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
+  id String @id @default(uuid())
   content String
   role String
-  context Json?
-  conversationId String @db.ObjectId
-  conversation Conversation @relation(fields: [conversationId], references: [id])
+  context Json? // this would store references to relevant chunk IDs
+  conversationId String
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 }

@@ -1,39 +1,14 @@
+// app/api/documents/process/route.ts
+
 import prisma from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+import { saveDocumentChunks } from "@/lib/pgvector";
 
 export async function POST(req: NextRequest) {
   try {
-
-     // Get session token from cookie
-     const sessionToken = req.headers.get('cookie')
-     ?.split(';')
-     ?.find(c => c.trim().startsWith('session_token='))
-     ?.split('=')[1];
-
-    if (!sessionToken) {
-      return NextResponse.json({ error: 'No session token' }, { status: 401 });
-    }
-
-    // Verify session
-    const session = await prisma.session.findFirst({
-      where: {
-        token: sessionToken,
-        expiresAt: {
-          gt: new Date(),
-        },
-      },
-      include: {
-        user: true,
-      },
-    });
-
-    if (!session) {
-      return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
-    }
-    
     const { documentId } = await req.json();
     console.log('Starting document processing for documentId: ', documentId);
 
@@ -42,6 +17,13 @@ export async function POST(req: NextRequest) {
       where: {id: documentId},
       include: {user: true}
     });
+
+    if (!document) {
+      return NextResponse.json(
+        {error: 'Document not found'},
+        {status: 404}
+      );
+    }
 
     console.log('Found document: ', document?.title);
 
@@ -87,22 +69,31 @@ export async function POST(req: NextRequest) {
     let successfulChunks = 0;
     let failedChunks = 0;
 
-    for(const doc of docs) {
-      try{
+    // prepare chunks with embeddings for pgvector
+    const chunksWithEmbeddings = [];
+
+    for(let i = 0; i < docs.length; i++) {
+      try {
+        const doc = docs[i];
         const vectorEmbedding = await embeddings.embedQuery(doc.pageContent);
-        await prisma.documentChunk.create({
-          data: {
-            content: doc.pageContent,
-            pageNumber: doc.metadata.pageNumber || 1,
-            embedding: vectorEmbedding,
-            documentId: documentId
-          }
+
+        chunksWithEmbeddings.push({
+          content: doc.pageContent,
+          pageNumber: doc.metadata.pageNumber || 1,
+          embedding: vectorEmbedding,
+          documentId
         });
+
         successfulChunks++;
       } catch (error) {
-        console.error('Error processing chunk: ', error);
+        console.error('Error processing chunks: ', error);
         failedChunks++;
       }
+    }
+
+    // save chunks to PostgreSQL with pgvector
+    if (chunksWithEmbeddings.length > 0) {
+      await saveDocumentChunks(chunksWithEmbeddings);
     }
 
     console.log(`Document processing complete. Successfully processed ${successfulChunks} chunks. Failed: ${failedChunks}`);
@@ -112,6 +103,7 @@ export async function POST(req: NextRequest) {
       chunksProcessed: successfulChunks,
       chunksFailed: failedChunks
     });
+
   } catch (error) {
     console.error('Error processing document: ', error);
     return NextResponse.json(

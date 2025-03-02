@@ -19,10 +19,8 @@ export default function Dashboard () {
     const checkAuth = async () => {
       try {
         const response = await fetch('/api/auth/verify-session');
-        console.log('Session check response: ', response);
 
         if(!response.ok) {
-          console.log('No valid session, redirecting to login');
           router.push('/login')
         } else {
           const data = await response.json();
@@ -93,7 +91,7 @@ export default function Dashboard () {
         method: 'POST',
         body: formData,
       });
-  
+      console.log(response)
       if(!response.ok) {
         throw new Error('Failed to upload document');
       }
@@ -115,18 +113,20 @@ export default function Dashboard () {
     return <div className="p-4 text-red-500">{error}</div>
   }
   return (
-    <div className="h-screen flex">
-      {/* PDF Viewer Section */}
-      <PDFViewer 
-        currentPDF={currentPDF}
-        onFileUpload={handleFileUpload}
-      />
-      {/* Chat Section */}
-      <ChatInterface
-        documentId={documentId}
-        userId={userId}
-        onVoiceRecord={handleVoiceRecord}
-      />
+    <div className="h-screen flex overflow-hidden flex-col">
+      <div className="flex flex-1 min-h-0">
+        {/* PDF Viewer Section */}
+        <PDFViewer 
+          currentPDF={currentPDF}
+          onFileUpload={handleFileUpload}
+        />
+        {/* Chat Section */}
+        <ChatInterface
+          documentId={documentId}
+          userId={userId}
+          onVoiceRecord={handleVoiceRecord}
+        />
+      </div>
     </div>
   )
 }
