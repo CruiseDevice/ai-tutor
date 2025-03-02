@@ -1,6 +1,7 @@
 // app/components/ChatInterface.tsx
 import { Mic, Send } from "lucide-react";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -22,8 +23,6 @@ export default function ChatInterface({
   const [isRecording, setIsRecording] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  // const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,7 +59,6 @@ export default function ChatInterface({
       }
       
       const assistantMessage = await response.json();
-      console.log(assistantMessage)
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Chat error:', error);
@@ -93,10 +91,27 @@ export default function ChatInterface({
                   : 'bg-white border border-gray-200'
                 }`}
                 >
-                  {message.content}
+                  {message.role === 'user' ? (
+                    message.content
+                  ): (
+                    <div className="markdown-content prose">
+                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                    </div>
+                  )}
               </div>
           </div>
         ))}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="max-w-[80%] p-3 rounded-lg bg-white border border-gray-200">
+              <div className="flex space-x-2">
+                <div className="h-2 w-2 bg-gray-300 rounded-full animate-bounce"></div>
+                <div className="h-2 w-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                <div className="h-2 w-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       {/* chat input */}
       <div className="border-t border-gray-200 p-4">
