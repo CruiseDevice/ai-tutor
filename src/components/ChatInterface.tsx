@@ -1,72 +1,52 @@
 // app/components/ChatInterface.tsx
 import { Mic, Send } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 interface ChatMessage {
+  id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
 interface ChatInterfaceProps {
-  documentId: string;
-  userId: string;
+  messages: ChatMessage[];
+  onSendMessage: (message: string) => Promise<void>;
   onVoiceRecord: () => void;
+  isConversationSelected: boolean;
 }
 
 export default function ChatInterface({
-  documentId,
-  userId,
+  messages,
+  onSendMessage,
   onVoiceRecord,
+  isConversationSelected
 }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  const messageEndRef = useRef<HTMLDivElement>(null);
+
+  // scroll to bottom when messages change
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({behavior: 'smooth'});
+  }, [messages]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim() || isLoading) return;
+    if (!inputMessage.trim() || isLoading || !isConversationSelected) return;
 
-    const userMessage = {
-      role: 'user' as const,
-      content: inputMessage.trim()
-    };
-
-    // Add user message to chat
-    setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
     setIsLoading(true);
 
-    try {
-      const payload = {
-        messages: [...messages, userMessage],
-        documentId,
-        userId
-      };
-      console.log('Sending to API: ', payload);
-
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to send message');
-      }
-      
-      const assistantMessage = await response.json();
-      setMessages(prev => [...prev, assistantMessage]);
+    try{
+      await onSendMessage(inputMessage);
+      setInputMessage('');
     } catch (error) {
-      console.error('Chat error:', error);
-      // TODO: Show error to user
+      console.error('Error sending message: ', error);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-
   }
 
   const handleVoiceRecord = () => {
@@ -74,12 +54,22 @@ export default function ChatInterface({
     onVoiceRecord();
   }
   return (
-    <div className="w-1/2 h-full flex flex-col bg-gray-50 min-h-0">
+    <div className="w-1/2 h-full flex flex-col bg-gray-50 ">
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message, index) => (
+        {messages.length === 0 && !isConversationSelected && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <p>Upload a PDF or select a conversation to start chatting</p>
+          </div>
+        )}
+        {messages.length === 0 && isConversationSelected && (
+          <div className="flex h-full items-center justify-center text-gray-500">
+            <p>No messages yet. Start the conversation!</p>
+          </div>
+        )}
+        {messages.map((message) => (
           <div
-            key={index}
+            key={message.id}
             className={`flex ${
               message.role==='user' ? 'justify-end' : 'justify-start'
             }`}
@@ -112,6 +102,7 @@ export default function ChatInterface({
             </div>
           </div>
         )}
+        <div ref={messageEndRef} />
       </div>
       {/* chat input */}
       <div className="border-t border-gray-200 p-4">

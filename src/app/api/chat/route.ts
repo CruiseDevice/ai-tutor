@@ -12,47 +12,34 @@ const MODEL_NAME = "gpt-4";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const {messages, documentId, userId} = body;
+    const { content, conversationId, documentId } = body;
 
-    if(!messages?.length || !documentId || !userId) {
+    if (!content || !conversationId || !documentId) {
       return NextResponse.json({
         error: 'Missing required fields',
-        received: {messages, documentId}
-      }, {status: 400})
+        received: { content, conversationId, documentId }
+      }, { status: 400 });
     }
 
-    // get user and user's API key
-    const user = await prisma.user.findUnique({
-      where: {id: userId},
-    });
-
-    if (!user?.apiKey) {
-      return NextResponse.json(
-        {error: 'Please set up your OpenAI API key in settings'},
-        {status: 400}
-      );
-    }
-
-    // get conversation or create if it does not exist
-    let conversation = await prisma.conversation.findFirst({
-      where: {userId, documentId}
+    // Get conversation to verify it exists
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { user: true }
     });
 
     if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: {
-          userId,
-          documentId
-        }
-      });
+      return NextResponse.json(
+        { error: 'Conversation not found' },
+        { status: 404 }
+      );
     }
 
-    // get the latest user message
-    const latestUserMessage = messages.slice().reverse().find(m => m.role === 'user');
-    if (!latestUserMessage) {
+    const user = conversation.user;
+
+    if (!user?.apiKey) {
       return NextResponse.json(
-        {error: "No user message found"},
-        {status: 400}
+        { error: 'Please set up your OpenAI API key in settings' },
+        { status: 400 }
       );
     }
 
@@ -60,7 +47,7 @@ export async function POST(req: NextRequest) {
     let relevantChunks = [];
     try {
       relevantChunks = await findSimilarChunks(
-        latestUserMessage.content, documentId, CHUNK_LIMIT, // Return top 5 relevant chunks
+        content, documentId, CHUNK_LIMIT, // Return top 5 relevant chunks
         user.apiKey
       );
       
@@ -89,12 +76,12 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // save user message to database
-    await prisma.message.create({
+    // Create and save user message to database
+    const userMessage = await prisma.message.create({
       data: {
-        content: latestUserMessage.content,
+        content,
         role: 'user',
-        conversationId: conversation.id
+        conversationId
       }
     });
 
@@ -133,7 +120,7 @@ export async function POST(req: NextRequest) {
 
     // Get previous conversation history
     const conversationHistory = await prisma.message.findMany({
-      where: { conversationId: conversation.id },
+      where: { conversationId },
       orderBy: { createdAt: 'asc' },
       take: 10 // Limit to last 10 messages for context
     });
@@ -144,15 +131,15 @@ export async function POST(req: NextRequest) {
       content: msg.content
     }));
 
-     // Combine system message, history, and current user message
-     const promptMessages = [
+    // Combine system message, history, and current user message
+    const promptMessages = [
       systemMessage,
       ...historyMessages,
-      latestUserMessage
+      { role: 'user', content }
     ];
 
-     // Call OpenAI for chat completion
-     const completion = await openai.chat.completions.create({
+    // Call OpenAI for chat completion
+    const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo-preview", // Using GPT-4 for high-quality responses
       messages: promptMessages,
       temperature: 0.7,
@@ -162,23 +149,27 @@ export async function POST(req: NextRequest) {
     const assistantResponse = completion.choices[0].message;
 
     // Save assistant response to database
-    try {
-      await prisma.message.create({
-        data: {
-          content: assistantResponse.content,
-          role: 'assistant',
-          context: context as any,
-          conversationId: conversation.id
-        }
-      });
-    } catch (dbError) {
-      console.error("Error saving message to database:", dbError);
-      // Continue execution even if database save fails
-    }
+    const assistantMessage = await prisma.message.create({
+      data: {
+        content: assistantResponse.content,
+        role: 'assistant',
+        context: context as any,
+        conversationId
+      }
+    });
 
+    // Return both messages in the format expected by the client
     return NextResponse.json({
-      role: 'assistant',
-      content: assistantResponse.content
+      userMessage: {
+        id: userMessage.id,
+        role: userMessage.role,
+        content: userMessage.content
+      },
+      assistantMessage: {
+        id: assistantMessage.id,
+        role: assistantMessage.role,
+        content: assistantMessage.content
+      }
     });
 
   } catch (error) {
