@@ -1,6 +1,6 @@
-# StudyFetch
+# AiTutor
 
-StudyFetch is a web application that allows users to upload PDFs and chat with their documents using AI. The application processes PDF documents, splits them into chunks, and uses vector embeddings to retrieve relevant content when answering user questions.
+AiTutor is a web application that allows users to upload PDFs and chat with their documents using AI. The application processes PDF documents, splits them into chunks, and uses vector embeddings to retrieve relevant content when answering user questions.
 
 ## Features
 
