@@ -40,8 +40,8 @@ export default function ChatInterface({
     setIsLoading(true);
 
     try{
-      await onSendMessage(inputMessage);
       setInputMessage('');
+      await onSendMessage(inputMessage);
     } catch (error) {
       console.error('Error sending message: ', error);
     } finally {

@@ -26,7 +26,6 @@ export default function Dashboard () {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // fetch user ID on component mount
   useEffect(() => {
     // debugging log
     const checkAuth = async () => {
@@ -46,6 +45,7 @@ export default function Dashboard () {
     checkAuth();
   }, [router])
   
+  // fetch user ID on component mount
   useEffect(() => {
     const fetchUserId = async () => {
       try {
@@ -66,6 +66,15 @@ export default function Dashboard () {
   // Now effect to restore chat from URL parameter
   useEffect(() => {
     const chatId = searchParams.get('chat');
+
+    // Reset state if no chat ID is present in the URL
+    if (!chatId) {
+      setCurrentPDF('');
+      setDocumentId('');
+      setConversationId(null);
+      setMessages([]);
+      return;
+    }
 
     // Only attempt to restore if we have a chat ID and we're not already showing that conversation
     if (chatId && chatId !== conversationId && !isLoading) {

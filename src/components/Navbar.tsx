@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import LogoutButton from './LogoutButton';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 
 export default function Navbar() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -22,14 +24,23 @@ export default function Navbar() {
     checkAuth();
   }, [pathname]);
 
+  // Handle navigation to dashboard explicitly to ensure it reset the chat state
+  const handleNavigateToDashboard = (e: React.MouseEvent) => {
+    e.preventDefault();
+    router.push('/dashboard');
+  }
+
   return (
     <nav className="bg-white shadow">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <Link href="/dashboard" className="text-lg font-semibold">
+            <a
+              href="/dashboard"
+              onClick={handleNavigateToDashboard}
+              className="text-lg font-semibold cursor-pointer">
               StudyFetch
-            </Link>
+            </a>
           </div>
           {isAuthenticated ? (
             <div className="flex items-center">
