@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react"
-import PDFViewer from "./PDFViewer";
+import EnhancedPDFViewer from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar from "./ChatSidebar";
@@ -257,7 +257,7 @@ export default function Dashboard () {
       {/* Main content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* PDF Viewer Section */}
-        <PDFViewer 
+        <EnhancedPDFViewer 
           currentPDF={currentPDF}
           onFileUpload={handleFileUpload}
         />
