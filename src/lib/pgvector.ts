@@ -62,7 +62,7 @@ export async function findSimilarChunks (
     SELECT 
       id, 
       content, 
-      "pageNumber", 
+      "pageNumber"::integer as "pageNumber",
       "documentId",
       1 - (embedding::vector <=> ${queryEmbedding}::vector) as similarity
     FROM "DocumentChunk"
@@ -71,6 +71,15 @@ export async function findSimilarChunks (
     LIMIT ${limit};
     `;
     
+    // Debug logging to check the returned data structure
+    if (Array.isArray(chunks) && chunks.length > 0) {
+      console.log("Sample chunk from pgvector:", {
+        pageNumberValue: chunks[0].pageNumber,
+        pageNumberType: typeof chunks[0].pageNumber,
+        hasPageNumber: 'pageNumber' in chunks[0]
+      });
+    }
+
     return Array.isArray(chunks) ? chunks : [];
   } catch (error) {
     console.error("Error finding similar chunks:", error instanceof Error ? error.message : String(error));

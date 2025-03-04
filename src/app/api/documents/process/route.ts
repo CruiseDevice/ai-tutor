@@ -25,8 +25,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log('Found document: ', document?.title);
-
     if (!document?.user?.apiKey){
       console.log('OpenAI API key not found for user');
       return NextResponse.json(
@@ -42,13 +40,14 @@ export async function POST(req: NextRequest) {
     });
 
     // Load pdf
-    console.log('Fetching PDF from URL: ', document.url);
     const response = await fetch(document.url);
     if(!response.ok) {
       throw new Error(`Failed to fetch PDF: ${response.statusText}`);
     }
     const pdfBlob = await response.blob();
-    const loader = new PDFLoader(pdfBlob);
+    const loader = new PDFLoader(pdfBlob, {
+      splitPages: true,
+    });
 
     console.log("Starting PDF processing...");
 
@@ -76,10 +75,18 @@ export async function POST(req: NextRequest) {
       try {
         const doc = docs[i];
         const vectorEmbedding = await embeddings.embedQuery(doc.pageContent);
+        
+        let pageNumber = 1;
 
+        if(doc.metadata && doc.metadata.loc.pageNumber !== undefined) {
+          // Try to parse the page number as an integer
+          pageNumber = parseInt(String(doc.metadata.loc.pageNumber), 10);
+        }
+
+        console.log(`Processing chunk from page ${pageNumber}`);
         chunksWithEmbeddings.push({
           content: doc.pageContent,
-          pageNumber: doc.metadata.pageNumber || 1,
+          pageNumber: pageNumber,
           embedding: vectorEmbedding,
           documentId
         });
@@ -90,7 +97,7 @@ export async function POST(req: NextRequest) {
         failedChunks++;
       }
     }
-
+    
     // save chunks to PostgreSQL with pgvector
     if (chunksWithEmbeddings.length > 0) {
       await saveDocumentChunks(chunksWithEmbeddings);

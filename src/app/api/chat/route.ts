@@ -69,9 +69,29 @@ export async function POST(req: NextRequest) {
     // format chunks for context (with defensive programming)
     const context = relevantChunks.map(chunk => {
       // Ensure all expected properties exist with defaults if missing
+
+      // More robust page number parsing
+      let pageNum = 1;
+
+      try {
+        if (chunk.pageNumber !== undefined && chunk.pageNumber !== null) {
+          if (typeof chunk.pageNumber === 'number') {
+            pageNum = chunk.pageNumber;
+          } else if (typeof chunk.pageNumber === 'string') {
+            pageNum = parseInt(chunk.pageNumber, 10) || 1;
+          } else if (typeof chunk.pageNumber === 'object') {
+            // Sometimes SQL results can come back as objects with value properties
+            const strValue = String(chunk.pageNumber?.value || chunk.pageNumber);
+            pageNum = parseInt(strValue, 10) || 1;
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing page number: ", e);
+      }
+
       return {
         content: chunk.content || "No content available",
-        pageNumber: chunk.pageNumber || 0,
+        pageNumber: pageNum,
         similarity: chunk.similarity || 0
       };
     });
@@ -109,6 +129,7 @@ export async function POST(req: NextRequest) {
       ${contextText}
       
       When referring to content, always cite the page number like [Page X]. 
+      Make sure to use the correct page number for each piece of information.
       You can help with highlighting content by using commands like:
       - HIGHLIGHT[Page X]: "text to highlight"
       - CIRCLE[Page X]: "text or element to circle"
@@ -140,7 +161,7 @@ export async function POST(req: NextRequest) {
 
     // Call OpenAI for chat completion
     const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview", // Using GPT-4 for high-quality responses
+      model: MODEL_NAME, // Using GPT-4 for high-quality responses
       messages: promptMessages,
       temperature: 0.7,
       max_tokens: 1000
