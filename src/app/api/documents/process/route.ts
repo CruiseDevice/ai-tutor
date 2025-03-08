@@ -83,12 +83,25 @@ export async function POST(req: NextRequest) {
           pageNumber = parseInt(String(doc.metadata.loc.pageNumber), 10);
         }
 
-        console.log(`Processing chunk from page ${pageNumber}`);
+        // Extract line positions from metadata if available
+        const textRanges = [];
+        if(doc.metadata && doc.metadata.loc && doc.metadata.loc.lines) {
+          const lines = doc.metadata.loc.lines;
+          // check if lines is an object with from/to properties
+          if(lines.from !== undefined && lines.to !== undefined) {
+            textRanges.push({
+              from: parseInt(String(lines.from), 10),
+              to: parseInt(String(lines.to), 10)
+            });
+          }
+          console.log(`Extracted text ranges from chunk on page: ${pageNumber}: `, textRanges);
+        }
         chunksWithEmbeddings.push({
           content: doc.pageContent,
           pageNumber: pageNumber,
           embedding: vectorEmbedding,
-          documentId
+          documentId,
+          textRanges: textRanges.length > 0 ? textRanges : undefined
         });
 
         successfulChunks++;

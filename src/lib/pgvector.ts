@@ -3,11 +3,17 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import prisma from "./db";
 import crypto from "crypto";
 
+// Interface to include position data
 interface ChunkData {
   content: string;
   pageNumber: number;
   embedding: number[];
   documentId: string;
+  // Store text ranges for annotations
+  textRanges?: {
+    from: number;
+    to: number;
+  }[];
 }
 
 // save document chunks with embeddings to PostgreSQL
@@ -15,18 +21,22 @@ export async function saveDocumentChunks(chunks: ChunkData[]) {
   try {
     // Use raw SQL to insert chunks with vector data
     for (const chunk of chunks) {
+      // Convert textRanges to JSON if it exists
+      const positionData = chunk.textRanges ? {textRanges: chunk.textRanges} : null;
+
       await prisma.$executeRaw`
-        INSERT INTO "DocumentChunk" (id, content, "pageNumber", embedding, "documentId", "createdAt", "updatedAt")
+        INSERT INTO "DocumentChunk" (id, content, "pageNumber", embedding, "documentId", "positionData", "createdAt", "updatedAt")
         VALUES (
           ${crypto.randomUUID()}, 
           ${chunk.content}, 
           ${chunk.pageNumber}, 
-          ${chunk.embedding}::vector, 
-          ${chunk.documentId}, 
-          NOW(), 
+          ${chunk.embedding}::vector,
+          ${chunk.documentId},
+          ${positionData ? JSON.stringify(positionData) : null}::jsonb,
+          NOW(),
           NOW()
         )
-      `
+      `;
     }
     return {success: true, count: chunks.length};
   } catch (error) {
@@ -64,6 +74,7 @@ export async function findSimilarChunks (
       content, 
       "pageNumber"::integer as "pageNumber",
       "documentId",
+      "positionData",
       1 - (embedding::vector <=> ${queryEmbedding}::vector) as similarity
     FROM "DocumentChunk"
     WHERE "documentId" = ${documentId}
@@ -76,7 +87,9 @@ export async function findSimilarChunks (
       console.log("Sample chunk from pgvector:", {
         pageNumberValue: chunks[0].pageNumber,
         pageNumberType: typeof chunks[0].pageNumber,
-        hasPageNumber: 'pageNumber' in chunks[0]
+        hasPageNumber: 'pageNumber' in chunks[0],
+        hasPositionData: 'positionData' in chunks[0],
+        positionSample: chunks[0].positionData
       });
     }
 
