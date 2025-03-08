@@ -148,7 +148,13 @@ export default function Dashboard () {
       setMessages([]);
 
       // set new conversation id from the response
-      setConversationId(data.conversationId);
+      if(data.conversationId){
+        setConversationId(data.conversationId);
+        // update URL with the new conversation ID
+        updateUrl(data.conversation);
+      } else {
+        console.error('No conversationId returned from server');
+      }
     } catch (error) {
       console.error('Upload error:', error);
       setError('Failed to upload document');
