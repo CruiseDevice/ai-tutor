@@ -89,10 +89,23 @@ export async function POST(req: NextRequest) {
         console.error("Error parsing page number: ", e);
       }
 
+      // Extract text ranges if available
+      let textRanges = [];
+      try {
+        if(chunk.positionData && typeof chunk.positionData === 'object') {
+          if(chunk.positionData.textRanges) {
+            textRanges = chunk.positionData.textRanges;
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing position data: ", e);
+      }
+
       return {
         content: chunk.content || "No content available",
         pageNumber: pageNum,
-        similarity: chunk.similarity || 0
+        similarity: chunk.similarity || 0,
+        textRanges: textRanges
       };
     });
 
@@ -130,10 +143,13 @@ export async function POST(req: NextRequest) {
       
       When referring to content, always cite the page number like [Page X]. 
       Make sure to use the correct page number for each piece of information.
-      You can help with highlighting content by using commands like:
-      - HIGHLIGHT[Page X]: "text to highlight"
-      - CIRCLE[Page X]: "text or element to circle"
-      - GOTO[Page X]: To navigate to a specific page
+      
+      IMPORTANT FORMATTING INSTRUCTIONS:
+      1. Use markdown to highlight important concepts, terms, or phrases by making them **bold** or using *italics*.
+      2. For direct quotes from the document, use > blockquote formatting.
+      3. When referring to specific sections, use [Page X] to cite the page number.
+      4. Use bullet points or numbered lists for step-by-step explanations.
+      5. For critical information or warnings, use "⚠️" at the beginning of the paragraph.
       
       Make your responses helpful, clear, and educational. If the context doesn't contain the answer, 
       say you don't have enough information from the document and suggest looking at other pages.`
@@ -189,7 +205,8 @@ export async function POST(req: NextRequest) {
       assistantMessage: {
         id: assistantMessage.id,
         role: assistantMessage.role,
-        content: assistantMessage.content
+        content: assistantMessage.content,
+        context: context  // Include the context with position data
       }
     });
 

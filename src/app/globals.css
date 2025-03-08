@@ -21,3 +21,45 @@ body {
   /* background: var(--background); */
   font-family: Arial, Helvetica, sans-serif;
 }
+
+
+/* Add these to your global.css or equivalent */
+
+/* Better styling for blockquotes (direct document quotes) */
+.prose blockquote {
+  background-color: #f3f4f6;
+  border-left: 4px solid #3b82f6;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+  font-style: italic;
+}
+
+/* Highlight page references */
+.prose p strong {
+  color: #2563eb;
+}
+
+/* Make code blocks look nice */
+.prose code {
+  background-color: #f1f5f9;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+}
+
+/* Style for warnings with emoji */
+.prose p:has(span:first-child:contains("⚠️")) {
+  background-color: #fffbeb;
+  border-left: 4px solid #f59e0b;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0;
+}
+
+/* Make page numbers stand out */
+.prose:has(code:contains("[Page")) {
+  font-weight: 600;
+  color: #4b5563;
+  background-color: #f3f4f6;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.25rem;
+}

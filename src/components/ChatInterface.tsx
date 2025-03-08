@@ -2,6 +2,7 @@
 import { Mic, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface ChatMessage {
   id: string;
@@ -84,8 +85,8 @@ export default function ChatInterface({
                   {message.role === 'user' ? (
                     message.content
                   ): (
-                    <div className="markdown-content prose">
-                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                    <div className="markdown-content prose prose-sm max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
                     </div>
                   )}
               </div>
