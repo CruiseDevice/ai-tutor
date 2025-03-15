@@ -27,7 +27,6 @@ export default function EnhancedPDFViewer({
   const [pageNumber, setPageNumber] = useState(1);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [scale, setScale] = useState(1.0);
-  const [pageRefs, setPageRefs] = useState<Array<HTMLDivElement | null>>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,7 +39,6 @@ export default function EnhancedPDFViewer({
   }
   const onDocumentLoadSuccess = ({numPages}: {numPages: number}) => {
     setNumPages(numPages);
-    setPageRefs(Array(numPages).fill(null));
   }
 
   const goToPage = (pageNum: number) => {
@@ -104,7 +102,6 @@ export default function EnhancedPDFViewer({
               scale={scale}
               renderAnnotationLayer={false}
               renderTextLayer={true}
-              inputRef={pageCallback(pageNumber - 1)}
               className="pdf-page"
             />
           </Document>
