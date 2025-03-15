@@ -94,7 +94,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ 
       url: blob.url,
       id: document.id,
-      conversationId: document.conversation.id
+      conversationId: document.conversation!.id
      });
   } catch (error) {
     console.log(error);

@@ -15,7 +15,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/$
 
 interface EnhancedPDFViewerProps {
   currentPDF: string | null;
-  onFileUpload: (e: React.ChangeEvent<HTMLElement>) => void;
+  onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
 export default function EnhancedPDFViewer({
@@ -27,7 +27,6 @@ export default function EnhancedPDFViewer({
   const [pageNumber, setPageNumber] = useState(1);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [scale, setScale] = useState(1.0);
-  const [pageRefs, setPageRefs] = useState<Array<HTMLDivElement | null>>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,17 +39,12 @@ export default function EnhancedPDFViewer({
   }
   const onDocumentLoadSuccess = ({numPages}: {numPages: number}) => {
     setNumPages(numPages);
-    setPageRefs(Array(numPages).fill(null));
   }
 
   const goToPage = (pageNum: number) => {
     if(pageNum >= 1 && pageNum <= (numPages || 1)) {
       setPageNumber(pageNum)
     }
-  }
-
-  const pageCallback = (pageIndex: number) => (ref: HTMLDivElement | null) => {
-
   }
 
   return (
@@ -108,7 +102,6 @@ export default function EnhancedPDFViewer({
               scale={scale}
               renderAnnotationLayer={false}
               renderTextLayer={true}
-              inputRef={pageCallback(pageNumber - 1)}
               className="pdf-page"
             />
           </Document>
