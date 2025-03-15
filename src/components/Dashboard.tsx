@@ -1,7 +1,7 @@
 // app/components/Dashboard.tsx
 "use client";
 
-import { useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import EnhancedPDFViewer from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -13,7 +13,7 @@ interface ChatMessage {
   content: string;
 }
 
-export default function Dashboard () {
+function DashboardWithSearchParams () {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -275,5 +275,14 @@ export default function Dashboard () {
         />
       </div>
     </div>
+  )
+}
+
+// Main export that uses Suspense
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<div className="h-screen flex items-center justify-center">Loading dashboard...</div>}>
+      <DashboardWithSearchParams />
+    </Suspense>
   )
 }
