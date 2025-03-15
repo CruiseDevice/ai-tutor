@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
       data: {
         content: assistantResponse.content,
         role: 'assistant',
-        context: context as any,
+        context: context,
         conversationId
       }
     });

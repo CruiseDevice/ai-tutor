@@ -49,10 +49,6 @@ export default function EnhancedPDFViewer({
     }
   }
 
-  const pageCallback = (pageIndex: number) => (ref: HTMLDivElement | null) => {
-
-  }
-
   return (
     <div className="w-full h-full bg-white border-r border-gray-200 flex flex-col min-h-0">
       {/* control headers */}

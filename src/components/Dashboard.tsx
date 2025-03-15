@@ -34,8 +34,6 @@ export default function Dashboard () {
 
         if(!response.ok) {
           router.push('/login')
-        } else {
-          const data = await response.json();
         }
       } catch (error) {
         console.error('Auth check error: ', error);
