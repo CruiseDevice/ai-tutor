@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import OpenAI from 'openai';
 import { findSimilarChunks } from "@/lib/pgvector";
+import { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 
 // Constants
 const CHUNK_LIMIT = 5;
@@ -134,7 +135,7 @@ export async function POST(req: NextRequest) {
     }
     
 
-    const systemMessage = {
+    const systemMessage: ChatCompletionMessageParam = {
       role: "system",
       content: `You are an AI tutor helping a student understand a PDF document. 
       You have access to the following document chunks that are relevant to the student's question:
@@ -163,16 +164,21 @@ export async function POST(req: NextRequest) {
     });
 
     // Format conversation history for OpenAI
-    const historyMessages = conversationHistory.map(msg => ({
+    const historyMessages: ChatCompletionMessageParam[] = conversationHistory.map(msg => ({
       role: msg.role as 'user' | 'assistant' | 'system',
       content: msg.content
     }));
+
+    const userChatMessage: ChatCompletionMessageParam = {
+      role: 'user',
+      content
+    }
 
     // Combine system message, history, and current user message
     const promptMessages = [
       systemMessage,
       ...historyMessages,
-      { role: 'user', content }
+      userChatMessage
     ];
 
     // Call OpenAI for chat completion
@@ -188,9 +194,9 @@ export async function POST(req: NextRequest) {
     // Save assistant response to database
     const assistantMessage = await prisma.message.create({
       data: {
-        content: assistantResponse.content,
+        content: assistantResponse.content as string,
         role: 'assistant',
-        context: context as any,
+        context: context,
         conversationId
       }
     });
