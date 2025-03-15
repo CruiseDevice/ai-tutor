@@ -15,7 +15,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/$
 
 interface EnhancedPDFViewerProps {
   currentPDF: string | null;
-  onFileUpload: (e: React.ChangeEvent<HTMLElement>) => void;
+  onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
 export default function EnhancedPDFViewer({
