@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { put } from "@vercel/blob";
+import { uploadToS3 } from "@/lib/s3";
 
 export async function POST(req: Request): Promise<NextResponse> {
   try{
@@ -44,20 +44,28 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
     }
 
+    if(!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.S3_BUCKET_NAME) {
+      console.error('Missing S3 credentials in environment variables');
+      return NextResponse.json(
+        {error: 'Server configuration error: Missing S3 credentials'},
+        {status: 500}
+      )
+    }
+
     const formData = await req.formData();
     const file = formData.get('file') as File;
 
-    const blob = await put(`pdfs/${user.id}/${file.name}`, file, {
-      access: 'public',
-    });
+    // upload to s3
+    const s3Path = `pdfs/${user.id}/${file.name}`;
+    const s3Result = await uploadToS3(file, s3Path);
 
     // create document in database with user's ID
     const document = await prisma.document.create({
       data: {
         userId: user.id,
         title: file.name,
-        url: blob.url,
-        blobPath: `pdfs/${user.id}/${file.name}`,
+        url: s3Result.url,
+        blobPath: s3Path,
         conversation: {
           create: {
             userId: user.id,  // Create conversation for this user
@@ -79,22 +87,33 @@ export async function POST(req: Request): Promise<NextResponse> {
       body: JSON.stringify({documentId: document.id}),
     });
 
-    const responseText = await processResponse.text();
+    let responseData;
     try {
-      const responseData = JSON.parse(responseText);
+      const responseText = await processResponse.text();
+      responseData = JSON.parse(responseText);
       console.log('Process Response:', responseData);
     } catch (error) {
       console.error('Error parsing process response:', error);
+      console.error('Raw response: ', await processResponse.text());
     }
 
     if (!processResponse.ok) {
-      return NextResponse.json({ error: 'Document processing failed' }, { status: 500 });
+      console.error('Document processing failed with status:', processResponse.status);
+      // Continue anyway, as processing can be retrieved later
+      return NextResponse.json({
+        url: s3Result.url,
+        id: document.id,
+        conversationId: document.conversation!.id,
+        processingStatus: 'failed',
+        message: 'Document uploaded but processing failed. You may need to re-process it.'
+      });
     }
 
     return NextResponse.json({ 
-      url: blob.url,
+      url: s3Result.url,
       id: document.id,
-      conversationId: document.conversation!.id
+      conversationId: document.conversation!.id,
+      processingStatus: 'success'
      });
   } catch (error) {
     console.log(error);
