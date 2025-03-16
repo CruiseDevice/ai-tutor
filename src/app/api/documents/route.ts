@@ -44,7 +44,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
     }
 
-    if(!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.S3_BUCKET_NAME) {
+    if(!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.S3_PDFBUCKET_NAME) {
       console.error('Missing S3 credentials in environment variables');
       return NextResponse.json(
         {error: 'Server configuration error: Missing S3 credentials'},
