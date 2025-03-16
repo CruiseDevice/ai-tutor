@@ -26,43 +26,47 @@ function DashboardWithSearchParams () {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-     // Function to update URL with the chat ID
-     const updateUrl = useCallback((chatId: string) => {
-      // create a new URLSearchParams object
-      const params = new URLSearchParams(searchParams.toString());
+  // Function to update URL with the chat ID
+  const updateUrl = useCallback((chatId: string | null) => {
+    // Don't update URL if chatId is null, undefined or empty
+    if (!chatId) {
+      return;
+    }
+    // create a new URLSearchParams object
+    const params = new URLSearchParams(searchParams.toString());
+
+    // Set the chat parameter
+    params.set('chat', chatId);
+
+    // Update the URL without causing a page refresh
+    router.push(`${pathname}?${params.toString()}`, {scroll: false});
+  }, [searchParams, pathname, router]);
   
-      // Set the chat parameter
-      params.set('chat', chatId);
   
-      // Update the URL without causing a page refresh
-      router.push(`${pathname}?${params.toString()}`, {scroll: false});
-    }, [searchParams, pathname, router]);
-  
-  
-    const handleSelectConversation = useCallback(async (convoId: string, docId: string) => {
-      if(convoId === conversationId) return;  // Already selected
-  
-      try {
-        const response = await fetch(`/api/conversations/${convoId}`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch conversation");
-        }
-  
-        const data = await response.json();
-  
-        // update state with the selected conversation
-        setConversationId(convoId);
-        setDocumentId(docId);
-        setCurrentPDF(data.conversation.document.url);
-        setMessages(data.messages); 
-  
-        // Update URL with the selected conversation
-        updateUrl(convoId);
-      } catch (error) {
-        console.error('Error loading conversations: ', error);
-        setError('Failed to load conversation');
+  const handleSelectConversation = useCallback(async (convoId: string, docId: string) => {
+    if(convoId === conversationId) return;  // Already selected
+
+    try {
+      const response = await fetch(`/api/conversations/${convoId}`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversation");
       }
-    }, [conversationId, updateUrl]);  
+
+      const data = await response.json();
+
+      // update state with the selected conversation
+      setConversationId(convoId);
+      setDocumentId(docId);
+      setCurrentPDF(data.conversation.document.url);
+      setMessages(data.messages);
+
+      // Update URL with the selected conversation
+      updateUrl(convoId);
+    } catch (error) {
+      console.error('Error loading conversations: ', error);
+      setError('Failed to load conversation');
+    }
+  }, [conversationId, updateUrl]);
 
   useEffect(() => {
     // debugging log
@@ -187,7 +191,7 @@ function DashboardWithSearchParams () {
       if(data.conversationId){
         setConversationId(data.conversationId);
         // update URL with the new conversation ID
-        updateUrl(data.conversation);
+        updateUrl(data.conversationId);
       } else {
         console.error('No conversationId returned from server');
       }

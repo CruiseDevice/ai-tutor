@@ -6,6 +6,7 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { saveDocumentChunks } from "@/lib/pgvector";
+import { getSignedS3Url } from "@/lib/s3";
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,6 +39,13 @@ export async function POST(req: NextRequest) {
       openAIApiKey: document.user.apiKey,
       modelName: "text-embedding-3-small"
     });
+
+    // Generate a fresh signed URL for the PDF (since the URL in the database might expire)
+    // If the URL isn't signed URL format (doesn't contain AWS signature parameters), regenrate it
+    let pdfUrl = document.url;
+    if(!pdfUrl.includes('X-Amz-Signature=')) {
+      pdfUrl = await getSignedS3Url(document.blobPath);
+    }
 
     // Load pdf
     const response = await fetch(document.url);
