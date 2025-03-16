@@ -1,7 +1,7 @@
 // app/components/Dashboard.tsx
 "use client";
 
-import { useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import EnhancedPDFViewer from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -13,7 +13,7 @@ interface ChatMessage {
   content: string;
 }
 
-export default function Dashboard () {
+function DashboardWithSearchParams () {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -26,6 +26,44 @@ export default function Dashboard () {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+     // Function to update URL with the chat ID
+     const updateUrl = useCallback((chatId: string) => {
+      // create a new URLSearchParams object
+      const params = new URLSearchParams(searchParams.toString());
+  
+      // Set the chat parameter
+      params.set('chat', chatId);
+  
+      // Update the URL without causing a page refresh
+      router.push(`${pathname}?${params.toString()}`, {scroll: false});
+    }, [searchParams, pathname, router]);
+  
+  
+    const handleSelectConversation = useCallback(async (convoId: string, docId: string) => {
+      if(convoId === conversationId) return;  // Already selected
+  
+      try {
+        const response = await fetch(`/api/conversations/${convoId}`);
+        if (!response.ok) {
+          throw new Error("Failed to fetch conversation");
+        }
+  
+        const data = await response.json();
+  
+        // update state with the selected conversation
+        setConversationId(convoId);
+        setDocumentId(docId);
+        setCurrentPDF(data.conversation.document.url);
+        setMessages(data.messages); 
+  
+        // Update URL with the selected conversation
+        updateUrl(convoId);
+      } catch (error) {
+        console.error('Error loading conversations: ', error);
+        setError('Failed to load conversation');
+      }
+    }, [conversationId, updateUrl]);  
+
   useEffect(() => {
     // debugging log
     const checkAuth = async () => {
@@ -34,8 +72,6 @@ export default function Dashboard () {
 
         if(!response.ok) {
           router.push('/login')
-        } else {
-          const data = await response.json();
         }
       } catch (error) {
         console.error('Auth check error: ', error);
@@ -105,7 +141,7 @@ export default function Dashboard () {
       };
       restoreConversation();
     }
-  }, [searchParams, userId]);
+  }, [searchParams, userId, conversationId, handleSelectConversation, isLoading]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
    // handlefileupload function triggered
@@ -164,43 +200,6 @@ export default function Dashboard () {
   const handleVoiceRecord = () => {
     // implement voice recording logic later
     console.log('Voice recording toggled');
-  }
-
-  // Function to update URL with the chat ID
-  const updateUrl = (chatId: string) => {
-    // create a new URLSearchParams object
-    const params = new URLSearchParams(searchParams.toString());
-
-    // Set the chat parameter
-    params.set('chat', chatId);
-
-    // Update the URL without causing a page refresh
-    router.push(`${pathname}?${params.toString()}`, {scroll: false});
-  };
-
-  const handleSelectConversation = async (convoId: string, docId: string) => {
-    if(convoId === conversationId) return;  // Already selected
-
-    try {
-      const response = await fetch(`/api/conversations/${convoId}`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch conversation");
-      }
-
-      const data = await response.json();
-
-      // update state with the selected conversation
-      setConversationId(convoId);
-      setDocumentId(docId);
-      setCurrentPDF(data.conversation.document.url);
-      setMessages(data.messages); 
-
-      // Update state with the selected conversation
-      updateUrl(convoId)
-    } catch (error) {
-      console.error('Error loading conversations: ', error);
-      setError('Failed to load conversation');
-    }
   }
 
   const handleSendMessage = async (content: string) => {
@@ -276,5 +275,14 @@ export default function Dashboard () {
         />
       </div>
     </div>
+  )
+}
+
+// Main export that uses Suspense
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<div className="h-screen flex items-center justify-center">Loading dashboard...</div>}>
+      <DashboardWithSearchParams />
+    </Suspense>
   )
 }
