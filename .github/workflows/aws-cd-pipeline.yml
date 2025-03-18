@@ -83,6 +83,23 @@ jobs:
         
       - name: Generate Prisma client
         run: npx prisma generate
+
+      - name: Debug database connection
+        run: |
+          # Extract hostname from DATABASE_URL (without exposing full credentials)
+          DB_HOST=$(echo "${{ secrets.PROD_DATABASE_URL }}" | sed -E 's/.*@([^:\/]+).*/\1/')
+          echo "Attempting to connect to database at $DB_HOST"
+          
+          # Install PostgreSQL client
+          apt-get update && apt-get install -y postgresql-client
+          
+          # Test connection (without exposing password)
+          if PGPASSWORD=$(echo "${{ secrets.PROD_DATABASE_URL }}" | sed -E 's/.*:([^@]+)@.*/\1/') pg_isready -h $DB_HOST; then
+            echo "✅ Database connection successful"
+          else
+            echo "❌ Database connection failed"
+            exit 1
+          fi
         
       - name: Run database migrations
         run: |
