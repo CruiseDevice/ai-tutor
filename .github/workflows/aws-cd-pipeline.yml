@@ -91,7 +91,7 @@ jobs:
           echo "Attempting to connect to database at $DB_HOST"
           
           # Install PostgreSQL client
-          apt-get update && apt-get install -y postgresql-client
+          sudo apt-get update && apt-get install -y postgresql-client
           
           # Test connection (without exposing password)
           if PGPASSWORD=$(echo "${{ secrets.PROD_DATABASE_URL }}" | sed -E 's/.*:([^@]+)@.*/\1/') pg_isready -h $DB_HOST; then
