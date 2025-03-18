@@ -90,7 +90,7 @@ jobs:
           npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }}
-
+          
   build_and_deploy:
     name: Build and Deploy Application
     needs: [test, deploy_db]
