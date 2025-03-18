@@ -34,9 +34,9 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          POSTGRES_DB: ${{ secrets.DB_NAME }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teststudyfetch
         ports:
           - 5432:5432
         options: >-
@@ -59,9 +59,8 @@ jobs:
         
       - name: Create .env file
         run: |
-          echo "DATABASE_URL=postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME }}?schema=public" > .env
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/teststudyfetch?schema=public" > .env
           echo "NODE_ENV=test" >> .env
-          echo "BLOB_READ_WRITE_TOKEN=test_token" >> .env
           
       - name: Generate Prisma client
         run: npx prisma generate
