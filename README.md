@@ -11,6 +11,9 @@ AiTutor is a web application that allows users to upload PDFs and chat with thei
 - 🔐 User authentication system
 - ⚙️ OpenAI API key integration
 
+![RAG Pipeline](./rag-diagram-1.webp)
+*Image credit: https://www.dailydoseofds.com/*
+
 ## Tech Stack
 
 - **Frontend**: Next.js, React, TailwindCSS
