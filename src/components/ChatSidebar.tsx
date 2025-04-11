@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, MessageSquare } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquare, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 interface Conversation {
@@ -12,16 +12,19 @@ interface ChatSidebarProps {
   userId: string;
   onSelectConversation: (conversationId: string, documentId: string) => void;
   currentConversationId: string | null;
+  onDeleteConversation?: (conversationId: string, documentId: string) => void;
 }
 
 export default function ChatSidebar({
   userId,
   onSelectConversation,
   currentConversationId,
+  onDeleteConversation,
 }: ChatSidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -45,6 +48,37 @@ export default function ChatSidebar({
 
     fetchConversations();
   }, [userId]);
+
+  const handleDelete = async(e: React.MouseEvent, conversationId: string, documentId: string) => {
+    e.stopPropagation();  // Prevent triggering the selection
+    if (confirm("Are you sure you want to delete this conversation? This will also delete the associated document.")) {
+      setDeleting(conversationId);
+
+      try {
+        const response = await fetch(`/api/conversations/${conversationId}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to delete conversation');
+        }
+
+        // Remove from local state
+        setConversations(conversations.filter(c => c.id != conversationId));
+
+        // If the current conversation is deleted, call the parent handler
+        if (currentConversationId === conversationId && onDeleteConversation) {
+          onDeleteConversation(conversationId, documentId);
+        }
+      } catch (error) {
+        console.error('Error deleting conversation:', error);
+        alert('Failed to delete conversation');
+      } finally {
+        setDeleting(null);
+      }
+    }
+  }
+
   return (
     <div 
       className={`h-full bg-gray-100 border-r border-gray-200 transition-all duration-300 flex flex-col ${
@@ -84,6 +118,18 @@ export default function ChatSidebar({
                         {new Date(conversation.updatedAt).toLocaleDateString()}
                       </div>
                     </div>
+                  </button>
+                  <button
+                    onClick={(e) => handleDelete(e, conversation.id, conversation.documentId)}
+                    className="p-1 text-gray-500 hover:text-red-500"
+                    disabled={deleting === conversation.id}
+                    title="Delete conversation"
+                  >
+                    {deleting === conversation.id ? (
+                      <div className="h-4 w-4 border-2 border-t-red-500 rounded-full animate-spin"></div>
+                    ) : (
+                      <Trash2 size={16}/>
+                    )}
                   </button>
                 </li>
               ))}
