@@ -41,7 +41,20 @@ function DashboardWithSearchParams () {
     // Update the URL without causing a page refresh
     router.push(`${pathname}?${params.toString()}`, {scroll: false});
   }, [searchParams, pathname, router]);
-  
+ 
+  const handleDeleteConversation = useCallback((deletedConversationId: string) => {
+    if (deletedConversationId === conversationId) {
+      setCurrentPDF('');
+      setDocumentId('');
+      setConversationId(null);
+      setMessages([]);
+      // update url to remove the chat parameter
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('chat');
+      router.push(`${pathname}${params.toString() ? '?' + params.toString() : ''}`, {scroll: false});
+    }
+  }, [conversationId, pathname, router, searchParams])
+
   
   const handleSelectConversation = useCallback(async (convoId: string, docId: string) => {
     if(convoId === conversationId) return;  // Already selected
@@ -254,6 +267,7 @@ function DashboardWithSearchParams () {
   if (error) {
     return <div className="p-4 text-red-500">{error}</div>
   }
+
   return (
     <div className="h-screen flex overflow-hidden">
       {/* Sidebar */}
@@ -261,6 +275,7 @@ function DashboardWithSearchParams () {
         userId={userId}
         onSelectConversation={handleSelectConversation}
         currentConversationId={conversationId}
+        onDeleteConversation={handleDeleteConversation}
       />
 
       {/* Main content Area */}
