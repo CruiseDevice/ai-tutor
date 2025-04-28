@@ -1,5 +1,6 @@
-import { ChevronLeft, ChevronRight, MessageSquare, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+// src/components/ChatSidebar.tsx
+import { ChevronLeft, ChevronRight, FileText, MessageSquare, Trash2 } from "lucide-react";
+import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 
 interface Conversation {
   id: string;
@@ -15,16 +16,31 @@ interface ChatSidebarProps {
   onDeleteConversation?: (conversationId: string, documentId: string) => void;
 }
 
-export default function ChatSidebar({
+// Create an interface for the ref
+export interface ChatSidebarRef {
+  addNewConversation: (newConversation: Conversation) => void;
+}
+
+const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   userId,
   onSelectConversation,
   currentConversationId,
   onDeleteConversation,
-}: ChatSidebarProps) {
+}, ref) => {
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
+  
+  // Method to add a new conversation to the list
+  function addNewConversation(newConversation: Conversation) {
+    setConversations(prev => [newConversation, ...prev]);
+  }
+  
+  // Expose the method to parent components using useImperativeHandle
+  useImperativeHandle(ref, () => ({
+    addNewConversation
+  }));
 
   useEffect(() => {
     if (!userId) return;
@@ -79,64 +95,126 @@ export default function ChatSidebar({
     }
   }
 
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    
+    // Check if it's today
+    if (date.toDateString() === now.toDateString()) {
+      return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    
+    // Check if it's yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+      return `Yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    
+    // If it's in the last week, show the day name
+    if (now.getTime() - date.getTime() < 7 * 24 * 60 * 60 * 1000) {
+      return date.toLocaleDateString(undefined, { weekday: 'long' });
+    }
+    
+    // Otherwise show full date
+    return date.toLocaleDateString();
+  };
+
   return (
     <div 
       className={`h-full bg-gray-100 border-r border-gray-200 transition-all duration-300 flex flex-col ${
-        isOpen ? 'w-64' : 'w-12'
+        isOpen ? 'w-72' : 'w-16'
       }`}
     >
-      {/* toggle button */}
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="p-2 self-end text-gray-500 hover:text-gray-700"
-      >
-        {isOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
-      </button>
+      {/* Header with toggle button */}
+      <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-gray-200">
+        {isOpen && <h2 className="font-semibold text-lg text-gray-700">Documents</h2>}
+        <button 
+          onClick={() => setIsOpen(!isOpen)}
+          className="p-2 rounded-full hover:bg-gray-300 text-gray-500 hover:text-gray-700 transition-colors"
+          aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
+        >
+          {isOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+        </button>
+      </div>
 
-      {/* sidebar content - only shown when open */}
+      {/* Sidebar content - only shown when open */}
       {isOpen && (
-        <div className="p-4 flex-1 overflow-y-auto">
-          <h2 className="font-semibold text-lg mb-4">Chat History</h2>
-          {isLoading ? (
-            <div className="text-gray-500">Loading...</div>
-          ) : conversations.length === 0 ? (
-            <div className="text-gray-500">No conversations yet</div>
-          ) : (
-            <ul className="space-y-2">
-              {conversations.map((conversation) => (
-                <li key={conversation.id}>
-                  <button
-                    onClick={() => onSelectConversation(conversation.id, conversation.documentId)}
-                    className={`w-full text-left p-2 rounded flex items-center gap-2 hover:bg-gray-200 ${currentConversationId == conversation.id ? 'bg-blue-100' : ''}`}
-                  >
-                    <MessageSquare size={16}/>
-                    <div className="overflow-hidden">
-                      <div className="truncate text-sm font-medium">
-                        {conversation.title}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {new Date(conversation.updatedAt).toLocaleDateString()}
-                      </div>
+        <>
+          {/* Conversation list */}
+          <div className="flex-1 overflow-y-auto">
+            {isLoading ? (
+              <div className="flex justify-center items-center h-32">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+              </div>
+            ) : conversations.length === 0 ? (
+              <div className="text-center p-6 text-gray-500">
+                No documents yet
+              </div>
+            ) : (
+              <ul className="p-3 space-y-1">
+                {conversations.map((conversation) => (
+                  <li key={conversation.id} className="group">
+                    <div className={`relative rounded-lg transition-colors ${
+                      currentConversationId === conversation.id 
+                        ? 'bg-blue-100 hover:bg-blue-200' 
+                        : 'hover:bg-gray-200'
+                    }`}>
+                      <button
+                        onClick={() => onSelectConversation(conversation.id, conversation.documentId)}
+                        className="w-full text-left p-3 pr-9 rounded-lg flex items-start gap-3"
+                      >
+                        <FileText size={18} className={`flex-shrink-0 mt-0.5 ${
+                          currentConversationId === conversation.id ? 'text-blue-600' : 'text-gray-500'
+                        }`}/>
+                        <div className="overflow-hidden flex-1">
+                          <div className="truncate font-medium text-sm">
+                            {conversation.title}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {formatDate(conversation.updatedAt)}
+                          </div>
+                        </div>
+                      </button>
+                      
+                      <button
+                        onClick={(e) => handleDelete(e, conversation.id, conversation.documentId)}
+                        className={`absolute right-2 top-3 p-1.5 rounded-full ${
+                          deleting === conversation.id 
+                            ? 'bg-red-100' 
+                            : 'opacity-0 group-hover:opacity-100 hover:bg-red-100'
+                        } transition-opacity`}
+                        disabled={deleting === conversation.id}
+                        title="Delete document and conversation"
+                      >
+                        {deleting === conversation.id ? (
+                          <div className="h-4 w-4 border-2 border-t-red-500 rounded-full animate-spin"></div>
+                        ) : (
+                          <Trash2 size={16} className="text-red-500"/>
+                        )}
+                      </button>
                     </div>
-                  </button>
-                  <button
-                    onClick={(e) => handleDelete(e, conversation.id, conversation.documentId)}
-                    className="p-1 text-gray-500 hover:text-red-500"
-                    disabled={deleting === conversation.id}
-                    title="Delete conversation"
-                  >
-                    {deleting === conversation.id ? (
-                      <div className="h-4 w-4 border-2 border-t-red-500 rounded-full animate-spin"></div>
-                    ) : (
-                      <Trash2 size={16}/>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Footer with user info */}
+          <div className="p-3 border-t border-gray-200 bg-gray-200">
+            <div className="flex items-center text-sm text-gray-600">
+              <MessageSquare size={16} className="mr-2" />
+              <span className="truncate">{userId ? `User: ${userId.substring(0, 8)}...` : 'Not logged in'}</span>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
-}
+});
+
+// Add display name for better debugging
+ChatSidebar.displayName = 'ChatSidebar';
+
+export default ChatSidebar;

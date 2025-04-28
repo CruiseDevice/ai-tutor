@@ -1,11 +1,11 @@
 // app/components/Dashboard.tsx
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import EnhancedPDFViewer from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import ChatSidebar from "./ChatSidebar";
+import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
 
 interface ChatMessage {
   id: string;
@@ -25,6 +25,8 @@ function DashboardWithSearchParams () {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatSidebarRef = useRef<ChatSidebarRef>(null);
 
   // Function to update URL with the chat ID
   const updateUrl = useCallback((chatId: string | null) => {
@@ -160,6 +162,21 @@ function DashboardWithSearchParams () {
     }
   }, [searchParams, userId, conversationId, handleSelectConversation, isLoading]);
 
+  const fetchConversations = async () => {
+    try {
+      const response = await fetch('/api/conversations');
+      if(!response.ok) {
+        throw new Error('Failed to fetch conversations');
+      }
+      const data = await response.json();
+      return data.conversations;
+    } catch (error) {
+      console.error('Error fetching conversations: ', error);
+      setError('Failed to fetch conversations');
+      return [];
+    }
+  }
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
    // handlefileupload function triggered
     const file = e.target.files?.[0];
@@ -205,6 +222,27 @@ function DashboardWithSearchParams () {
         setConversationId(data.conversationId);
         // update URL with the new conversation ID
         updateUrl(data.conversationId);
+
+        // a minimap conversation object to pass to the ChatSidebar
+        // This prevents needing to wait for a separate fetch
+        const newConversation = {
+          id: data.conversationId,
+          documentId: data.id,
+          title: file.name,
+          updatedAt: new Date().toISOString(),
+        }
+
+        // add it to the ChatSidebar component by passing it as a prop
+        if (chatSidebarRef.current) {
+          const chatSidebar = chatSidebarRef.current as unknown as { addNewConversation: (conv: typeof newConversation) => void };
+          if (typeof chatSidebar.addNewConversation === 'function') {
+            chatSidebar.addNewConversation(newConversation);
+          } else {
+            fetchConversations();
+          }
+        } else {
+          fetchConversations();
+        }
       } else {
         console.error('No conversationId returned from server');
       }
@@ -272,6 +310,7 @@ function DashboardWithSearchParams () {
     <div className="h-screen flex overflow-hidden">
       {/* Sidebar */}
       <ChatSidebar
+        ref={chatSidebarRef}
         userId={userId}
         onSelectConversation={handleSelectConversation}
         currentConversationId={conversationId}
@@ -284,6 +323,7 @@ function DashboardWithSearchParams () {
         <EnhancedPDFViewer 
           currentPDF={currentPDF}
           onFileUpload={handleFileUpload}
+          fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
         />
         {/* Chat Section */}
         <ChatInterface

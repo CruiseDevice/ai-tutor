@@ -49,7 +49,7 @@ model DocumentChunk {
   id            String @id @default(uuid())
   content       String
   pageNumber    Int
-  embedding     Unsupported("vector(1536)")  // Adjust vector dimensions based on your model
+  embedding     Unsupported("vector(768)")  // Adjust vector dimensions based on your model
   documentId    String
   positionData  Json?  // Field to store position information as JSON
   document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
