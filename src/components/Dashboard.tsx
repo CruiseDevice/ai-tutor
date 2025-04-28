@@ -302,13 +302,6 @@ function DashboardWithSearchParams () {
     }
   }
 
-  const handleUploadDocument = () => {
-    // Trigger the hidden file input click
-    if(fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  }
-
   if (error) {
     return <div className="p-4 text-red-500">{error}</div>
   }
@@ -322,7 +315,6 @@ function DashboardWithSearchParams () {
         onSelectConversation={handleSelectConversation}
         currentConversationId={conversationId}
         onDeleteConversation={handleDeleteConversation}
-        onUploadDocument={handleUploadDocument}
       />
 
       {/* Main content Area */}

@@ -1,6 +1,5 @@
 // src/components/ChatSidebar.tsx
-
-import { ChevronLeft, ChevronRight, FileText, MessageSquare, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, MessageSquare, Trash2 } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 
 interface Conversation {
@@ -15,7 +14,6 @@ interface ChatSidebarProps {
   onSelectConversation: (conversationId: string, documentId: string) => void;
   currentConversationId: string | null;
   onDeleteConversation?: (conversationId: string, documentId: string) => void;
-  onUploadDocument?: () => void; // New prop for handling document upload
 }
 
 // Create an interface for the ref
@@ -28,25 +26,15 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   onSelectConversation,
   currentConversationId,
   onDeleteConversation,
-  onUploadDocument,
 }, ref) => {
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   
   // Method to add a new conversation to the list
   function addNewConversation(newConversation: Conversation) {
     setConversations(prev => [newConversation, ...prev]);
-    // If no search query is active, also update the filtered list
-    if (!searchQuery) {
-      setFilteredConversations(prev => [newConversation, ...prev]);
-    } else if (newConversation.title.toLowerCase().includes(searchQuery.toLowerCase())) {
-      // If there's a search and the new conversation matches it, add it to filtered results
-      setFilteredConversations(prev => [newConversation, ...prev]);
-    }
   }
   
   // Expose the method to parent components using useImperativeHandle
@@ -67,7 +55,6 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
         
         const data = await response.json();
         setConversations(data.conversations);
-        setFilteredConversations(data.conversations);
       } catch (error) {
         console.error('Error fetching conversations: ', error)
       } finally {
@@ -77,19 +64,6 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
 
     fetchConversations();
   }, [userId]);
-
-  // Filter conversations based on search query
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredConversations(conversations);
-      return;
-    }
-    
-    const filtered = conversations.filter(conversation => 
-      conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    setFilteredConversations(filtered);
-  }, [searchQuery, conversations]);
 
   const handleDelete = async(e: React.MouseEvent, conversationId: string, documentId: string) => {
     e.stopPropagation();  // Prevent triggering the selection
@@ -107,7 +81,6 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
 
         // Remove from local state
         setConversations(conversations.filter(c => c.id != conversationId));
-        setFilteredConversations(filteredConversations.filter(c => c.id != conversationId));
 
         // If the current conversation is deleted, call the parent handler
         if (currentConversationId === conversationId && onDeleteConversation) {
@@ -169,42 +142,19 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
       {/* Sidebar content - only shown when open */}
       {isOpen && (
         <>
-          {/* Search and Upload controls */}
-          <div className="p-3 border-b border-gray-200">
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search size={16} className="text-gray-400" />
-              </div>
-              <input
-                type="text"
-                placeholder="Search documents..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-              />
-            </div>
-            <button
-              onClick={onUploadDocument}
-              className="mt-3 w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors text-sm font-medium"
-            >
-              <Plus size={16} />
-              Upload New Document
-            </button>
-          </div>
-
           {/* Conversation list */}
           <div className="flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="flex justify-center items-center h-32">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
               </div>
-            ) : filteredConversations.length === 0 ? (
+            ) : conversations.length === 0 ? (
               <div className="text-center p-6 text-gray-500">
-                {searchQuery ? "No matching documents found" : "No documents yet"}
+                No documents yet
               </div>
             ) : (
               <ul className="p-3 space-y-1">
-                {filteredConversations.map((conversation) => (
+                {conversations.map((conversation) => (
                   <li key={conversation.id} className="group">
                     <div className={`relative rounded-lg transition-colors ${
                       currentConversationId === conversation.id 
