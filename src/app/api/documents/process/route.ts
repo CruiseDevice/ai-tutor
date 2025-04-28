@@ -2,10 +2,9 @@
 
 import prisma from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
-import { OpenAIEmbeddings } from "@langchain/openai";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-import { saveDocumentChunks } from "@/lib/pgvector";
+import { saveDocumentChunks, getBatchEmbeddings } from "@/lib/pgvector";
 import { getSignedS3Url } from "@/lib/s3";
 
 export async function POST(req: NextRequest) {
@@ -25,20 +24,6 @@ export async function POST(req: NextRequest) {
         {status: 404}
       );
     }
-
-    if (!document?.user?.apiKey){
-      console.log('OpenAI API key not found for user');
-      return NextResponse.json(
-        {error: 'OpenAI API key not found'},
-        {status: 400}
-      );
-    }
-
-    // Initialize OpenAI embeddings
-    const embeddings = new OpenAIEmbeddings({
-      openAIApiKey: document.user.apiKey,
-      modelName: "text-embedding-3-small"
-    });
 
     // Generate a fresh signed URL for the PDF (since the URL in the database might expire)
     // If the URL isn't signed URL format (doesn't contain AWS signature parameters), regenrate it
@@ -76,17 +61,23 @@ export async function POST(req: NextRequest) {
     let successfulChunks = 0;
     let failedChunks = 0;
 
+    // get all the text content from the chunks for batch embedding
+    const chunkTexts = docs.map(doc => doc.pageContent);
+
+    // get embeddings fro all chunks in one batch request
+    const embeddings = await getBatchEmbeddings(chunkTexts);
+
     // prepare chunks with embeddings for pgvector
     const chunksWithEmbeddings = [];
 
     for(let i = 0; i < docs.length; i++) {
       try {
         const doc = docs[i];
-        const vectorEmbedding = await embeddings.embedQuery(doc.pageContent);
+        const vectorEmbedding = embeddings[i];
         
         let pageNumber = 1;
 
-        if(doc.metadata && doc.metadata.loc.pageNumber !== undefined) {
+        if(doc.metadata && doc.metadata.loc && doc.metadata.loc.pageNumber !== undefined) {
           // Try to parse the page number as an integer
           pageNumber = parseInt(String(doc.metadata.loc.pageNumber), 10);
         }

@@ -1,7 +1,8 @@
 // lib/pgvector.ts
-import { OpenAIEmbeddings } from "@langchain/openai";
 import prisma from "./db";
 import crypto from "crypto";
+
+const EMBEDDINGS_SERVICE_URL = process.env.EMBEDDINGS_SERVICE_URL || "http://localhost:8000";
 
 // Interface to include position data
 interface ChunkData {
@@ -14,6 +15,53 @@ interface ChunkData {
     from: number;
     to: number;
   }[];
+}
+
+// function to get embeddings from our service
+async function getEmbedding(text: string): Promise<number[]> {
+  try {
+    const response = await fetch(`${EMBEDDINGS_SERVICE_URL}/embeddings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({text})
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get embedding: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.embedding;
+    
+  } catch (error) {
+    console.error("Error getting embedding: ", error);
+    throw error;
+  }
+}
+
+// Function to get batch embeddings from the embeddings service
+export async function getBatchEmbeddings(texts: string[]): Promise<number[][]> {
+  try{
+    const response = await fetch(`${EMBEDDINGS_SERVICE_URL}/batch-embeddings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({texts})
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to get batch embeddings: ${response.statusText}");
+    }
+
+    const data = await response.json();
+    return data.embeddings;
+  } catch (error) {
+    console.error("Error getting batch embeddings: ", error);
+    throw error;
+  }
 }
 
 // save document chunks with embeddings to PostgreSQL
@@ -55,13 +103,8 @@ export async function findSimilarChunks (
     if (!query || !documentId || !apiKey) {
       throw new Error("Missing required parameters for vector search");
     }
-    // create embeddings for the query
-    const embeddings = new OpenAIEmbeddings({
-        openAIApiKey: apiKey,
-        modelName: "text-embedding-3-small"
-    });
 
-    const queryEmbedding = await embeddings.embedQuery(query);
+    const queryEmbedding = await getEmbedding(query);
 
     if (!queryEmbedding || queryEmbedding.length === 0) {
       throw new Error("Failed to generate embeddings for the query");
@@ -99,3 +142,4 @@ export async function findSimilarChunks (
     return [];
   }
 }
+

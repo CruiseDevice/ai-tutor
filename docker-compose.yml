@@ -11,5 +11,20 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
 
+  embeddings:
+    build:
+      context: ./embeddings
+      dockerfile: Dockerfile.embeddings
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./embeddings:/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
 volumes:
   pg_data:
