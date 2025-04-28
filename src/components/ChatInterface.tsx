@@ -1,5 +1,5 @@
 // app/components/ChatInterface.tsx
-import { Mic, Send } from "lucide-react";
+import { Mic, Send, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -26,8 +26,27 @@ export default function ChatInterface({
   const [isRecording, setIsRecording] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const errorTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const messageEndRef = useRef<HTMLDivElement>(null);
+
+  // Clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current);
+      }
+      errorTimeoutRef.current = setTimeout(() => {
+        setError(null);
+      }, 5000);
+    }
+    return () => {
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current);
+      }
+    };
+  }, [error]);
 
   // scroll to bottom when messages change
   useEffect(() => {
@@ -39,11 +58,14 @@ export default function ChatInterface({
     if (!inputMessage.trim() || isLoading || !isConversationSelected) return;
 
     setIsLoading(true);
+    setError(null);
 
-    try{
+    try {
       setInputMessage('');
       await onSendMessage(inputMessage);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send message. Please try again.';
+      setError(errorMessage);
       console.error('Error sending message: ', error);
     } finally {
       setIsLoading(false);
@@ -51,11 +73,31 @@ export default function ChatInterface({
   }
 
   const handleVoiceRecord = () => {
-    setIsRecording(!isRecording);
-    onVoiceRecord();
+    try {
+      setIsRecording(!isRecording);
+      onVoiceRecord();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start voice recording. Please try again.';
+      setError(errorMessage);
+      console.error('Error with voice recording: ', error);
+    }
   }
+
   return (
     <div className="w-1/2 h-full flex flex-col bg-gray-50 ">
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 m-4 rounded relative">
+          <button
+            onClick={() => setError(null)}
+            className="absolute right-2 top-2 text-red-700 hover:text-red-900"
+          >
+            <X size={16} />
+          </button>
+          <p>{error}</p>
+        </div>
+      )}
+      
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && !isConversationSelected && (
