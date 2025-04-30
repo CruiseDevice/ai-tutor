@@ -73,8 +73,20 @@ npm install
 ### 3. Start the database and embeddings service
 
 ```bash
+# start postgresql and build/run the embeddings service
 docker-compose up -d
+
+# verify the embeddings service is running
+curl http://localhost:8000/health
 ```
+
+The embeddings service runs in a Docker container and exposes the following endpoints:
+
+- `GET /health`: Check if the service is running
+- `POST /embeddings`: Generate embeddings for a single text
+- `POST /batch-embeddings`: Generate embeddings for multiple texts
+- `POST /process-document`: Process a PDF document into chunks with embeddings
+
 
 ### 4. Set up environment variables
 
@@ -188,10 +200,6 @@ The application can be deployed on Vercel with the following considerations:
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License.
 
 ## Acknowledgments
 
