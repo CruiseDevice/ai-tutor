@@ -39,3 +39,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+
+# temp files
+*.pdf
+*.txt
+*.json
+*.csv
+*.jsonl
+*.jsonl.gz
+*.jsonl.tar.gz
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
