@@ -87,6 +87,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       body: JSON.stringify({documentId: document.id}),
     });
 
+    console.log('Process Response:', processResponse);
+
     let responseData;
     try {
       const responseText = await processResponse.text();

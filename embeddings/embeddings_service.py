@@ -1,9 +1,26 @@
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
+from document_processor import process_document, ProcessDocumentResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI()
+origins = [
+    "http://localhost",
+    "http://localhost:8080",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",  # Add this
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # Initialize the model
 model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
@@ -64,7 +81,44 @@ async def create_batch_embeddings(request: BatchEmbeddingRequest):
         embeddings=embeddings_list,
         dimensions=len(embeddings_list[0]) if embeddings_list else 0
     )
-    
+
+
+@app.post("/process-document", response_model=ProcessDocumentResponse)
+async def process_document_endpoint(
+    file: UploadFile = File(...),
+    document_id: str = Form(...)
+):
+    print(f"\n\n--- New Processing Request ---")
+    print(f"Document ID: {document_id}")
+    print(f"Filename: {file.filename}")
+    print(f"Content type: {file.content_type}")
+
+    try:
+        # First verify we can read the file
+        print("Attempting to read file...")
+        contents = await file.read()
+        print(f"Successfully read {len(contents)} bytes")
+        await file.seek(0)  # Rewind for actual processing
+
+        # Now process the document
+        print("Starting document processing...")
+        result = await process_document(file, document_id)
+        print("Document processing completed successfully")
+        return result
+
+    except Exception as e:
+        import traceback
+        print("\n!!! ERROR OCCURRED !!!")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        print("Stack trace:")
+        traceback.print_exc()
+        print("!!! END OF ERROR !!!\n")
+        
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error processing document: {str(e)}"
+        )
     
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
