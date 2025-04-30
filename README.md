@@ -1,34 +1,59 @@
-# AiTutor
+# StudyFetch AI Tutor
 
-AiTutor is a web application that allows users to upload PDFs and chat with their documents using AI. The application processes PDF documents, splits them into chunks, and uses vector embeddings to retrieve relevant content when answering user questions.
+StudyFetch AI Tutor is a web application that helps students understand PDF documents through an interactive split-screen interface. Users can upload PDFs and chat with an AI about the document's content, with the AI able to reference and highlight relevant parts of the PDF in real-time.
 
 ## Features
 
-- 📄 PDF document upload and viewing
-- 💬 AI-powered chat interface for document Q&A
-- 🔍 Vector search for semantic retrieval of document content
-- 🔄 Conversation history and management
-- 🔐 User authentication system
-- ⚙️ OpenAI API key integration
-
-![RAG Pipeline](./rag-diagram-1.webp)
-*Image credit: https://www.dailydoseofds.com/*
+- 🔐 **User Authentication**: Secure email/password signup and login with session management
+- 📄 **PDF Upload & Viewing**: Upload, store, and navigate PDF documents
+- 💬 **AI Chat Interface**: Interact with the AI about document content via text
+- 🔍 **Smart Document Search**: Vector embeddings power semantic retrieval of relevant document content
+- 📌 **Context-Aware Responses**: AI references specific page numbers and content from the PDF
+- 📝 **Persistent Conversations**: Chat history is saved and can be resumed later
+- 🔄 **Multi-Document Support**: Upload and manage multiple documents with separate conversation histories
 
 ## Tech Stack
 
-- **Frontend**: Next.js, React, TailwindCSS
-- **Backend**: Next.js API routes
-- **Database**: PostgreSQL with pgvector extension
-- **AI Integration**: OpenAI GPT-4 API, LangChain
-- **Authentication**: Custom session-based auth
-- **Storage**: Vercel Blob Storage for PDFs
+### Frontend
+- **Next.js 15+** with App Router
+- **React 19**
+- **TailwindCSS** for styling
+- **React PDF** for PDF rendering
+
+### Backend
+- **Next.js API Routes**
+- **PostgreSQL** with pgvector extension for vector similarity search
+- **Prisma ORM** for database operations
+- **AWS S3** for PDF storage
+
+### AI Integration
+- **OpenAI GPT-4** for chat responses
+- **Custom Embeddings Service** using sentence-transformers
+- **LangChain** for document processing
+
+## Architecture
+
+### RAG Pipeline
+![RAG Pipeline](./rag-diagram-1.webp)
+*Image credit: https://www.dailydoseofds.com/*
+
+The application follows a Retrieval Augmented Generation (RAG) approach:
+1. PDF documents are processed into chunks
+2. Each chunk gets a vector embedding representing its semantic meaning
+3. When the user asks a question, relevant chunks are retrieved via similarity search
+4. The AI generates a response based on the retrieved context
+
+### Service Components
+- **Web Application**: Next.js app for frontend and API routes
+- **Embeddings Service**: FastAPI service for document processing and embedding generation
+- **PostgreSQL Database**: Stores user data, documents, conversations, and vector embeddings
 
 ## Prerequisites
 
 - Node.js v18+
 - Docker and Docker Compose
 - OpenAI API key
-- Vercel Blob Storage account or another blob storage solution (optional for production)
+- AWS S3 credentials (for production deployment)
 
 ## Installation
 
@@ -45,43 +70,42 @@ cd ai-tutor
 npm install
 ```
 
-Start the PostgreSQL container:
+### 3. Start the database and embeddings service
 
 ```bash
 docker-compose up -d
 ```
 
-### 3. Set up environment variables
+### 4. Set up environment variables
 
-Create a `.env` file in the root of your project:
+Create a `.env` file in the root directory:
 
 ```env
-# Environment variables declared in this file are automatically made available to Prisma.
-# See the documentation for more detail: https://pris.ly/d/prisma-schema#accessing-environment-variables-from-the-schema
+# Database
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/studyfetch"
 
-# Prisma supports the native connection string format for PostgreSQL, MySQL, SQLite, SQL Server, MongoDB and CockroachDB.
-# See the documentation for all the connection string options: https://pris.ly/d/connection-strings
+# S3 Storage
+AWS_REGION="us-east-1"
+AWS_ACCESS_KEY_ID="your-access-key"
+AWS_SECRET_ACCESS_KEY="your-secret-key"
+S3_PDFBUCKET_NAME="your-bucket-name"
 
-DATABASE_URL=""
-NODE_ENV=""
-BLOB_READ_WRITE_TOKEN=""
+# Embeddings Service
+EMBEDDINGS_SERVICE_URL="http://localhost:8000"
+
+# Environment
+NODE_ENV="development"
 ```
 
-### 4. Set up Prisma
-
-Generate Prisma client:
+### 5. Initialize the database
 
 ```bash
 npx prisma generate
-```
-
-Create database tables:
-
-```bash
 npx prisma db push
+node scripts/setup-pgvector.js
 ```
 
-## Running the application
+## Running the Application
 
 Start the development server:
 
@@ -89,57 +113,73 @@ Start the development server:
 npm run dev
 ```
 
-The application should now be running at [http://localhost:3000](http://localhost:3000).
+The application will be available at [http://localhost:3000](http://localhost:3000)
 
-## User Setup
+## User Guide
 
-1. Register a new account at `/register`
-2. Navigate to API Settings and add your OpenAI API key
-3. Return to the dashboard to upload and chat with PDFs
+1. **Register/Login**: Create an account or sign in
+2. **API Setup**: Navigate to API Settings and add your OpenAI API key
+3. **Upload a PDF**: On the dashboard, click "Upload PDF" to begin
+4. **Chat with the Document**: Ask questions about the PDF content
+5. **Document History**: Access previous documents from the sidebar
 
 ## Project Structure
 
-- `/app`: Next.js application routes and components
-  - `/api`: Backend API routes
-  - `/components`: React components
-  - `/auth`: Authentication related files
-- `/lib`: Utility libraries 
-  - `/auth.ts`: Authentication utility functions
-  - `/db.ts`: Database client setup
-  - `/pgvector.ts`: Vector database utilities
+```
+/
+├── embeddings/                # Embeddings service (FastAPI)
+│   ├── document_processor.py  # PDF processing logic
+│   └── embeddings_service.py  # API endpoints
+├── prisma/                    # Database schema and migrations
+├── public/                    # Static assets
+├── scripts/                   # Setup scripts
+├── src/
+│   ├── app/                   # Next.js app directory
+│   │   ├── api/               # API routes
+│   │   ├── dashboard/         # Dashboard page
+│   │   ├── login/             # Login page
+│   │   └── register/          # Registration page
+│   ├── components/            # React components
+│   │   ├── ChatInterface.tsx  # Chat UI
+│   │   ├── Dashboard.tsx      # Main application component
+│   │   └── EnhancedPDFViewer.tsx # PDF viewer with annotation
+│   └── lib/                   # Utility libraries
+│       ├── auth.ts            # Authentication utilities
+│       ├── db.ts              # Database client
+│       └── pgvector.ts        # Vector search functions
+└── docker-compose.yml         # Docker services configuration
+```
 
 ## API Routes
 
-- **Authentication**
-  - `/api/auth/register`: User registration
-  - `/api/auth/login`: User login
-  - `/api/auth/logout`: User logout
-  - `/api/auth/verify-session`: Verify user session
-  - `/api/auth/user`: Get current user information
+- `/api/auth/*`: Authentication endpoints (login, register, logout)
+- `/api/documents`: PDF upload and processing
+- `/api/conversations`: Conversation management
+- `/api/chat`: AI messaging endpoint
 
-- **Document Management**
-  - `/api/documents`: Upload and create new documents
-  - `/api/documents/process`: Process and index uploaded documents
+## Development
 
-- **Conversation Management**
-  - `/api/conversations`: List all conversations
-  - `/api/conversations/[id]`: Get a specific conversation
+### Add Database Migration
 
-- **Chat**
-  - `/api/chat`: Send a message and get AI responses
+After schema changes:
 
-## Workflow
+```bash
+npx prisma migrate dev --name your_migration_name
+```
 
-1. **Document Upload**: User uploads a PDF through the interface
-2. **Document Processing**: 
-   - PDF is stored in Blob Storage
-   - Document is split into chunks
-   - Each chunk gets a vector embedding using OpenAI's embedding model
-   - Chunks and embeddings are stored in PostgreSQL
-3. **Chatting with Document**:
-   - User sends a question
-   - System finds relevant chunks using vector similarity search
-   - OpenAI's GPT model generates a response using the relevant document chunks
+### Update Embeddings Model
+
+To change the embeddings model, update the model name in:
+- `/embeddings/document_processor.py`
+- `/embeddings/embeddings_service.py`
+
+## Deployment
+
+The application can be deployed on Vercel with the following considerations:
+
+1. Set up a PostgreSQL database with pgvector extension (e.g., using Supabase or Neon)
+2. Deploy the embeddings service separately (e.g., on a server or containerized service)
+3. Configure environment variables in your hosting platform
 
 ## Contributing
 
@@ -153,28 +193,9 @@ The application should now be running at [http://localhost:3000](http://localhos
 
 This project is licensed under the MIT License.
 
-## Troubleshooting
+## Acknowledgments
 
-### PostgreSQL Connection Issues
-
-If you're having trouble connecting to the PostgreSQL database:
-
-1. Check that the Docker container is running: `docker ps`
-2. Verify the connection string in your `.env` file
-3. Try connecting using a PostgreSQL client like pgAdmin or psql
-
-### OpenAI API Issues
-
-If the AI chat is not working properly:
-
-1. Check that you've added your OpenAI API key in the application settings
-2. Verify that your API key has sufficient credits
-3. Check the application logs for any API-related errors
-
-### PDF Processing Issues
-
-If PDFs aren't being processed correctly:
-
-1. Check that the PDF is not password-protected
-2. Verify that the PDF size is under the upload limit (10MB)
-3. Check the application logs for processing errors
+- OpenAI for the GPT API
+- Sentence Transformers for embeddings
+- LangChain for document processing utilities
+- Vercel for Next.js hosting infrastructure

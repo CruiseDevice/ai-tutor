@@ -1,81 +1,82 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]  // Required for pgvector
 }
 
 datasource db {
-  provider    = "postgresql"
-  url         = env("DATABASE_URL")
-  extensions  = [vector]
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [vector]  // Enable pgvector extension
+}
+
+model User {
+  id        String         @id @default(uuid())
+  email     String         @unique
+  password  String
+  apiKey    String?
+  documents Document[]
+  sessions  Session[]
+  conversations Conversation[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 }
 
 model Session {
-  id        String @id @default(uuid())
+  id        String   @id @default(uuid())
   userId    String
-  token     String @unique
+  token     String   @unique
   expiresAt DateTime
-  user User @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model User {
-  id            String @id @default(uuid())
-  email         String @unique
-  password      String  // Will store hashed password
-  apiKey        String?  // OpenAI API key
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  sessions      Session[]
-  documents     Document[]
-  conversations Conversation[]
-}
-
 model Document {
-  id            String @id @default(uuid())
-  title         String
-  url           String  // URL to access the file
-  blobPath      String // Path in blob storage
-  userId        String
-  user          User @relation(fields: [userId], references: [id])
-  structure     Json?   // Store the document structure
-  conversation  Conversation?
-  chunks        DocumentChunk[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String         @id @default(uuid())
+  title       String
+  url         String
+  blobPath    String
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks      DocumentChunk[]
+  conversation Conversation?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 }
 
 model DocumentChunk {
-  id            String @id @default(uuid())
-  content       String
-  pageNumber    Int
-  embedding     Unsupported("vector(768)")  // Adjust vector dimensions based on your model
-  documentId    String
-  positionData  Json?  // Field to store position information as JSON
-  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([documentId])
+  id           String   @id @default(uuid())
+  content      String
+  pageNumber   Int
+  embedding    Unsupported("vector(768)")  // Using Unsupported for vector type
+  documentId   String
+  document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  positionData Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Conversation {
-  id          String @id @default(uuid())
-  userId      String
-  user        User @relation(fields: [userId], references: [id])
-  documentId  String @unique
-  document    Document @relation(fields: [documentId], references: [id])
-  messages    Message[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId String    @unique
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  messages   Message[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 model Message {
-  id              String @id @default(uuid())
-  content         String
-  role            String
-  context         Json? // this would store references to relevant chunk IDs
-  conversationId  String
-  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  createdAt       DateTime @default(now())
+  id             String       @id @default(uuid())
+  content        String
+  role           String       // user, assistant, system
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  context        Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 }

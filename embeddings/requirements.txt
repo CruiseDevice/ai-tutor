@@ -4,3 +4,10 @@ sentence-transformers==2.5.1
 pydantic==2.3.0
 numpy==1.25.2
 huggingface-hub>=0.20.0
+
+# Added for document processing
+python-multipart
+pypdf
+langchain
+langchain-community
+langchain-core
