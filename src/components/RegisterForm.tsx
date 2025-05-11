@@ -125,6 +125,16 @@ export default function RegisterForm () {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Create your account</h2>
+          <div className="mt-4 text-center text-sm text-gray-600">
+            <p className="mb-2">Please follow these requirements:</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>Email must be a valid email address</li>
+              <li>Password must be at least 8 characters long</li>
+              <li>Password must contain at least one uppercase letter</li>
+              <li>Password must contain at least one lowercase letter</li>
+              <li>Password must contain at least one number</li>
+            </ul>
+          </div>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {errors.general && (
