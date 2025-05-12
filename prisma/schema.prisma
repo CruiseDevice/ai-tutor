@@ -24,6 +24,15 @@ model User {
   updatedAt DateTime       @updatedAt
 }
 
+model PasswordResetToken {
+  id        String  @id @default(cuid())
+  email     String
+  token     String  @unique
+  expiresAt DateTime
+  used      Boolean @default(false)
+  createdAt DateTime  @default(now())
+}
+
 model Session {
   id        String   @id @default(uuid())
   userId    String

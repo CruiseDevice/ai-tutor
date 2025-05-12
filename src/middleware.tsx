@@ -5,7 +5,12 @@ import { NextRequest, NextResponse } from "next/server";
 const publicRoutes = [
   '/api/auth/login',
   '/api/auth/register',
-  '/api/auth/verify-session'
+  '/api/auth/verify-session',
+  '/api/auth/forgot-password',
+  '/api/auth/password-reset/request',
+  '/api/auth/password-reset/confirm',
+  '/forgot-password',
+  '/reset-password',
 ]
 
 export async function middleware(request: NextRequest) {
