@@ -170,8 +170,8 @@ export default function ChatInterface({
         <div ref={messageEndRef} />
       </div>
       {/* chat input */}
-      <div className="border-t border-gray-200 p-4">
-        <div className="relative" ref={modelMenuRef}>
+      <div className="border-t border-gray-200 p-2">
+        <div className="relative mb-1" ref={modelMenuRef}>
           <button
             onClick={toggleModelMenu}
             className="inline-flex items-center text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-md"
