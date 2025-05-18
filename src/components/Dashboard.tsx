@@ -264,7 +264,7 @@ function DashboardWithSearchParams () {
     console.log('Voice recording toggled');
   }
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, model: string) => {
     if (!content.trim() || !conversationId) return;
 
     const userMessage = {
@@ -280,7 +280,8 @@ function DashboardWithSearchParams () {
       const payload = {
         content,
         conversationId,
-        documentId
+        documentId,
+        model
       };
 
       const response = await fetch('/api/chat', {
