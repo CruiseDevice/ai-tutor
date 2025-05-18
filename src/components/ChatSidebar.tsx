@@ -1,6 +1,8 @@
 // src/components/ChatSidebar.tsx
-import { ChevronLeft, ChevronRight, FileText, MessageSquare, Trash2 } from "lucide-react";
-import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, LogOut, Settings, Trash2, User } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 interface Conversation {
   id: string;
@@ -16,6 +18,7 @@ interface ChatSidebarProps {
   onDeleteConversation?: (conversationId: string, documentId: string) => void;
 }
 
+// TODO: Not sure if this is needed
 // Create an interface for the ref
 export interface ChatSidebarRef {
   addNewConversation: (newConversation: Conversation) => void;
@@ -27,10 +30,13 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   currentConversationId,
   onDeleteConversation,
 }, ref) => {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   
   // Method to add a new conversation to the list
   function addNewConversation(newConversation: Conversation) {
@@ -64,6 +70,43 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
 
     fetchConversations();
   }, [userId]);
+
+  // handle clicks outside the dropdown to close it
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to logout');
+      }
+
+      // Redirect to login page after successful logout 
+      router.push('/login')
+      // Force a page refresh to clear any client-side state
+      router.refresh();
+    } catch (error) {
+      //TODO: Display error message to user
+      console.error('Logout error: ', error);
+    }
+  };
 
   const handleDelete = async(e: React.MouseEvent, conversationId: string, documentId: string) => {
     e.stopPropagation();  // Prevent triggering the selection
@@ -201,13 +244,41 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
             )}
           </div>
 
-          {/* Footer with user info */}
-          <div className="p-3 border-t border-gray-200 bg-gray-200">
-            <div className="flex items-center text-sm text-gray-600">
-              <MessageSquare size={16} className="mr-2" />
+         {/* Footer with user info and dropdown menu */}
+         <div className="relative p-3 border-t border-gray-200 bg-gray-200">
+          <button
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="w-full flex items-center justify-between text-sm text-gray-600 hover:bg-gray-300 p-2 rounded"
+          >
+            <div className="flex items-center">
+              <User size={16} className="mr-2"/>
               <span className="truncate">{userId ? `User: ${userId.substring(0, 8)}...` : 'Not logged in'}</span>
             </div>
-          </div>
+            <ChevronDown size={16} className={`transition-transform duration-200 ${isMenuOpen ? 'rotate-180' : ''}`}/>
+          </button>
+          {/* Dropdown menu */}
+          {isMenuOpen && (
+            <div 
+              ref={menuRef}
+              className="absolute bottom-14 left-3 right-3 bg-white rounded-md shadow-lg border border-gray-200 overflow-hidden z-10"
+            >
+              <Link 
+                href="/settings"
+                className="flex items-center p-3 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+              >
+                <Settings size={16} className="mr-2 text-gray-500" />
+                API Settings
+              </Link>
+              <button 
+                onClick={handleLogout}
+                className="w-full flex items-center p-3 text-sm text-red-600 hover:bg-gray-100 transition-colors"
+              >
+                <LogOut size={16} className="mr-2" />
+                Logout
+              </button>
+            </div>
+          )}
+         </div>
         </>
       )}
     </div>

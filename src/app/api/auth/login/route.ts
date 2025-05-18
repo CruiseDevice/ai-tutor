@@ -12,7 +12,6 @@ const loginSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    console.log('Starting login process...')
     const body = await req.json()
     
     // Validate input
@@ -26,15 +25,13 @@ export async function POST(req: Request) {
     }
 
     const { email, password } = validation.data
-    console.log('Attempting login for email:', email)
-
+    
     // Find user
     const user = await prisma.user.findUnique({
       where: { email },
     })
 
     if (!user) {
-      console.log('User not found')
       return NextResponse.json(
         { error: 'Invalid credentials' },
         { status: 401 }
@@ -45,14 +42,11 @@ export async function POST(req: Request) {
     const passwordValid = await bcrypt.compare(password, user.password)
     
     if(!passwordValid) {
-      console.log('Invalid password')
       return NextResponse.json(
         { error: 'Invalid credentials' },
         { status: 401 }
       )
     }
-
-    console.log('Password verified, creating session...')
 
     // Create new session
     const session = await prisma.session.create({
@@ -62,8 +56,6 @@ export async function POST(req: Request) {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       },
     })
-
-    console.log('Session created successfully')
 
     // Set session cookie and return response
     const response = NextResponse.json(
@@ -82,11 +74,9 @@ export async function POST(req: Request) {
       path: '/',
     })
 
-    console.log('Response prepared with session cookie')
     return response
 
   } catch (error) {
-    console.error('Login error:', error instanceof Error ? error.message : String(error))
     return NextResponse.json(
       { 
         error: 'Internal server error',
