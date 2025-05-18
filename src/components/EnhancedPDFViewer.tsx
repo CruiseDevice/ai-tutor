@@ -21,11 +21,48 @@ export default function EnhancedPDFViewer({
 
   const internalFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = externalFileInputRef || internalFileInputRef;
+  const pageInputRef = useRef<HTMLInputElement>(null);
 
   const [pageNumber, setPageNumber] = useState(1);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [scale, setScale] = useState(1.0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [pageInputError, setPageInputError] = useState<string | null>(null);
+
+  const goToPage = (pageNum: number) => {
+    if(pageNum >= 1 && pageNum <= (numPages || 1)) {
+      setPageNumber(pageNum)
+    }
+  }
+
+  const handlePageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPageInputError(null);
+  }
+
+  const handlePageInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handlePageJump();
+    }
+  }
+
+  const handlePageJump = () => {
+    const inputValue = pageInputRef.current?.value;
+    if (!inputValue) return;
+
+    const pageNum = parseInt(inputValue);
+
+    if (isNaN(pageNum)) {
+      setPageInputError('Please enter a valid page number');
+      return;
+    }
+
+    if (pageNum < 1 || pageNum > (numPages || 1)) {
+      setPageInputError(`Please enter a page between 1 and ${numPages || 1}`);
+      return;
+    }
+
+    goToPage(pageNum);
+  }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setIsProcessing(true);
@@ -37,12 +74,6 @@ export default function EnhancedPDFViewer({
   }
   const onDocumentLoadSuccess = ({numPages}: {numPages: number}) => {
     setNumPages(numPages);
-  }
-
-  const goToPage = (pageNum: number) => {
-    if(pageNum >= 1 && pageNum <= (numPages || 1)) {
-      setPageNumber(pageNum)
-    }
   }
 
   return (
@@ -68,6 +99,30 @@ export default function EnhancedPDFViewer({
             >
               <ChevronRight size={16}/>
             </button>
+
+            {/* page jump input */}
+            <div className="relative ml-4">
+              <input 
+                ref={pageInputRef}
+                type="text"
+                placeholder="Go to page..."
+                className="w-32 px-2 py-1 text-sm border border-gray-300 rounded"
+                onChange={handlePageInputChange}
+                onKeyDown={handlePageInputKeyDown}
+                aria-label="Go to page"
+              />
+              <button
+                onClick={handlePageJump}
+                className="ml-1 px-2 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Go
+              </button>
+              {pageInputError && (
+                <div className="absolute left-0 mt-1 text-xs text-red-500 w-full">
+                  {pageInputError}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-center space-x-2">
             <button 
