@@ -19,7 +19,7 @@ const AVAILABLE_MODELS = [
 
 interface ChatInterfaceProps {
   messages: ChatMessage[];
-  onSendMessage: (message: string) => Promise<void>;
+  onSendMessage: (message: string, model: string) => Promise<void>;
   onVoiceRecord: () => void;
   isConversationSelected: boolean;
 }

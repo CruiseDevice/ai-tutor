@@ -329,11 +329,13 @@ function DashboardWithSearchParams () {
       {/* Main content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* PDF Viewer Section */}
-        <EnhancedPDFViewer 
-          currentPDF={currentPDF}
-          onFileUpload={handleFileUpload}
-          fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
-        />
+        <div className="w-3/5">
+          <EnhancedPDFViewer
+            currentPDF={currentPDF}
+            onFileUpload={handleFileUpload}
+            fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
+          />
+        </div>
         {/* Chat Section */}
         <ChatInterface
           messages={messages}
