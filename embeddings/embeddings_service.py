@@ -88,33 +88,15 @@ async def process_document_endpoint(
     file: UploadFile = File(...),
     document_id: str = Form(...)
 ):
-    print(f"\n\n--- New Processing Request ---")
-    print(f"Document ID: {document_id}")
-    print(f"Filename: {file.filename}")
-    print(f"Content type: {file.content_type}")
-
     try:
         # First verify we can read the file
-        print("Attempting to read file...")
-        contents = await file.read()
-        print(f"Successfully read {len(contents)} bytes")
         await file.seek(0)  # Rewind for actual processing
 
         # Now process the document
-        print("Starting document processing...")
         result = await process_document(file, document_id)
-        print("Document processing completed successfully")
         return result
 
-    except Exception as e:
-        import traceback
-        print("\n!!! ERROR OCCURRED !!!")
-        print(f"Error type: {type(e).__name__}")
-        print(f"Error message: {str(e)}")
-        print("Stack trace:")
-        traceback.print_exc()
-        print("!!! END OF ERROR !!!\n")
-        
+    except Exception as e:      
         raise HTTPException(
             status_code=500, 
             detail=f"Error processing document: {str(e)}"
