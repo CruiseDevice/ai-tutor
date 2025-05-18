@@ -34,7 +34,6 @@ export async function GET(request: Request) {
     })
 
   } catch (error) {
-    console.error('Session verification error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: error }, { status: 500 })
   }
 }

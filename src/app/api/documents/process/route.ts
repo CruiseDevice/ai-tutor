@@ -11,8 +11,7 @@ const EMBEDDINGS_SERVICE_URL = process.env.EMBEDDINGS_SERVICE_URL || "http://loc
 export async function POST(req: NextRequest) {
   try {
     const { documentId } = await req.json();
-    console.log('Starting document processing for documentId: ', documentId);
-
+    
     // get document and user info
     const document = await prisma.document.findUnique({
       where: { id: documentId },
@@ -46,9 +45,6 @@ export async function POST(req: NextRequest) {
     formData.append('file', pdfBlob, 'document.pdf');
     formData.append('document_id', document.id);
     
-    // Send the PDF to the FastAPI service for processing
-    console.log('Sending PDF to FastAPI service for processing...');
-    
     try {
 
       const processingResponse = await fetch(`${EMBEDDINGS_SERVICE_URL}/process-document`, {
@@ -63,11 +59,9 @@ export async function POST(req: NextRequest) {
       
       // Get the processing results
       const processingResult = await processingResponse.json();
-      console.log('Processing result:', processingResult);
       
       // Save document chunks to database using Prisma
       if (processingResult.chunks && processingResult.chunks.length > 0) {
-        console.log(`Saving ${processingResult.chunks.length} chunks to database...`);
         
         // Save each chunk to the database
         for (const chunk of processingResult.chunks) {
@@ -101,7 +95,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      console.log(`Document processing complete. Successfully processed ${processingResult.chunks_processed} chunks. Failed: ${processingResult.chunks_failed}`);
       return NextResponse.json({
         success: true,
         message: 'Document processed successfully',
@@ -114,9 +107,8 @@ export async function POST(req: NextRequest) {
     }
 
   } catch (error) {
-    console.error('Error processing document: ', error);
     return NextResponse.json(
-      { error: 'Failed to process document' },
+      { error: error },
       { status: 500 }
     )
   }

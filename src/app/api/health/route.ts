@@ -14,12 +14,12 @@ export async function GET() {
       version: process.env.npm_package_version || 'unknown'
     });
   } catch (error) {
-    console.error('Health check failed:', error);
     return NextResponse.json(
       { 
         status: 'error',
         message: 'Health check failed',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error)
       },
       { status: 500 }
     );

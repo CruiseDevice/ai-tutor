@@ -40,6 +40,7 @@ export default function ForgotPasswordForm() {
         },
         body: requestBody,
       }).catch(fetchError => {
+        // TODO: Display error message to user
         console.error('Fetch error:', fetchError);
         throw new Error('Network error occurred');
       });
@@ -52,6 +53,7 @@ export default function ForgotPasswordForm() {
       setSuccess('If an account with that email exists, you will receive a password reset link.');
       setEmail('');
     } catch (error) {
+      // TODO: Display error message to user
       console.error('Password reset request error:', error);
       setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {

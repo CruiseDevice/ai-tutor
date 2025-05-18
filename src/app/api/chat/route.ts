@@ -52,14 +52,10 @@ export async function POST(req: NextRequest) {
         user.apiKey
       );
       
-      console.log(`Found ${relevantChunks.length} relevant chunks`);
-
       if (!Array.isArray(relevantChunks)) {
-        console.warn("findSimilarChunks did not return an array");
         relevantChunks = [];
       }
     } catch (error) {
-      console.error("Error retrieving similar chunks:", error instanceof Error ? error.message : String(error));
       relevantChunks = [];
       // Log a more detailed error to help with debugging
       if (error instanceof Error) {
