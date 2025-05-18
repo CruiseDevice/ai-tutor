@@ -66,7 +66,6 @@ export default function ChatInterface({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message. Please try again.';
       setError(errorMessage);
-      console.error('Error sending message: ', error);
     } finally {
       setIsLoading(false);
     }
@@ -79,7 +78,6 @@ export default function ChatInterface({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to start voice recording. Please try again.';
       setError(errorMessage);
-      console.error('Error with voice recording: ', error);
     }
   }
 

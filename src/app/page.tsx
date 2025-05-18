@@ -20,9 +20,9 @@ export default function Home() {
           router.push('/login');
         }
       } catch (error) {
-        console.error('Auth check error: ', error);
         // on error, redirect to login
         router.push('/login');
+        console.error('Auth check error: ', error);
       }
     };
     checkAuth();

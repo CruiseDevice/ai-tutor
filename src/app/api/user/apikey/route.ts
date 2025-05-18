@@ -29,9 +29,8 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json({ message: 'API key updated successfully' });
   } catch (error) {
-    console.error('Error updating API key: ', error);
     return NextResponse.json(
-      {error: 'Failed to update API key'},
+      {error: error},
       {status: 500}
     )
   }

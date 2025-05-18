@@ -78,7 +78,8 @@ function DashboardWithSearchParams () {
       // Update URL with the selected conversation
       updateUrl(convoId);
     } catch (error) {
-      console.error('Error loading conversations: ', error);
+      // TODO: Display error message to user
+      console.error('Error loading conversation: ', error);
       setError('Failed to load conversation');
     }
   }, [conversationId, updateUrl]);
@@ -93,6 +94,7 @@ function DashboardWithSearchParams () {
           router.push('/login')
         }
       } catch (error) {
+        // TODO: Display error message to user
         console.error('Auth check error: ', error);
         router.push('/login');
       }
@@ -109,9 +111,11 @@ function DashboardWithSearchParams () {
         if(response.ok) {
           setUserId(data.id);
         } else {
+          // TODO: Display error message to user
           console.error('Failed to fetch user: ', data);
         }
       } catch (error) {
+        // TODO: Display error message to user
         console.error('Error fetching user:', error);
       }
     };
@@ -152,6 +156,7 @@ function DashboardWithSearchParams () {
             await handleSelectConversation(chatId, matchingConversation.documentId);
           }
         } catch (error) {
+          // TODO: Display error message to user
           console.error('Error restoring conversations: ', error);
           setError('Failed to restore conversation from URL');
         } finally {
@@ -171,6 +176,7 @@ function DashboardWithSearchParams () {
       const data = await response.json();
       return data.conversations;
     } catch (error) {
+      // TODO: Display error message to user
       console.error('Error fetching conversations: ', error);
       setError('Failed to fetch conversations');
       return [];
@@ -247,6 +253,7 @@ function DashboardWithSearchParams () {
         console.error('No conversationId returned from server');
       }
     } catch (error) {
+      // TODO: Display error message to user
       console.error('Upload error:', error);
       setError('Failed to upload document');
     }
@@ -297,6 +304,7 @@ function DashboardWithSearchParams () {
         data.assistantMessage // Add assistant response
       ]);
     } catch (error) {
+      // TODO: Display error message to user
       console.error('Chat error: ', error);
       setError('Failed to send message');
     }

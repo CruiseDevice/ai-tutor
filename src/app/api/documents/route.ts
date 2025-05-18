@@ -45,7 +45,6 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     if(!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.S3_PDFBUCKET_NAME) {
-      console.error('Missing S3 credentials in environment variables');
       return NextResponse.json(
         {error: 'Server configuration error: Missing S3 credentials'},
         {status: 500}
@@ -87,20 +86,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       body: JSON.stringify({documentId: document.id}),
     });
 
-    console.log('Process Response:', processResponse);
-
-    let responseData;
-    try {
-      const responseText = await processResponse.text();
-      responseData = JSON.parse(responseText);
-      console.log('Process Response:', responseData);
-    } catch (error) {
-      console.error('Error parsing process response:', error);
-      console.error('Raw response: ', await processResponse.text());
-    }
-
     if (!processResponse.ok) {
-      console.error('Document processing failed with status:', processResponse.status);
       // Continue anyway, as processing can be retrieved later
       return NextResponse.json({
         url: s3Result.url,
@@ -118,7 +104,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       processingStatus: 'success'
      });
   } catch (error) {
-    console.log(error);
-    return NextResponse.json({ error: 'An error occurred' });
+    return NextResponse.json({ error: error });
   }
 }

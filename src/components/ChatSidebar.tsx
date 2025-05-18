@@ -130,7 +130,8 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
           onDeleteConversation(conversationId, documentId);
         }
       } catch (error) {
-        console.error('Error deleting conversation:', error);
+        //TODO: Display error message to user
+        console.error('Delete conversation error: ', error);
         alert('Failed to delete conversation');
       } finally {
         setDeleting(null);

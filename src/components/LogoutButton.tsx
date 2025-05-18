@@ -27,6 +27,7 @@ export default function LogoutButton() {
       // Force a page refresh to clear any client-side state
       router.refresh();
     } catch (error) {
+      // TODO: Display error message to user
       console.error('Logout error:', error);
     } finally {
       setIsLoading(false);

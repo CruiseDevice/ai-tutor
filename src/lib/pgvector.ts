@@ -59,7 +59,6 @@ export async function getBatchEmbeddings(texts: string[]): Promise<number[][]> {
     const data = await response.json();
     return data.embeddings;
   } catch (error) {
-    console.error("Error getting batch embeddings: ", error);
     throw error;
   }
 }
@@ -88,7 +87,6 @@ export async function saveDocumentChunks(chunks: ChunkData[]) {
     }
     return {success: true, count: chunks.length};
   } catch (error) {
-    console.error("Error saving document chunks: ", error);
     throw error;
   }
 }
