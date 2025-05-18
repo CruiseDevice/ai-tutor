@@ -1,8 +1,11 @@
 'use client';
 
+import { ArrowLeft } from "lucide-react";
+import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
 export default function APISettings() {
+  const router = useRouter();
   const [apiKey ,setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -37,7 +40,14 @@ export default function APISettings() {
     }
   }
   return (
-  <div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow">
+  <div className="max-w-md mx-auto">
+    <button
+      onClick={() => router.back()}
+      className="mb-6 flex items-center text-sm text-gray-600 hover:text-gray-900"
+    >
+      <ArrowLeft size={16} className="mr-1"/>
+      Back to Dashboard
+    </button>
     <h2 className="text-2xl font-bold mb-4">API Settings</h2>
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
