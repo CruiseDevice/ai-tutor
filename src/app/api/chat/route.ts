@@ -8,12 +8,12 @@ import { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 
 // Constants
 const CHUNK_LIMIT = 5;
-const MODEL_NAME = "gpt-4";
+const DEFAULT_MODEL = "gpt-4";  // Default model to use if no model is specified
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { content, conversationId, documentId } = body;
+    const { content, conversationId, documentId, model } = body;
 
     if (!content || !conversationId || !documentId) {
       return NextResponse.json({
@@ -176,6 +176,9 @@ export async function POST(req: NextRequest) {
       ...historyMessages,
       userChatMessage
     ];
+
+    // Use provided model or default to GPT-4
+    const MODEL_NAME = model || DEFAULT_MODEL;
 
     // Call OpenAI for chat completion
     const completion = await openai.chat.completions.create({

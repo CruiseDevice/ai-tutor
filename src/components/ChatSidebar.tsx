@@ -31,7 +31,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   onDeleteConversation,
 }, ref) => {
   const router = useRouter();
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
