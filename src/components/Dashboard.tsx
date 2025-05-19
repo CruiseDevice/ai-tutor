@@ -136,6 +136,7 @@ function DashboardWithSearchParams () {
     }
 
     // Only attempt to restore if we have a chat ID and we're not already showing that conversation
+    // and we're not currently loading
     if (chatId && chatId !== conversationId && !isLoading) {
       // find the document ID for this conversation
       const restoreConversation = async () => {
@@ -165,7 +166,7 @@ function DashboardWithSearchParams () {
       };
       restoreConversation();
     }
-  }, [searchParams, userId, conversationId, handleSelectConversation, isLoading]);
+  }, [searchParams]); // Only depend on searchParams changes
 
   const fetchConversations = async () => {
     try {
