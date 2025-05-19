@@ -136,6 +136,7 @@ function DashboardWithSearchParams () {
     }
 
     // Only attempt to restore if we have a chat ID and we're not already showing that conversation
+    // and we're not currently loading
     if (chatId && chatId !== conversationId && !isLoading) {
       // find the document ID for this conversation
       const restoreConversation = async () => {
@@ -165,7 +166,7 @@ function DashboardWithSearchParams () {
       };
       restoreConversation();
     }
-  }, [searchParams, userId, conversationId, handleSelectConversation, isLoading]);
+  }, [searchParams]); // Only depend on searchParams changes
 
   const fetchConversations = async () => {
     try {
@@ -264,7 +265,7 @@ function DashboardWithSearchParams () {
     console.log('Voice recording toggled');
   }
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, model: string) => {
     if (!content.trim() || !conversationId) return;
 
     const userMessage = {
@@ -280,7 +281,8 @@ function DashboardWithSearchParams () {
       const payload = {
         content,
         conversationId,
-        documentId
+        documentId,
+        model
       };
 
       const response = await fetch('/api/chat', {
@@ -328,11 +330,13 @@ function DashboardWithSearchParams () {
       {/* Main content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* PDF Viewer Section */}
-        <EnhancedPDFViewer 
-          currentPDF={currentPDF}
-          onFileUpload={handleFileUpload}
-          fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
-        />
+        <div className="w-3/5">
+          <EnhancedPDFViewer
+            currentPDF={currentPDF}
+            onFileUpload={handleFileUpload}
+            fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
+          />
+        </div>
         {/* Chat Section */}
         <ChatInterface
           messages={messages}

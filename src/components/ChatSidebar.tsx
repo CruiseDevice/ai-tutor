@@ -1,5 +1,5 @@
 // src/components/ChatSidebar.tsx
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, LogOut, Settings, Trash2, User } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, LogOut, PlusCircle, Settings, Trash2, User } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
@@ -31,7 +31,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   onDeleteConversation,
 }, ref) => {
   const router = useRouter();
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -165,6 +165,11 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
     return date.toLocaleDateString();
   };
 
+  const handleNavigateToDashboard = (e: React.MouseEvent) => {
+    e.preventDefault();
+    router.push('/dashboard');
+  }
+
   return (
     <div 
       className={`h-full bg-gray-100 border-r border-gray-200 transition-all duration-300 flex flex-col ${
@@ -188,6 +193,17 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
         <>
           {/* Conversation list */}
           <div className="flex-1 overflow-y-auto">
+            {/* New Chat button */}
+            <div className="p-3 border-b border-gray-200">
+              <button
+                onClick={handleNavigateToDashboard}
+                className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md transition-colors"
+              >
+                <PlusCircle size={16}/>
+                <span>New Chat</span>
+              </button>
+            </div>
+
             {isLoading ? (
               <div className="flex justify-center items-center h-32">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>

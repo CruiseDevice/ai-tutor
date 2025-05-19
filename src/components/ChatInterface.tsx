@@ -1,5 +1,5 @@
 // app/components/ChatInterface.tsx
-import { Mic, Send, X } from "lucide-react";
+import { ChevronDown, Mic, Send, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,9 +10,16 @@ interface ChatMessage {
   content: string;
 }
 
+const AVAILABLE_MODELS = [
+  { id: "gpt-4", name: "GPT-4", description: "Most powerful model, but slower" },
+  { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", description: "Fast, good for most queries" },
+  { id: "gpt-4-turbo", name: "GPT-4 Turbo", description: "Powerful with larger context" },
+  { id: "gpt-4o", name: "GPT-4o", description: "Newest model with optimal performance" },
+]
+
 interface ChatInterfaceProps {
   messages: ChatMessage[];
-  onSendMessage: (message: string) => Promise<void>;
+  onSendMessage: (message: string, model: string) => Promise<void>;
   onVoiceRecord: () => void;
   isConversationSelected: boolean;
 }
@@ -23,11 +30,14 @@ export default function ChatInterface({
   onVoiceRecord,
   isConversationSelected
 }: ChatInterfaceProps) {
-  const [isRecording, setIsRecording] = useState(false);
+  // const [isRecording, setIsRecording] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
 
   const messageEndRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +72,7 @@ export default function ChatInterface({
 
     try {
       setInputMessage('');
-      await onSendMessage(inputMessage);
+      await onSendMessage(inputMessage, selectedModel);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message. Please try again.';
       setError(errorMessage);
@@ -71,14 +81,28 @@ export default function ChatInterface({
     }
   }
 
-  const handleVoiceRecord = () => {
-    try {
-      setIsRecording(!isRecording);
-      onVoiceRecord();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to start voice recording. Please try again.';
-      setError(errorMessage);
-    }
+  const toggleModelMenu = () => {
+    setIsModelMenuOpen(!isModelMenuOpen);
+  }
+
+  const selectModel = (modelId: string) => {
+    setIsModelMenuOpen(false);
+    setSelectedModel(modelId);
+  }
+
+  // const handleVoiceRecord = () => {
+  //   try {
+  //     setIsRecording(!isRecording);
+  //     onVoiceRecord();
+  //   } catch (error) {
+  //     const errorMessage = error instanceof Error ? error.message : 'Failed to start voice recording. Please try again.';
+  //     setError(errorMessage);
+  //   }
+  // }
+
+  const getSelectedModelName = () => {
+    const model = AVAILABLE_MODELS.find(m => m.id === selectedModel);
+    return model ? model.name : 'Select Model';
   }
 
   return (
@@ -146,32 +170,60 @@ export default function ChatInterface({
         <div ref={messageEndRef} />
       </div>
       {/* chat input */}
-      <div className="border-t border-gray-200 p-4">
+      <div className="border-t border-gray-200 p-2">
+        <div className="relative mb-1" ref={modelMenuRef}>
+          <button
+            onClick={toggleModelMenu}
+            className="inline-flex items-center text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-md"
+          >
+            <span className="mr-1">Model: {getSelectedModelName()}</span>
+            <ChevronDown size={16}/>
+          </button>
+          {isModelMenuOpen && (
+            <div className="absolute bottom-full mb-2 left-0 bg-white shadow-lg rounded-md border border-gray-200 w-64 z-10">
+              <div className="p-2">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Select Model</h3>
+                <div className="space-y-1">
+                  {AVAILABLE_MODELS.map(model => (
+                    <button
+                      key={model.id}
+                      onClick={() => selectModel(model.id)}
+                      className={`w-full text-left px-3 py-2 text-sm rounded-md ${selectedModel === model.id ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100'}`}
+                    >
+                      <div className="font-medium">{model.name}</div>
+                      <div className="text-xs text-gray-500">{model.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         <form
           onSubmit={handleSubmit}
           className="flex gap-2">
-          <button 
+          {/* <button 
             type="button"
             onClick={handleVoiceRecord}
             className={`p-2 rounded-full ${
               isRecording ? 'bg-red-500' : 'bg-gray-200'
             } hover:opacity-80`}>
               <Mic size={20} className={isRecording ? 'text-white' : 'text-gray-600'}/>
-            </button>
-            <input 
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder="Ask about the document..."
-              className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              type="submit"
-              disabled={!inputMessage.trim() || isLoading}
-              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send size={20}/>
-            </button>
+          </button> */}
+          <input 
+            type="text"
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            placeholder="Ask about the document..."
+            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="submit"
+            disabled={!inputMessage.trim() || isLoading}
+            className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Send size={20}/>
+          </button>
         </form>
       </div>
     </div>
