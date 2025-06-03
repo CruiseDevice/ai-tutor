@@ -11,6 +11,7 @@ const publicRoutes = [
   '/api/auth/password-reset/confirm',
   '/forgot-password',
   '/reset-password',
+  '/',
 ]
 
 export async function middleware(request: NextRequest) {
