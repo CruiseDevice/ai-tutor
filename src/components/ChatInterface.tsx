@@ -1,5 +1,6 @@
 // app/components/ChatInterface.tsx
 import { ChevronDown, Mic, Send, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -30,6 +31,7 @@ export default function ChatInterface({
   onVoiceRecord,
   isConversationSelected
 }: ChatInterfaceProps) {
+  const router = useRouter();
   // const [isRecording, setIsRecording] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -38,8 +40,27 @@ export default function ChatInterface({
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
+  const [hasApiKey, setHasApiKey] = useState(false);
 
   const messageEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkApiKey = async () => {
+      try{
+        const response = await fetch('/api/user/apikey/check');
+        if(!response.ok) {
+          throw new Error('Failed to check API key status');
+        }
+
+        const data = await response.json();
+        setHasApiKey(data.hasApiKey);
+      } catch (error) {
+        console.error('Error checking API key:', error);
+        setHasApiKey(false);
+      }
+    };
+    checkApiKey();
+  }, []);
 
   // Clear error after 5 seconds
   useEffect(() => {
@@ -66,6 +87,11 @@ export default function ChatInterface({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim() || isLoading || !isConversationSelected) return;
+
+    if (!hasApiKey) {
+      setError('Please set up your OpenAI API key in settings to continue chatting');
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -117,6 +143,14 @@ export default function ChatInterface({
             <X size={16} />
           </button>
           <p>{error}</p>
+          {!hasApiKey && (
+            <button
+              onClick={() => router.push('/settings')}
+              className="mt-2 text-sm text-blue-600 hover:text-blue-800 underline"
+            >
+              Go to API Settings
+            </button>
+          )}
         </div>
       )}
       
