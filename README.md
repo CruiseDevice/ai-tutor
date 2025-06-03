@@ -2,6 +2,8 @@
 
 StudyFetch AI Tutor is a web application that helps students understand PDF documents through an interactive split-screen interface. Users can upload PDFs and chat with an AI about the document's content, with the AI able to reference and highlight relevant parts of the PDF in real-time.
 
+![Landing Page](./landing_page.png)
+
 ## Features
 
 - 🔐 **User Authentication**: Secure email/password signup and login with session management

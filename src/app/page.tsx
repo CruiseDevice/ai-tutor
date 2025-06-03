@@ -84,7 +84,7 @@ export default function Home() {
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <div className="max-w-4xl mx-auto">
             <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight">
-              Learn Smarter with
+              Learn Smarter with <br />
               <span className="bg-gradient-to-r from-yellow-300 to-pink-300 bg-clip-text text-transparent">
                 AI-Powered
               </span>
