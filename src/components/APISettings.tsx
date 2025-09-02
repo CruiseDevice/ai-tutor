@@ -23,9 +23,10 @@ export default function APISettings() {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({apiKey})
       });
-
+      
       if(!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Faield to save API key');
