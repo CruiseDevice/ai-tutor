@@ -47,7 +47,10 @@ export default function ChatInterface({
   useEffect(() => {
     const checkApiKey = async () => {
       try{
-        const response = await fetch('/api/user/apikey/check');
+        const response = await fetch('/api/user/apikey/check', {
+          credentials: 'include'
+        });
+        console.log(response);
         if(!response.ok) {
           throw new Error('Failed to check API key status');
         }
