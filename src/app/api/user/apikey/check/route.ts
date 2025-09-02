@@ -3,14 +3,37 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
   try {
-    // get user id from request headers (set by middleware)
-    const userId = req.headers.get('x-user-id');
-    if (!userId) {
+    // get session token from cookies
+    const sessionToken = req.cookies.get('session_token')?.value;
+
+    if (!sessionToken) {
       return NextResponse.json(
-        {error: 'Unauthorized'},
+        {error: 'Unauthorized - No session token'},
         {status: 401}
-      );
+      )
     }
+
+    // verify session and get user ID
+    const session = await prisma.session.findFirst({
+      where: {
+        token: sessionToken,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      include: {
+        user: true,
+      },
+    })
+
+    if (!session) {
+      return NextResponse.json(
+        {error: 'Unauthorized - Invalid session'},
+        {status: 401}
+      )
+    }
+
+    const userId = session.userId;
 
     // Get user's API key status
     const user = await prisma.user.findUnique({
