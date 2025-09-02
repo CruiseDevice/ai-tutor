@@ -25,7 +25,6 @@ export async function middleware(request: NextRequest) {
 
   // get session token from cookies
   const sessionToken = request.cookies.get('session_token')?.value;
-  console.log(`Middleware - Path: ${path}, Session token: ${sessionToken}`);
 
   // check if it is an auth route (login/register)
   const isAuthRoute = path === '/login' || path === '/register';
@@ -42,7 +41,6 @@ export async function middleware(request: NextRequest) {
 
       if (response.ok) {
         const session = await response.json()
-        console.log(`Middleware - Valid session found for user: ${session.userId}`)
 
         // if user is logged in and trying to access auth routes (login/register)
         // redirect them to dashboard

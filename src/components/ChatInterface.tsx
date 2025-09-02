@@ -50,7 +50,7 @@ export default function ChatInterface({
         const response = await fetch('/api/user/apikey/check', {
           credentials: 'include'
         });
-        console.log(response);
+
         if(!response.ok) {
           throw new Error('Failed to check API key status');
         }

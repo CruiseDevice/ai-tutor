@@ -73,7 +73,7 @@ export async function POST(req: Request) {
       expires: session.expiresAt,
       path: '/',
     })
-    console.log(response);
+
     return response
 
   } catch (error) {
