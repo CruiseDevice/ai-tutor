@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { userApi } from "@/lib/api-client";
 
 interface ChatMessage {
   id: string;
@@ -47,9 +48,7 @@ export default function ChatInterface({
   useEffect(() => {
     const checkApiKey = async () => {
       try{
-        const response = await fetch('/api/user/apikey/check', {
-          credentials: 'include'
-        });
+        const response = await userApi.checkAPIKey();
 
         if(!response.ok) {
           throw new Error('Failed to check API key status');

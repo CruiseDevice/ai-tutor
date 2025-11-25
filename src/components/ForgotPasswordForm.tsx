@@ -4,6 +4,7 @@
 import { CheckCircle, X } from "lucide-react";
 import Link from "next/link"
 import { useState } from "react";
+import { authApi } from "@/lib/api-client";
 
 export default function ForgotPasswordForm() {
   const [email, setEmail] = useState('');
@@ -29,25 +30,11 @@ export default function ForgotPasswordForm() {
     setIsLoading(true);
 
     try {
-      
-      // Log the request details
-      const requestBody = JSON.stringify({email});
-      
-      const response = await fetch('/api/auth/password-reset/request', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: requestBody,
-      }).catch(fetchError => {
-        // TODO: Display error message to user
-        console.error('Fetch error:', fetchError);
-        throw new Error('Network error occurred');
-      });
+      const response = await authApi.requestPasswordReset(email);
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to send reset email');
+        throw new Error(data.error || data.detail || 'Failed to send reset email');
       }
 
       setSuccess('If an account with that email exists, you will receive a password reset link.');

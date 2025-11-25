@@ -6,6 +6,7 @@ import EnhancedPDFViewer from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
+import { authApi, documentApi, chatApi, conversationApi, getJson } from "@/lib/api-client";
 
 interface ChatMessage {
   id: string;
@@ -62,7 +63,7 @@ function DashboardWithSearchParams () {
     if(convoId === conversationId) return;  // Already selected
 
     try {
-      const response = await fetch(`/api/conversations/${convoId}`);
+      const response = await conversationApi.get(convoId);
       if (!response.ok) {
         throw new Error("Failed to fetch conversation");
       }
@@ -88,7 +89,7 @@ function DashboardWithSearchParams () {
     // debugging log
     const checkAuth = async () => {
       try {
-        const response = await fetch('/api/auth/verify-session');
+        const response = await authApi.verifySession();
 
         if(!response.ok) {
           router.push('/login')
@@ -106,7 +107,7 @@ function DashboardWithSearchParams () {
   useEffect(() => {
     const fetchUserId = async () => {
       try {
-        const response = await fetch('/api/auth/user');
+        const response = await authApi.getUser();
         const data = await response.json();
         if(response.ok) {
           setUserId(data.id);
@@ -135,47 +136,43 @@ function DashboardWithSearchParams () {
       return;
     }
 
-    // Only attempt to restore if we have a chat ID and we're not already showing that conversation
-    // and we're not currently loading
-    if (chatId && chatId !== conversationId && !isLoading) {
-      // find the document ID for this conversation
-      const restoreConversation = async () => {
-        setIsLoading(true);
-        try {
-          // first get all conversations to find the document ID matching this chat ID
-          const response = await fetch('/api/conversations');
-          if(!response.ok) {
-            throw new Error('Failed to fetch conversations');
-          }
-          const data = await response.json();
-          const matchingConversation = data.conversations.find(
-            (convo: {id: string}) => convo.id === chatId
-          );
+      // Only attempt to restore if we have a chat ID and we're not already showing that conversation
+      // and we're not currently loading
+      if (chatId && chatId !== conversationId && !isLoading) {
+        // find the document ID for this conversation
+        const restoreConversation = async () => {
+          setIsLoading(true);
+          try {
+            // first get all conversations to find the document ID matching this chat ID
+            const data = await fetchConversations();
+            const matchingConversation = data.find(
+              (convo: {id: string}) => convo.id === chatId
+            );
 
-          if(matchingConversation) {
-            // Now we can load this specific conversation
-            await handleSelectConversation(chatId, matchingConversation.documentId);
+            if(matchingConversation) {
+              // Now we can load this specific conversation
+              await handleSelectConversation(chatId, matchingConversation.document_id);
+            }
+          } catch (error) {
+            // TODO: Display error message to user
+            console.error('Error restoring conversations: ', error);
+            setError('Failed to restore conversation from URL');
+          } finally {
+            setIsLoading(false);
           }
-        } catch (error) {
-          // TODO: Display error message to user
-          console.error('Error restoring conversations: ', error);
-          setError('Failed to restore conversation from URL');
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      restoreConversation();
-    }
+        };
+        restoreConversation();
+      }
   }, [searchParams]); // Only depend on searchParams changes
 
   const fetchConversations = async () => {
     try {
-      const response = await fetch('/api/conversations');
+      const response = await conversationApi.list();
       if(!response.ok) {
         throw new Error('Failed to fetch conversations');
       }
       const data = await response.json();
-      return data.conversations;
+      return data;
     } catch (error) {
       // TODO: Display error message to user
       console.error('Error fetching conversations: ', error);
@@ -202,16 +199,9 @@ function DashboardWithSearchParams () {
       return;
     }
 
-    // create form data
-    const formData = new FormData();
-    formData.append('file', file);
-
     try{
-      // upload file
-      const response = await fetch('/api/documents', {
-        method: 'POST',
-        body: formData,
-      });
+      // upload file using document API
+      const response = await documentApi.upload(file);
 
       if(!response.ok) {
         throw new Error('Failed to upload document');
@@ -266,7 +256,7 @@ function DashboardWithSearchParams () {
   }
 
   const handleSendMessage = async (content: string, model: string) => {
-    if (!content.trim() || !conversationId) return;
+    if (!content.trim() || !conversationId || !documentId) return;
 
     const userMessage = {
       id: `temp=${Date.now()}`,
@@ -278,20 +268,7 @@ function DashboardWithSearchParams () {
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      const payload = {
-        content,
-        conversationId,
-        documentId,
-        model
-      };
-
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = await chatApi.sendMessage(conversationId, documentId, content, model);
 
       if(!response.ok) {
         throw new Error('Failed to send message');

@@ -3,6 +3,7 @@
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
+import { userApi } from "@/lib/api-client";
 
 export default function APISettings() {
   const router = useRouter();
@@ -18,18 +19,11 @@ export default function APISettings() {
     setSuccess('');
 
     try {
-      const response = await fetch('/api/user/apikey', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({apiKey})
-      });
+      const response = await userApi.updateAPIKey(apiKey);
       
       if(!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Faield to save API key');
+        throw new Error(data.error || data.detail || 'Failed to save API key');
       }
 
       setSuccess('API key saved successfully');

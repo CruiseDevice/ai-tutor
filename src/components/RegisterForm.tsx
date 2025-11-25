@@ -4,6 +4,7 @@
 import React, { useState } from "react"
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
+import { authApi } from "@/lib/api-client";
 
 interface FormErrors {
   email?: string;
@@ -78,26 +79,14 @@ export default function RegisterForm () {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password
-        })
-      });
-      
-      const data = await response.json();
+      const response = await authApi.register(formData.email, formData.password);
       
       if (!response.ok) {
-        if (response.status === 409) {
-          throw new Error('Email already registered');
-        } else if (response.status === 400) {
-          throw new Error(data.error || 'Invalid registration data');
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 409 || response.status === 400) {
+          throw new Error(data.detail || data.error || 'Email already registered or invalid data');
         } else {
-          throw new Error(data.error || 'Registration failed. Please try again');
+          throw new Error(data.detail || data.error || 'Registration failed. Please try again');
         }
       }
 
