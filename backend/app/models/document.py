@@ -4,6 +4,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from ..database import Base
+from datetime import datetime, timezone
 import uuid
 
 
@@ -13,7 +14,7 @@ def generate_uuid():
 
 class Document(Base):
     __tablename__ = "documents"
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=False)
@@ -21,8 +22,8 @@ class Document(Base):
     blob_path = Column(String, nullable=False)
     content_hash = Column(String, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now(), onupdate=func.now())
+
     # Relationships
     user = relationship("User", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
@@ -31,7 +32,7 @@ class Document(Base):
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
-    
+
     id = Column(String, primary_key=True, default=generate_uuid)
     content = Column(Text, nullable=False)
     page_number = Column(Integer, nullable=False)
@@ -40,8 +41,8 @@ class DocumentChunk(Base):
     position_data = Column(JSONB, nullable=True)
     content_hash = Column(String, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now(), onupdate=func.now())
+
     # Relationships
     document = relationship("Document", back_populates="chunks")
 

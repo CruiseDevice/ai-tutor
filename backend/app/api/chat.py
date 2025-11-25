@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError, DatabaseError
+import logging
 from ..database import get_db
 from ..core.deps import get_current_user
 from ..models.user import User
 from ..models.conversation import Conversation
 from ..schemas.chat import MessageCreate, ChatResponse
 from ..services.chat_service import ChatService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -26,13 +30,13 @@ async def send_message(
             Conversation.id == message_data.conversation_id,
             Conversation.user_id == user.id
         ).first()
-        
+
         if not conversation:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Conversation not found"
             )
-        
+
         # Generate response
         result = await chat_service.generate_chat_response(
             db=db,
@@ -42,15 +46,28 @@ async def send_message(
             document_id=message_data.document_id,
             model=message_data.model or "gpt-4"
         )
-        
+
         return ChatResponse(**result)
-        
+
+    except HTTPException:
+        raise
     except ValueError as e:
+        logger.error(f"ValueError in send_message: {str(e)}", exc_info=True)
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except (SQLAlchemyError, DatabaseError) as e:
+        logger.error(f"Database error in send_message: {str(e)}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}"
+        )
     except Exception as e:
+        logger.error(f"Unexpected error in send_message: {str(e)}", exc_info=True)
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process message: {str(e)}"
