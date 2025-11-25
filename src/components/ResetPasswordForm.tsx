@@ -4,7 +4,8 @@
 import { CheckCircle, X } from "lucide-react";
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react";
+import { authApi } from "@/lib/api-client";
 
 interface FormErrors {
   password?: string;
@@ -84,20 +85,11 @@ function ResetPasswordFormWithParams() {
     setIsLoading(true);
 
     try { 
-      const response = await fetch('/api/auth/password-reset/confirm', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          password: formData.password,
-          token: token
-        })
-      });
+      const response = await authApi.confirmPasswordReset(token, formData.password);
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to reset password');
+        throw new Error(data.error || data.detail || 'Failed to reset password');
       }
 
       setSuccess('Your password has been reset successfully. You can now log in with your new password.');
