@@ -280,3 +280,22 @@ nav {
   text-align: justify;
   hyphens: auto;
 }
+
+/* Custom Scrollbar */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thumb-slate-200::-webkit-scrollbar-thumb {
+  background: #e2e8f0;
+  border-radius: 3px;
+}
+
+.scrollbar-thumb-slate-200::-webkit-scrollbar-thumb:hover {
+  background: #cbd5e1;
+}
