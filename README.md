@@ -187,14 +187,6 @@ To change the embeddings model, update the model name in:
 - `/embeddings/document_processor.py`
 - `/embeddings/embeddings_service.py`
 
-## Deployment
-
-The application can be deployed on Vercel with the following considerations:
-
-1. Set up a PostgreSQL database with pgvector extension (e.g., using Supabase or Neon)
-2. Deploy the embeddings service separately (e.g., on a server or containerized service)
-3. Configure environment variables in your hosting platform
-
 ## Contributing
 
 1. Fork the repository
