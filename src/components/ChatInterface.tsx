@@ -156,7 +156,7 @@ export default function ChatInterface({
   }, [modelMenuRef]);
 
   return (
-    <div className="w-1/2 h-full flex flex-col bg-slate-50/50 relative overflow-hidden">
+    <div className="w-full h-full flex flex-col bg-slate-50/50 relative overflow-hidden">
        {/* Background Pattern */}
        <div className="absolute inset-0 z-0 opacity-[0.03]"
            style={{
