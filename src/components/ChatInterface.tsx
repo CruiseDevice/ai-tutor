@@ -1,5 +1,5 @@
 // app/components/ChatInterface.tsx
-import { Bot, ChevronDown, Loader2, Send, Sparkles, User, Paperclip, StopCircle } from "lucide-react";
+import { Bot, ChevronDown, Loader2, Send, Sparkles, User, Paperclip, StopCircle, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -13,10 +13,41 @@ interface ChatMessage {
 }
 
 const AVAILABLE_MODELS = [
-  { id: "gpt-4", name: "GPT-4", description: "Most powerful model, but slower" },
-  { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", description: "Fast, good for most queries" },
-  { id: "gpt-4-turbo", name: "GPT-4 Turbo", description: "Powerful with larger context" },
-  { id: "gpt-4o", name: "GPT-4o", description: "Newest model with optimal performance" },
+  // GPT-5 Series (Chat Models)
+  { id: "gpt-5.1", name: "GPT-5.1", description: "Latest GPT-5 model • $1.25/$0.125 per 1M tokens" },
+  { id: "gpt-5", name: "GPT-5", description: "GPT-5 base model • $1.25/$0.125 per 1M tokens" },
+  { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Compact GPT-5 • $0.25/$0.025 per 1M tokens" },
+  { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra-lightweight • $0.05/$0.005 per 1M tokens" },
+  { id: "gpt-5.1-chat-latest", name: "GPT-5.1 Chat Latest", description: "Latest chat variant • $1.25/$0.125 per 1M tokens" },
+  { id: "gpt-5-chat-latest", name: "GPT-5 Chat Latest", description: "Chat optimized • $1.25/$0.125 per 1M tokens" },
+  { id: "gpt-5-pro", name: "GPT-5 Pro", description: "Premium performance • $15.00/$120.00 per 1M tokens" },
+
+  // GPT-4.1 Series (Chat Models)
+  { id: "gpt-4.1", name: "GPT-4.1", description: "Enhanced GPT-4 • $2.00/$0.50 per 1M tokens" },
+  { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", description: "Compact GPT-4.1 • $0.40/$0.10 per 1M tokens" },
+  { id: "gpt-4.1-nano", name: "GPT-4.1 Nano", description: "Ultra-light GPT-4.1 • $0.10/$0.025 per 1M tokens" },
+
+  // GPT-4o Series (Chat Models)
+  { id: "gpt-4o", name: "GPT-4o", description: "Optimized GPT-4 • $2.50/$1.25 per 1M tokens" },
+  { id: "gpt-4o-2024-05-13", name: "GPT-4o (2024-05-13)", description: "Snapshot version • $5.00/$15.00 per 1M tokens" },
+  { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Lightweight GPT-4o • $0.15/$0.075 per 1M tokens" },
+
+  // Realtime Series (Chat Models)
+  { id: "gpt-realtime", name: "GPT Realtime", description: "Real-time responses • $4.00/$0.40 per 1M tokens" },
+  { id: "gpt-realtime-mini", name: "GPT Realtime Mini", description: "Lightweight realtime • $0.60/$0.06 per 1M tokens" },
+  { id: "gpt-4o-realtime-preview", name: "GPT-4o Realtime Preview", description: "Preview realtime • $5.00/$2.50 per 1M tokens" },
+  { id: "gpt-4o-mini-realtime-preview", name: "GPT-4o Mini Realtime", description: "Mini realtime preview • $0.60/$0.30 per 1M tokens" },
+
+  // O-Series (Reasoning Models - Chat Compatible)
+  { id: "o1", name: "O1", description: "Reasoning model • $15.00/$7.50 per 1M tokens" },
+  { id: "o1-pro", name: "O1 Pro", description: "Advanced reasoning • $150.00/$600.00 per 1M tokens" },
+  { id: "o1-mini", name: "O1 Mini", description: "Lightweight reasoning • $1.10/$0.55 per 1M tokens" },
+  { id: "o3", name: "O3", description: "Next-gen reasoning • $2.00/$0.50 per 1M tokens" },
+  { id: "o3-pro", name: "O3 Pro", description: "Premium reasoning • $20.00/$80.00 per 1M tokens" },
+  { id: "o3-mini", name: "O3 Mini", description: "Compact reasoning • $1.10/$0.55 per 1M tokens" },
+  { id: "o3-deep-research", name: "O3 Deep Research", description: "Deep research mode • $10.00/$2.50 per 1M tokens" },
+  { id: "o4-mini", name: "O4 Mini", description: "Latest mini reasoning • $1.10/$0.275 per 1M tokens" },
+  { id: "o4-mini-deep-research", name: "O4 Mini Deep Research", description: "Mini deep research • $2.00/$0.50 per 1M tokens" },
 ]
 
 interface ChatInterfaceProps {
@@ -42,9 +73,13 @@ export default function ChatInterface({
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
 
   const messageEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const prevMessagesLengthRef = useRef(messages.length);
 
   useEffect(() => {
     const checkApiKey = async () => {
@@ -82,9 +117,49 @@ export default function ChatInterface({
     };
   }, [error]);
 
-  // scroll to bottom when messages change
+  // Track scroll position to determine if we should auto-scroll
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({behavior: 'smooth'});
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const threshold = 150;
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+      shouldAutoScrollRef.current = isNearBottom;
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    // Check initial position
+    handleScroll();
+
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // scroll to bottom when messages change, but only if user is near bottom or new message was added
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const messagesIncreased = messages.length > prevMessagesLengthRef.current;
+    const wasEmpty = prevMessagesLengthRef.current === 0;
+    prevMessagesLengthRef.current = messages.length;
+
+    // Only auto-scroll if new messages were added
+    if (!messagesIncreased) return;
+
+    // Auto-scroll if:
+    // 1. User is near bottom (within 150px), OR
+    // 2. This is the initial load (was empty before)
+    if (shouldAutoScrollRef.current || wasEmpty) {
+      // Use requestAnimationFrame to ensure DOM is updated, then scroll container directly
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight;
+          }
+        });
+      });
+    }
   }, [messages]);
 
   // Auto-resize textarea
@@ -130,6 +205,9 @@ export default function ChatInterface({
 
   const toggleModelMenu = () => {
     setIsModelMenuOpen(!isModelMenuOpen);
+    if (!isModelMenuOpen) {
+      setModelSearchQuery(''); // Reset search when opening
+    }
   }
 
   const selectModel = (modelId: string) => {
@@ -141,6 +219,12 @@ export default function ChatInterface({
     const model = AVAILABLE_MODELS.find(m => m.id === selectedModel);
     return model ? model.name : 'Select Model';
   }
+
+  const filteredModels = AVAILABLE_MODELS.filter(model =>
+    model.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+    model.id.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+    model.description.toLowerCase().includes(modelSearchQuery.toLowerCase())
+  );
 
   // Click outside to close model menu
   useEffect(() => {
@@ -158,7 +242,7 @@ export default function ChatInterface({
   return (
     <div className="w-full h-full flex flex-col bg-slate-50/50 relative overflow-hidden">
        {/* Background Pattern */}
-       <div className="absolute inset-0 z-0 opacity-[0.03]"
+       <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none"
            style={{
              backgroundImage: 'radial-gradient(#64748b 1px, transparent 1px)',
              backgroundSize: '24px 24px'
@@ -220,34 +304,53 @@ export default function ChatInterface({
           </button>
 
           {isModelMenuOpen && (
-            <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 z-20 animate-in fade-in zoom-in-95 duration-200">
-              <div className="px-2 py-1.5 mb-1">
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Select Model</h3>
+            <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-20 animate-in fade-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[600px]">
+              <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Model</h3>
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search models..."
+                    value={modelSearchQuery}
+                    onChange={(e) => setModelSearchQuery(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 placeholder:text-slate-400"
+                  />
+                </div>
               </div>
-              {AVAILABLE_MODELS.map(model => (
-                <button
-                  key={model.id}
-                  onClick={() => selectModel(model.id)}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg flex flex-col gap-0.5 transition-all ${
-                    selectedModel === model.id
-                      ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
-                      : 'hover:bg-slate-50 text-slate-700'
-                  }`}
-                >
-                  <span className="text-sm font-medium flex items-center gap-2">
-                    {model.name}
-                    {selectedModel === model.id && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
-                  </span>
-                  <span className="text-xs text-slate-400 line-clamp-1">{model.description}</span>
-                </button>
-              ))}
+              <div className="overflow-y-auto p-1.5 flex-1">
+                {filteredModels.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-sm text-slate-400">
+                    No models found matching &quot;{modelSearchQuery}&quot;
+                  </div>
+                ) : (
+                  filteredModels.map(model => (
+                    <button
+                      key={model.id}
+                      onClick={() => selectModel(model.id)}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg flex flex-col gap-0.5 transition-all mb-1 ${
+                        selectedModel === model.id
+                          ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+                          : 'hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <span className="text-sm font-medium flex items-center gap-2">
+                        {model.name}
+                        {selectedModel === model.id && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
+                      </span>
+                      <span className="text-xs text-slate-400 line-clamp-1">{model.description}</span>
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </div>
       </div>
 
       {/* Chat Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+      <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
         {messages.length === 0 && !isConversationSelected && (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mb-6 shadow-sm transform rotate-3">
