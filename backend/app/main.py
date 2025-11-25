@@ -1,8 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 from .config import settings
 from .api import auth, documents, chat, conversations, user
 from .services.embedding_service import EmbeddingService
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Create FastAPI app
 app = FastAPI(
@@ -12,12 +19,15 @@ app = FastAPI(
 )
 
 # Configure CORS
+# Use specific origins from settings (allows credentials)
+# For development, include common localhost variations
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 

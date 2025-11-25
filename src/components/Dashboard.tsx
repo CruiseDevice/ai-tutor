@@ -6,7 +6,7 @@ import EnhancedPDFViewer from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
-import { authApi, documentApi, chatApi, conversationApi, getJson } from "@/lib/api-client";
+import { authApi, documentApi, chatApi, conversationApi } from "@/lib/api-client";
 
 interface ChatMessage {
   id: string;
@@ -44,7 +44,7 @@ function DashboardWithSearchParams () {
     // Update the URL without causing a page refresh
     router.push(`${pathname}?${params.toString()}`, {scroll: false});
   }, [searchParams, pathname, router]);
- 
+
   const handleDeleteConversation = useCallback((deletedConversationId: string) => {
     if (deletedConversationId === conversationId) {
       setCurrentPDF('');
@@ -58,7 +58,7 @@ function DashboardWithSearchParams () {
     }
   }, [conversationId, pathname, router, searchParams])
 
-  
+
   const handleSelectConversation = useCallback(async (convoId: string, docId: string) => {
     if(convoId === conversationId) return;  // Already selected
 
@@ -102,7 +102,7 @@ function DashboardWithSearchParams () {
     };
     checkAuth();
   }, [router])
-  
+
   // fetch user ID on component mount
   useEffect(() => {
     const fetchUserId = async () => {
@@ -206,7 +206,7 @@ function DashboardWithSearchParams () {
       if(!response.ok) {
         throw new Error('Failed to upload document');
       }
-  
+
       const data = await response.json();
       setCurrentPDF(data.url);
       setDocumentId(data.id);
@@ -243,6 +243,21 @@ function DashboardWithSearchParams () {
       } else {
         console.error('No conversationId returned from server');
       }
+
+      // Process the document to generate embeddings
+      try {
+        const processResponse = await documentApi.process(data.id);
+        if (!processResponse.ok) {
+          const errorData = await processResponse.json().catch(() => ({ detail: 'Failed to process document' }));
+          setError(`Document uploaded but processing failed: ${errorData.detail || errorData.error}`);
+        } else {
+          const processData = await processResponse.json();
+          console.log('Document processed successfully:', processData);
+        }
+      } catch (processError) {
+        console.error('Error processing document:', processError);
+        setError('Document uploaded but failed to generate embeddings. Please try processing again.');
+      }
     } catch (error) {
       // TODO: Display error message to user
       console.error('Upload error:', error);
@@ -264,28 +279,43 @@ function DashboardWithSearchParams () {
       content: content.trim()
     };
 
-    // add user message to chat 
+    // add user message to chat
     setMessages(prev => [...prev, userMessage]);
 
     try {
       const response = await chatApi.sendMessage(conversationId, documentId, content, model);
-
+      console.log(response)
       if(!response.ok) {
-        throw new Error('Failed to send message');
+        // Try to extract error message from response
+        let errorMessage = 'Failed to send message';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorData.error || errorMessage;
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      
+
       // update messages with server response
       setMessages(prev => [
         ...prev.filter(m=>m.id !== userMessage.id), // Remove temp message
-        data.userMessage,  // Add actual user message with ID
-        data.assistantMessage // Add assistant response
+        data.user_message,  // Add actual user message with ID
+        data.assistant_message // Add assistant response
       ]);
+
+      // Clear any previous errors on success
+      setError(null);
     } catch (error) {
-      // TODO: Display error message to user
-      console.error('Chat error: ', error);
-      setError('Failed to send message');
+      // Remove the temporary user message on error
+      setMessages(prev => prev.filter(m => m.id !== userMessage.id));
+
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
+      console.error('Chat error: ', errorMessage);
+      setError(errorMessage);
     }
   }
 
