@@ -22,12 +22,18 @@ function DashboardWithSearchParams () {
   const [currentPDF, setCurrentPDF] = useState('');
   const [documentId, setDocumentId] = useState('');
   const [userId, setUserId] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
+
+  // Resizer state
+  const [splitPosition, setSplitPosition] = useState(60); // Percentage (60% for PDF, 40% for Chat)
+  const [isResizing, setIsResizing] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Function to update URL with the chat ID
   const updateUrl = useCallback((chatId: string | null) => {
@@ -103,14 +109,15 @@ function DashboardWithSearchParams () {
     checkAuth();
   }, [router])
 
-  // fetch user ID on component mount
+  // fetch user ID and email on component mount
   useEffect(() => {
-    const fetchUserId = async () => {
+    const fetchUser = async () => {
       try {
         const response = await authApi.getUser();
         const data = await response.json();
         if(response.ok) {
           setUserId(data.id);
+          setUserEmail(data.email || '');
         } else {
           // TODO: Display error message to user
           console.error('Failed to fetch user: ', data);
@@ -120,7 +127,7 @@ function DashboardWithSearchParams () {
         console.error('Error fetching user:', error);
       }
     };
-    fetchUserId();
+    fetchUser();
   }, []);
 
   // Now effect to restore chat from URL parameter
@@ -319,6 +326,43 @@ function DashboardWithSearchParams () {
     }
   }
 
+  // Resizer handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing || !containerRef.current) return;
+
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newPosition = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+
+      // Constrain between 20% and 80% to prevent components from becoming too small
+      const constrainedPosition = Math.max(20, Math.min(80, newPosition));
+      setSplitPosition(constrainedPosition);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
   if (error) {
     return <div className="p-4 text-red-500">{error}</div>
   }
@@ -329,28 +373,59 @@ function DashboardWithSearchParams () {
       <ChatSidebar
         ref={chatSidebarRef}
         userId={userId}
+        userEmail={userEmail}
         onSelectConversation={handleSelectConversation}
         currentConversationId={conversationId}
         onDeleteConversation={handleDeleteConversation}
       />
 
       {/* Main content Area */}
-      <div className="flex flex-1 overflow-hidden">
+      <div ref={containerRef} className="flex flex-1 overflow-hidden relative">
         {/* PDF Viewer Section */}
-        <div className="w-3/5">
+        <div
+          className="h-full overflow-hidden"
+          style={{ width: `${splitPosition}%` }}
+        >
           <EnhancedPDFViewer
             currentPDF={currentPDF}
             onFileUpload={handleFileUpload}
             fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
           />
         </div>
+
+        {/* Resizer */}
+        <div
+          onMouseDown={handleMouseDown}
+          className={`absolute top-0 bottom-0 w-1 bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors z-20 ${
+            isResizing ? 'bg-blue-500' : ''
+          }`}
+          style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
+        >
+          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-12 rounded-full flex items-center justify-center transition-all ${
+            isResizing
+              ? 'bg-blue-500 shadow-lg scale-110'
+              : 'bg-gray-200 hover:bg-blue-400 hover:shadow-md'
+          }`}>
+            <div className="flex flex-col gap-1">
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
+            </div>
+          </div>
+        </div>
+
         {/* Chat Section */}
-        <ChatInterface
-          messages={messages}
-          onSendMessage={handleSendMessage}
-          onVoiceRecord={handleVoiceRecord}
-          isConversationSelected={!!conversationId}
-        />
+        <div
+          className="h-full overflow-hidden"
+          style={{ width: `${100 - splitPosition}%` }}
+        >
+          <ChatInterface
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            onVoiceRecord={handleVoiceRecord}
+            isConversationSelected={!!conversationId}
+          />
+        </div>
       </div>
     </div>
   )
