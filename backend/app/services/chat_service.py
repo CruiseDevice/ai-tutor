@@ -1,17 +1,21 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError, DatabaseError
 from typing import List, Dict, Optional
 from openai import OpenAI
+import logging
 from ..models.conversation import Conversation, Message
 from ..models.document import DocumentChunk
 from ..models.user import User
 from .embedding_service import get_embedding_service
 
+logger = logging.getLogger(__name__)
+
 
 class ChatService:
     def __init__(self):
         self.embedding_service = get_embedding_service()
-    
+
     def find_similar_chunks(
         self,
         db: Session,
@@ -20,46 +24,64 @@ class ChatService:
         limit: int = 5
     ) -> List[Dict]:
         """Find similar document chunks using vector similarity search."""
-        # Generate embedding for the query
-        query_embedding = self.embedding_service.generate_embedding(query)
-        
-        # Perform vector similarity search using pgvector
-        query_sql = text("""
-            SELECT 
-                id,
-                content,
-                page_number,
-                document_id,
-                position_data,
-                1 - (embedding <=> :embedding::vector) as similarity
-            FROM document_chunks
-            WHERE document_id = :document_id
-            ORDER BY similarity DESC
-            LIMIT :limit
-        """)
-        
-        result = db.execute(
-            query_sql,
-            {
-                "embedding": query_embedding,
-                "document_id": document_id,
-                "limit": limit
-            }
-        )
-        
-        chunks = []
-        for row in result:
-            chunks.append({
-                "id": row.id,
-                "content": row.content,
-                "pageNumber": row.page_number,
-                "documentId": row.document_id,
-                "positionData": row.position_data,
-                "similarity": float(row.similarity)
-            })
-        
-        return chunks
-    
+        try:
+            # Generate embedding for the query
+            logger.debug(f"Generating embedding for query: {query[:50]}...")
+            query_embedding = self.embedding_service.generate_embedding(query)
+            logger.debug(f"Generated embedding with {len(query_embedding)} dimensions")
+
+            # Perform vector similarity search using pgvector
+            # pgvector expects the vector in the format '[1,2,3]' as a string
+            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+
+            query_sql = text("""
+                SELECT
+                    id,
+                    content,
+                    page_number,
+                    document_id,
+                    position_data,
+                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                FROM document_chunks
+                WHERE document_id = :document_id
+                ORDER BY similarity DESC
+                LIMIT :limit
+            """)
+
+            logger.debug(f"Executing vector search for document_id: {document_id}")
+            result = db.execute(
+                query_sql,
+                {
+                    "embedding": embedding_str,
+                    "document_id": document_id,
+                    "limit": limit
+                }
+            )
+
+            chunks = []
+            for row in result:
+                chunks.append({
+                    "id": row.id,
+                    "content": row.content,
+                    "pageNumber": row.page_number,
+                    "documentId": row.document_id,
+                    "positionData": row.position_data,
+                    "similarity": float(row.similarity)
+                })
+
+            logger.debug(f"Found {len(chunks)} similar chunks")
+            return chunks
+        except (SQLAlchemyError, DatabaseError) as e:
+            logger.error(f"Database error in find_similar_chunks: {str(e)}", exc_info=True)
+            # Rollback the transaction to allow subsequent queries to work
+            db.rollback()
+            # Return empty list instead of raising to allow chat to continue
+            return []
+        except Exception as e:
+            logger.error(f"Error in find_similar_chunks: {str(e)}", exc_info=True)
+            # Return empty list instead of raising to allow chat to continue
+            return []
+
     async def generate_chat_response(
         self,
         db: Session,
@@ -70,33 +92,38 @@ class ChatService:
         model: str = "gpt-4"
     ) -> Dict:
         """Generate a chat response using OpenAI with RAG."""
-        if not user.api_key:
-            raise ValueError("User has no OpenAI API key configured")
-        
-        # Initialize OpenAI client
-        client = OpenAI(api_key=user.api_key)
-        
-        # Find relevant chunks
-        relevant_chunks = self.find_similar_chunks(db, content, document_id, limit=5)
-        
-        # Format context from chunks
-        if relevant_chunks:
-            context_text = "\n\n".join([
-                f"[Page {chunk['pageNumber']}]: {chunk['content']}"
-                for chunk in relevant_chunks
-            ])
-        else:
-            context_text = "No relevant document sections found."
-        
-        # Create system message with context
-        system_message = {
-            "role": "system",
-            "content": f"""You are an AI tutor helping a student understand a PDF document. 
+        try:
+            if not user.api_key:
+                logger.error(f"User {user.id} has no OpenAI API key configured")
+                raise ValueError("User has no OpenAI API key configured. Please configure your API key in settings.")
+
+            logger.debug(f"Generating chat response for user {user.id}, conversation {conversation_id}")
+
+            # Initialize OpenAI client
+            client = OpenAI(api_key=user.api_key)
+
+            # Find relevant chunks
+            logger.debug(f"Finding similar chunks for document {document_id}")
+            relevant_chunks = self.find_similar_chunks(db, content, document_id, limit=5)
+
+            # Format context from chunks
+            if relevant_chunks:
+                context_text = "\n\n".join([
+                    f"[Page {chunk['pageNumber']}]: {chunk['content']}"
+                    for chunk in relevant_chunks
+                ])
+            else:
+                context_text = "No relevant document sections found."
+
+            # Create system message with context
+            system_message = {
+                "role": "system",
+                "content": f"""You are an AI tutor helping a student understand a PDF document.
 You have access to the following document chunks that are relevant to the student's question:
 
 {context_text}
 
-When referring to content, always cite the page number like [Page X]. 
+When referring to content, always cite the page number like [Page X].
 Make sure to use the correct page number for each piece of information.
 
 IMPORTANT FORMATTING INSTRUCTIONS:
@@ -106,72 +133,92 @@ IMPORTANT FORMATTING INSTRUCTIONS:
 4. Use bullet points or numbered lists for step-by-step explanations.
 5. For critical information or warnings, use "⚠️" at the beginning of the paragraph.
 
-Make your responses helpful, clear, and educational. If the context doesn't contain the answer, 
+Make your responses helpful, clear, and educational. If the context doesn't contain the answer,
 say you don't have enough information from the document and suggest looking at other pages."""
-        }
-        
-        # Get conversation history
-        history = db.query(Message).filter(
-            Message.conversation_id == conversation_id
-        ).order_by(Message.created_at).limit(10).all()
-        
-        # Format history for OpenAI
-        messages = [system_message]
-        for msg in history:
-            messages.append({
-                "role": msg.role,
-                "content": msg.content
-            })
-        
-        # Add current user message
-        messages.append({
-            "role": "user",
-            "content": content
-        })
-        
-        # Call OpenAI
-        completion = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1000
-        )
-        
-        assistant_content = completion.choices[0].message.content
-        
-        # Save user message
-        user_message = Message(
-            content=content,
-            role="user",
-            conversation_id=conversation_id
-        )
-        db.add(user_message)
-        db.flush()
-        
-        # Save assistant message with context
-        assistant_message = Message(
-            content=assistant_content,
-            role="assistant",
-            conversation_id=conversation_id,
-            context=relevant_chunks
-        )
-        db.add(assistant_message)
-        db.commit()
-        
-        db.refresh(user_message)
-        db.refresh(assistant_message)
-        
-        return {
-            "userMessage": {
-                "id": user_message.id,
-                "role": user_message.role,
-                "content": user_message.content
-            },
-            "assistantMessage": {
-                "id": assistant_message.id,
-                "role": assistant_message.role,
-                "content": assistant_message.content,
-                "context": relevant_chunks
             }
-        }
+
+            # Get conversation history
+            logger.debug(f"Fetching conversation history for {conversation_id}")
+            history = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).order_by(Message.created_at).limit(10).all()
+
+            # Format history for OpenAI
+            messages = [system_message]
+            for msg in history:
+                messages.append({
+                    "role": msg.role,
+                    "content": msg.content
+                })
+
+            # Add current user message
+            messages.append({
+                "role": "user",
+                "content": content
+            })
+
+            # Call OpenAI
+            logger.debug(f"Calling OpenAI API with model {model}")
+            try:
+                completion = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+            except Exception as e:
+                logger.error(f"OpenAI API error: {str(e)}", exc_info=True)
+                raise ValueError(f"OpenAI API error: {str(e)}")
+
+            assistant_content = completion.choices[0].message.content
+            logger.debug("Received response from OpenAI")
+
+            # Save user message
+            user_message = Message(
+                content=content,
+                role="user",
+                conversation_id=conversation_id
+            )
+            db.add(user_message)
+            db.flush()
+
+            # Save assistant message with context
+            assistant_message = Message(
+                content=assistant_content,
+                role="assistant",
+                conversation_id=conversation_id,
+                context=relevant_chunks
+            )
+            db.add(assistant_message)
+            db.commit()
+
+            db.refresh(user_message)
+            db.refresh(assistant_message)
+
+            logger.debug("Messages saved successfully")
+
+            return {
+                "user_message": {
+                    "id": user_message.id,
+                    "role": user_message.role,
+                    "content": user_message.content,
+                    "created_at": user_message.created_at,
+                    "context": None
+                },
+                "assistant_message": {
+                    "id": assistant_message.id,
+                    "role": assistant_message.role,
+                    "content": assistant_message.content,
+                    "created_at": assistant_message.created_at,
+                    "context": relevant_chunks
+                }
+            }
+        except ValueError:
+            # Re-raise ValueError as-is
+            raise
+        except Exception as e:
+            logger.error(f"Error in generate_chat_response: {str(e)}", exc_info=True)
+            # Rollback any pending transaction
+            db.rollback()
+            raise
 

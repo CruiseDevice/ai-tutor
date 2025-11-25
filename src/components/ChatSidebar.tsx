@@ -3,12 +3,26 @@ import { ChevronDown, ChevronLeft, ChevronRight, FileText, LogOut, PlusCircle, S
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { conversationApi, authApi } from "@/lib/api-client";
 
 interface Conversation {
   id: string;
   documentId: string;
   title: string;  // document title
   updatedAt: string
+}
+
+interface BackendConversationResponse {
+  id: string;
+  user_id: string;
+  document_id: string;
+  created_at: string;
+  updated_at: string;
+  document: {
+    id: string;
+    title: string;
+    url: string;
+  } | null;
 }
 
 interface ChatSidebarProps {
@@ -37,12 +51,12 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   const [deleting, setDeleting] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  
+
   // Method to add a new conversation to the list
   function addNewConversation(newConversation: Conversation) {
     setConversations(prev => [newConversation, ...prev]);
   }
-  
+
   // Expose the method to parent components using useImperativeHandle
   useImperativeHandle(ref, () => ({
     addNewConversation
@@ -54,13 +68,20 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
     const fetchConversations = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch('/api/conversations');
+        const response = await conversationApi.list();
         if (!response.ok) {
           throw new Error('Failed to fetch conversations');
         }
-        
-        const data = await response.json();
-        setConversations(data.conversations);
+
+        const data = await response.json() as BackendConversationResponse[];
+        // Backend returns a list directly, map it to the expected format
+        const mappedConversations = data.map((conv) => ({
+          id: conv.id,
+          documentId: conv.document_id,
+          title: conv.document?.title || 'Untitled Document',
+          updatedAt: conv.updated_at
+        }));
+        setConversations(mappedConversations);
       } catch (error) {
         console.error('Error fetching conversations: ', error)
       } finally {
@@ -86,19 +107,14 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   }, []);
 
   const handleLogout = async () => {
-    try {
-      const response = await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      try {
+        const response = await authApi.logout();
 
       if (!response.ok) {
         throw new Error('Failed to logout');
       }
 
-      // Redirect to login page after successful logout 
+      // Redirect to login page after successful logout
       router.push('/login')
       // Force a page refresh to clear any client-side state
       router.refresh();
@@ -114,9 +130,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
       setDeleting(conversationId);
 
       try {
-        const response = await fetch(`/api/conversations/${conversationId}`, {
-          method: 'DELETE',
-        });
+        const response = await conversationApi.delete(conversationId);
 
         if (!response.ok) {
           throw new Error('Failed to delete conversation');
@@ -143,24 +157,24 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
-    
+
     // Check if it's today
     if (date.toDateString() === now.toDateString()) {
       return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     }
-    
+
     // Check if it's yesterday
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
     if (date.toDateString() === yesterday.toDateString()) {
       return `Yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     }
-    
+
     // If it's in the last week, show the day name
     if (now.getTime() - date.getTime() < 7 * 24 * 60 * 60 * 1000) {
       return date.toLocaleDateString(undefined, { weekday: 'long' });
     }
-    
+
     // Otherwise show full date
     return date.toLocaleDateString();
   };
@@ -171,7 +185,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   }
 
   return (
-    <div 
+    <div
       className={`h-full bg-gray-100 border-r border-gray-200 transition-all duration-300 flex flex-col ${
         isOpen ? 'w-72' : 'w-16'
       }`}
@@ -179,7 +193,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
       {/* Header with toggle button */}
       <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-gray-200">
         {isOpen && <h2 className="font-semibold text-lg text-gray-700">Documents</h2>}
-        <button 
+        <button
           onClick={() => setIsOpen(!isOpen)}
           className="p-2 rounded-full hover:bg-gray-300 text-gray-500 hover:text-gray-700 transition-colors"
           aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
@@ -217,8 +231,8 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                 {conversations.map((conversation) => (
                   <li key={conversation.id} className="group">
                     <div className={`relative rounded-lg transition-colors ${
-                      currentConversationId === conversation.id 
-                        ? 'bg-blue-100 hover:bg-blue-200' 
+                      currentConversationId === conversation.id
+                        ? 'bg-blue-100 hover:bg-blue-200'
                         : 'hover:bg-gray-200'
                     }`}>
                       <button
@@ -237,12 +251,12 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                           </div>
                         </div>
                       </button>
-                      
+
                       <button
                         onClick={(e) => handleDelete(e, conversation.id, conversation.documentId)}
                         className={`absolute right-2 top-3 p-1.5 rounded-full ${
-                          deleting === conversation.id 
-                            ? 'bg-red-100' 
+                          deleting === conversation.id
+                            ? 'bg-red-100'
                             : 'opacity-0 group-hover:opacity-100 hover:bg-red-100'
                         } transition-opacity`}
                         disabled={deleting === conversation.id}
@@ -275,18 +289,18 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
           </button>
           {/* Dropdown menu */}
           {isMenuOpen && (
-            <div 
+            <div
               ref={menuRef}
               className="absolute bottom-14 left-3 right-3 bg-white rounded-md shadow-lg border border-gray-200 overflow-hidden z-10"
             >
-              <Link 
+              <Link
                 href="/settings"
                 className="flex items-center p-3 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
               >
                 <Settings size={16} className="mr-2 text-gray-500" />
                 API Settings
               </Link>
-              <button 
+              <button
                 onClick={handleLogout}
                 className="w-full flex items-center p-3 text-sm text-red-600 hover:bg-gray-100 transition-colors"
               >
