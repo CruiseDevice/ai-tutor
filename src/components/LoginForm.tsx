@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { X } from "lucide-react";
+import { authApi, getJson } from "@/lib/api-client";
 
 interface FormErrors {
   email?: string;
@@ -66,23 +67,16 @@ export default function LoginForm() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await response.json();
+      const response = await authApi.login(formData.email, formData.password);
       
       if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
         if (response.status === 401) {
           throw new Error('Invalid email or password');
         } else if (response.status === 429) {
           throw new Error('Too many login attempts. Please try again later');
         } else {
-          throw new Error(data.error || 'Login failed. Please try again');
+          throw new Error(data.error || data.detail || 'Login failed. Please try again');
         }
       }
       
