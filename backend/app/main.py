@@ -4,6 +4,7 @@ import logging
 from .config import settings
 from .api import auth, documents, chat, conversations, user
 from .services.embedding_service import EmbeddingService
+from .core.rate_limiting import setup_rate_limiting
 
 # Configure logging
 logging.basicConfig(
@@ -11,12 +12,18 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# Initialize logger
+logger = logging.getLogger(__name__)
+
 # Create FastAPI app
 app = FastAPI(
     title="StudyFetch AI Tutor Backend",
     description="Backend API for StudyFetch AI Tutor",
     version="1.0.0"
 )
+
+# Setup rate limiting
+setup_rate_limiting(app)
 
 # Configure CORS
 # Use specific origins from settings (allows credentials)
@@ -34,16 +41,30 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    # Create database tables
-    from .database import engine, Base
-    # Import models to register them with SQLAlchemy Base
-    from .models import user, document, conversation  # noqa: F401
-    Base.metadata.create_all(bind=engine)
+    try:
+        # Create database tables
+        from .database import engine, Base
+        # Import models to register them with SQLAlchemy Base
+        from .models import user, document, conversation  # noqa: F401
+        Base.metadata.create_all(bind=engine)
+
+        # Run migrations for existing databases
+        from .database_migrations import add_title_column_if_missing
+        add_title_column_if_missing(engine)
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}", exc_info=True)
+        # Don't crash - let the app start even if migrations fail
+        # The app can still function, though some features may not work
 
     # Initialize embedding service (loads the model once)
-    from .services import embedding_service as emb_module
-    if emb_module.embedding_service is None:
-        emb_module.embedding_service = EmbeddingService()
+    try:
+        from .services import embedding_service as emb_module
+        if emb_module.embedding_service is None:
+            emb_module.embedding_service = EmbeddingService()
+    except Exception as e:
+        logger.error(f"Embedding service initialization error: {e}", exc_info=True)
+        # Don't crash - app can start without embedding service
+        # (though chat features won't work)
 
 
 # Include routers

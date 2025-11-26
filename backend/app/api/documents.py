@@ -27,10 +27,10 @@ async def upload_document(
     """Upload a PDF document."""
     try:
         document, conversation = await document_service.create_document(db, user.id, file)
-        
+
         # Generate signed URL for immediate access
         signed_url = document_service.get_signed_url(document.blob_path)
-        
+
         return {
             "id": document.id,
             "title": document.title,
@@ -60,15 +60,15 @@ async def process_document(
             Document.id == request.document_id,
             Document.user_id == user.id
         ).first()
-        
+
         if not document:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Document not found"
             )
-        
+
         result = await document_service.process_document(db, request.document_id)
-        
+
         return DocumentProcessResponse(**result)
     except HTTPException:
         raise
@@ -86,7 +86,7 @@ async def list_documents(
 ):
     """List all documents for the current user."""
     documents = document_service.list_documents(db, user.id)
-    return [DocumentResponse.from_orm(doc) for doc in documents]
+    return [DocumentResponse.model_validate(doc) for doc in documents]
 
 
 @router.delete("/{document_id}")
@@ -97,13 +97,13 @@ async def delete_document(
 ):
     """Delete a document and all associated data."""
     success = document_service.delete_document(db, document_id, user.id)
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
         )
-    
+
     return {"message": "Document deleted successfully"}
 
 
@@ -118,16 +118,16 @@ async def get_document(
         Document.id == document_id,
         Document.user_id == user.id
     ).first()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
         )
-    
+
     # Generate fresh signed URL
     signed_url = document_service.get_signed_url(document.blob_path)
-    
+
     return {
         "id": document.id,
         "title": document.title,
