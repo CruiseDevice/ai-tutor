@@ -361,6 +361,22 @@ function DashboardWithSearchParams () {
         console.log('[Dashboard] No annotations in response');
       }
 
+      // Refresh sidebar to update conversation title (if this was the first message)
+      // Check if this is the first message by counting existing messages
+      const messageCountBefore = messages.length;
+      if (messageCountBefore === 0) {
+        // This was the first message, title should have been generated
+        // Refresh sidebar after a short delay to allow backend to save the title
+        setTimeout(() => {
+          if (chatSidebarRef.current) {
+            const sidebar = chatSidebarRef.current as unknown as { refreshConversations: () => void };
+            if (typeof sidebar.refreshConversations === 'function') {
+              sidebar.refreshConversations();
+            }
+          }
+        }, 1000);
+      }
+
       // Clear any previous errors on success
       setError(null);
     } catch (error) {

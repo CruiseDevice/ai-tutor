@@ -30,6 +30,7 @@ async def list_conversations(
             "id": conv.id,
             "user_id": conv.user_id,
             "document_id": conv.document_id,
+            "title": conv.title,  # Smart conversation title
             "created_at": conv.created_at,
             "updated_at": conv.updated_at,
             "document": {
@@ -86,6 +87,7 @@ async def get_conversation(
             "id": conversation.id,
             "user_id": conversation.user_id,
             "document_id": conversation.document_id,
+            "title": conversation.title,  # Smart conversation title
             "created_at": conversation.created_at,
             "updated_at": conversation.updated_at,
             "document": {

@@ -19,6 +19,56 @@ class ChatService:
     def __init__(self):
         self.embedding_service = get_embedding_service()
 
+    def _generate_conversation_title(self, user_message: str, user_api_key: str) -> str:
+        """
+        Generate a smart, concise title for the conversation based on the first user message.
+        Uses LLM to create a title that's 3-6 words.
+        """
+        try:
+            client = OpenAI(api_key=user_api_key)
+
+            prompt = f"""Generate a concise, descriptive title for this conversation based on the user's question.
+The title should be 3-6 words and capture the main topic or question.
+
+User question: "{user_message}"
+
+Return ONLY the title, nothing else. Make it specific and informative.
+Examples:
+- "What is a virus?" → "Understanding Viruses"
+- "Explain photosynthesis" → "Photosynthesis Explanation"
+- "Summarize chapter 3" → "Chapter 3 Summary"
+- "How does DNA replication work?" → "DNA Replication Process"
+
+Title:"""
+
+            completion = client.chat.completions.create(
+                model="gpt-4o-mini",  # Use cheaper model for title generation
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that generates concise conversation titles."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_completion_tokens=20
+            )
+
+            title = completion.choices[0].message.content.strip()
+            # Remove quotes if present
+            title = title.strip('"\'')
+            # Limit to 50 characters
+            title = title[:50] if len(title) > 50 else title
+
+            logger.info(f"Generated conversation title: {title}")
+            return title
+
+        except Exception as e:
+            logger.warning(f"Failed to generate title with LLM: {e}")
+            # Fallback: create title from first few words of the message
+            words = user_message.split()[:6]
+            title = " ".join(words)
+            if len(user_message) > len(title):
+                title += "..."
+            return title[:50]
+
     def _parse_annotations(self, response_text: str, relevant_chunks: List[Dict]) -> tuple[str, List[Dict]]:
         """
         Parse annotations from the LLM response.
@@ -164,14 +214,16 @@ class ChatService:
     ) -> Dict:
         """Generate a chat response using OpenAI with RAG."""
         try:
-            if not user.api_key:
+            # Get decrypted API key
+            api_key = user.get_decrypted_api_key()
+            if not api_key:
                 logger.error(f"User {user.id} has no OpenAI API key configured")
                 raise ValueError("User has no OpenAI API key configured. Please configure your API key in settings.")
 
             logger.debug(f"Generating chat response for user {user.id}, conversation {conversation_id}")
 
             # Initialize OpenAI client
-            client = OpenAI(api_key=user.api_key)
+            client = OpenAI(api_key=api_key)
 
             # Find relevant chunks
             logger.debug(f"Finding similar chunks for document {document_id}")
@@ -258,7 +310,7 @@ say you don't have enough information from the document and suggest looking at o
                     model=model,
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=1000
+                    max_completion_tokens=1000
                 )
             except Exception as e:
                 logger.error(f"OpenAI API error: {str(e)}", exc_info=True)
@@ -275,6 +327,13 @@ say you don't have enough information from the document and suggest looking at o
             logger.info(f"[Annotations] Parsed {len(annotations)} annotations from response")
             if annotations:
                 logger.info(f"[Annotations] Annotation details: {annotations}")
+
+            # Check if this is the first message in the conversation (for title generation)
+            existing_message_count = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).count()
+
+            is_first_message = existing_message_count == 0
 
             # Save user message
             user_message = Message(
@@ -297,6 +356,22 @@ say you don't have enough information from the document and suggest looking at o
                 context=message_context
             )
             db.add(assistant_message)
+
+            # Generate and update conversation title if this is the first message
+            if is_first_message:
+                try:
+                    conversation = db.query(Conversation).filter(
+                        Conversation.id == conversation_id
+                    ).first()
+
+                    if conversation and not conversation.title:
+                        title = self._generate_conversation_title(content, user.api_key)
+                        conversation.title = title
+                        logger.info(f"Set conversation title to: {title}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate conversation title: {e}")
+                    # Don't fail the whole request if title generation fails
+
             db.commit()
 
             db.refresh(user_message)

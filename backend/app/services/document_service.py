@@ -6,6 +6,7 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timezone
+import logging
 from ..models.document import Document, DocumentChunk
 from ..models.conversation import Conversation
 from ..config import settings
@@ -13,6 +14,8 @@ from .embedding_service import get_embedding_service
 from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import uuid
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentService:
@@ -141,36 +144,59 @@ class DocumentService:
             )
             chunks = text_splitter.split_documents(pages)
 
-            # Process chunks
+            # Process chunks in batches for better transaction management
             successful_chunks = 0
             failed_chunks = 0
+            batch_size = 50  # Process 50 chunks at a time
+            chunks_to_add = []
 
-            for chunk in chunks:
-                try:
-                    # Extract text and metadata
-                    text_content = chunk.page_content
-                    page_number = chunk.metadata.get("page", 0) + 1  # Convert to 1-indexed
+            try:
+                for chunk in chunks:
+                    try:
+                        # Extract text and metadata
+                        text_content = chunk.page_content
+                        page_number = chunk.metadata.get("page", 0) + 1  # Convert to 1-indexed
 
-                    # Generate embedding
-                    embedding = self.embedding_service.generate_embedding(text_content)
+                        # Generate embedding
+                        embedding = self.embedding_service.generate_embedding(text_content)
 
-                    # Create chunk record
-                    db_chunk = DocumentChunk(
-                        content=text_content,
-                        page_number=page_number,
-                        embedding=embedding,
-                        document_id=document_id,
-                        position_data=None  # Can be enhanced later with text positions
-                    )
-                    db.add(db_chunk)
-                    successful_chunks += 1
+                        # Create chunk record (don't add to DB yet)
+                        db_chunk = DocumentChunk(
+                            content=text_content,
+                            page_number=page_number,
+                            embedding=embedding,
+                            document_id=document_id,
+                            position_data=None  # Can be enhanced later with text positions
+                        )
+                        chunks_to_add.append(db_chunk)
+                        successful_chunks += 1
 
-                except Exception as e:
-                    print(f"Error processing chunk: {e}")
-                    failed_chunks += 1
+                        # Commit in batches to avoid memory issues and improve transaction management
+                        if len(chunks_to_add) >= batch_size:
+                            db.bulk_save_objects(chunks_to_add)
+                            db.commit()
+                            chunks_to_add = []
+                            logger.debug(f"Committed batch of {batch_size} chunks")
 
-            # Commit all chunks
-            db.commit()
+                    except Exception as e:
+                        logger.error(f"Error processing chunk on page {page_number}: {e}", exc_info=True)
+                        failed_chunks += 1
+                        # Continue processing other chunks
+
+                # Commit remaining chunks
+                if chunks_to_add:
+                    db.bulk_save_objects(chunks_to_add)
+                    db.commit()
+                    logger.debug(f"Committed final batch of {len(chunks_to_add)} chunks")
+
+            except Exception as e:
+                # Rollback on critical error
+                logger.error(f"Critical error during chunk processing: {e}", exc_info=True)
+                db.rollback()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to process document chunks: {str(e)}"
+                )
 
             return {
                 "success": True,
@@ -206,7 +232,7 @@ class DocumentService:
                 Key=document.blob_path
             )
         except ClientError as e:
-            print(f"Warning: Failed to delete from S3: {e}")
+            logger.warning(f"Failed to delete document from S3 (blob_path: {document.blob_path}): {e}")
 
         # Delete from database (cascades to chunks, conversation, messages)
         db.delete(document)
