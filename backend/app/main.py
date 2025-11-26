@@ -49,9 +49,16 @@ async def startup_event():
         Base.metadata.create_all(bind=engine)
 
         # Run migrations for existing databases
-        from .database_migrations import add_title_column_if_missing, remove_unique_constraint_from_document_id
+        from .database_migrations import (
+            add_title_column_if_missing,
+            remove_unique_constraint_from_document_id,
+            add_document_chunks_indexes,
+            add_pgvector_hnsw_index
+        )
         add_title_column_if_missing(engine)
         remove_unique_constraint_from_document_id(engine)
+        add_document_chunks_indexes(engine)
+        add_pgvector_hnsw_index(engine)
     except Exception as e:
         logger.error(f"Database initialization error: {e}", exc_info=True)
         # Don't crash - let the app start even if migrations fail
