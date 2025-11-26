@@ -1,16 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
+from arq import create_pool
 from ..database import get_db
 from ..core.deps import get_current_user
 from ..models.user import User
-from ..models.document import Document
+from ..models.document import Document, DocumentChunk
 from ..schemas.document import (
     DocumentResponse,
     DocumentProcessRequest,
-    DocumentProcessResponse
+    DocumentProcessResponse,
+    DocumentProcessQueueResponse,
+    DocumentProcessStatusResponse
 )
 from ..services.document_service import DocumentService
+from ..workers.arq_config import ARQ_REDIS_SETTINGS
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -47,13 +51,16 @@ async def upload_document(
         )
 
 
-@router.post("/process", response_model=DocumentProcessResponse)
+@router.post("/process", response_model=DocumentProcessQueueResponse)
 async def process_document(
     request: DocumentProcessRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Process a document: extract text, chunk it, and generate embeddings."""
+    """
+    Queue document processing as a background job.
+    Returns immediately with job ID for tracking.
+    """
     try:
         # Verify document belongs to user
         document = db.query(Document).filter(
@@ -67,15 +74,82 @@ async def process_document(
                 detail="Document not found"
             )
 
-        result = await document_service.process_document(db, request.document_id)
+        # Create Arq connection pool
+        redis = await create_pool(ARQ_REDIS_SETTINGS)
 
-        return DocumentProcessResponse(**result)
+        # Queue the background job
+        job = await redis.enqueue_job(
+            "process_document_job",  # Job function name
+            request.document_id,     # document_id argument
+        )
+
+        # Update document with job ID and status
+        document.job_id = job.job_id
+        document.status = "queued"
+        document.error_message = None
+        db.commit()
+
+        return DocumentProcessQueueResponse(
+            document_id=request.document_id,
+            job_id=job.job_id,
+            status="queued",
+            message="Document processing queued successfully"
+        )
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process document: {str(e)}"
+            detail=f"Failed to queue document processing: {str(e)}"
+        )
+
+
+@router.get("/process/{document_id}/status", response_model=DocumentProcessStatusResponse)
+async def get_processing_status(
+    document_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the current processing status of a document.
+    """
+    try:
+        # Verify document belongs to user
+        document = db.query(Document).filter(
+            Document.id == document_id,
+            Document.user_id == user.id
+        ).first()
+
+        if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found"
+            )
+
+        response = DocumentProcessStatusResponse(
+            document_id=document_id,
+            status=document.status,
+            job_id=document.job_id,
+            error_message=document.error_message
+        )
+
+        # If completed, include chunk counts
+        if document.status == "completed":
+            chunk_count = db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == document_id
+            ).count()
+            response.chunks_processed = chunk_count
+            response.chunks_failed = 0
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get processing status: {str(e)}"
         )
 
 

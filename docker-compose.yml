@@ -47,6 +47,28 @@ services:
       timeout: 10s
       retries: 5
 
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    command: arq app.workers.arq_config.WorkerSettings
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/studyfetch
+      - REDIS_URL=redis://redis:6379/0
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - S3_PDFBUCKET_NAME=${S3_PDFBUCKET_NAME}
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
+      - NODE_ENV=${NODE_ENV:-development}
+    depends_on:
+      - db
+      - redis
+      - backend
+    volumes:
+      - ./backend:/app
+
 volumes:
   pg_data:
   redis_data:
