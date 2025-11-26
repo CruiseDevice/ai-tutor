@@ -234,6 +234,13 @@ export const userApi = {
   },
 };
 
+// Config API calls
+export const configApi = {
+  async get() {
+    return apiRequest('/api/config');
+  },
+};
+
 // Helper function to get JSON from response
 export async function getJson<T = any>(response: Response): Promise<T> {
   if (!response.ok) {

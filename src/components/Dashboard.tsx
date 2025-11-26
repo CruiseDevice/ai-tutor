@@ -6,7 +6,7 @@ import EnhancedPDFViewer, { PDFViewerRef } from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
-import { authApi, documentApi, chatApi, conversationApi } from "@/lib/api-client";
+import { authApi, documentApi, chatApi, conversationApi, configApi } from "@/lib/api-client";
 import type { AnnotationReference } from "@/types/annotations";
 
 interface ChatMessage {
@@ -30,6 +30,7 @@ function DashboardWithSearchParams () {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [currentAnnotations, setCurrentAnnotations] = useState<AnnotationReference[]>([]);
+  const [maxFileSize, setMaxFileSize] = useState<number>(10 * 1024 * 1024); // Default to 10MB until config loads
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
   const pdfViewerRef = useRef<PDFViewerRef>(null);
@@ -149,6 +150,24 @@ function DashboardWithSearchParams () {
     fetchUser();
   }, []);
 
+  // fetch config (e.g., max file size) on component mount
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const response = await configApi.get();
+        if (response.ok) {
+          const data = await response.json();
+          setMaxFileSize(data.max_file_size);
+        } else {
+          console.warn('Failed to fetch config, using default max file size');
+        }
+      } catch (error) {
+        console.warn('Error fetching config, using default max file size:', error);
+      }
+    };
+    fetchConfig();
+  }, []);
+
   // Now effect to restore chat from URL parameter
   useEffect(() => {
     const chatId = searchParams.get('chat');
@@ -218,10 +237,10 @@ function DashboardWithSearchParams () {
       return;
     }
 
-    //  validate file size(e.g., 10MB limit)
-    const MAX_SIZE = 10 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      setError('File size should be less than 10MB');
+    // Validate file size using config from backend
+    if (file.size > maxFileSize) {
+      const maxSizeMB = (maxFileSize / (1024 * 1024)).toFixed(0);
+      setError(`File size should be less than ${maxSizeMB}MB`);
       return;
     }
 
