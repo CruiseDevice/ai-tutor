@@ -2,7 +2,7 @@
 import { ChevronDown, ChevronLeft, ChevronRight, FileText, LogOut, Plus, Settings, Trash2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from "react";
 import { conversationApi, authApi } from "@/lib/api-client";
 
 interface Conversation {
@@ -16,6 +16,7 @@ interface BackendConversationResponse {
   id: string;
   user_id: string;
   document_id: string;
+  title: string | null;  // Smart conversation title
   created_at: string;
   updated_at: string;
   document: {
@@ -35,6 +36,7 @@ interface ChatSidebarProps {
 
 export interface ChatSidebarRef {
   addNewConversation: (newConversation: Conversation) => void;
+  refreshConversations: () => void;
 }
 
 const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
@@ -56,38 +58,40 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
     setConversations(prev => [newConversation, ...prev]);
   }
 
+  const refreshConversations = useCallback(async () => {
+    if (!userId) return;
+
+    setIsLoading(true);
+    try {
+      const response = await conversationApi.list();
+      if (!response.ok) {
+        throw new Error('Failed to fetch conversations');
+      }
+
+      const data = await response.json() as BackendConversationResponse[];
+      const mappedConversations = data.map((conv) => ({
+        id: conv.id,
+        documentId: conv.document_id,
+        // Use smart conversation title, fallback to document title, then default
+        title: conv.title || conv.document?.title || 'Untitled Document',
+        updatedAt: conv.updated_at
+      }));
+      setConversations(mappedConversations);
+    } catch (error) {
+      console.error('Error refreshing conversations: ', error)
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
   useImperativeHandle(ref, () => ({
-    addNewConversation
+    addNewConversation,
+    refreshConversations
   }));
 
   useEffect(() => {
-    if (!userId) return;
-
-    const fetchConversations = async () => {
-      setIsLoading(true);
-      try {
-        const response = await conversationApi.list();
-        if (!response.ok) {
-          throw new Error('Failed to fetch conversations');
-        }
-
-        const data = await response.json() as BackendConversationResponse[];
-        const mappedConversations = data.map((conv) => ({
-          id: conv.id,
-          documentId: conv.document_id,
-          title: conv.document?.title || 'Untitled Document',
-          updatedAt: conv.updated_at
-        }));
-        setConversations(mappedConversations);
-      } catch (error) {
-        console.error('Error fetching conversations: ', error)
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchConversations();
-  }, [userId]);
+    refreshConversations();
+  }, [refreshConversations]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

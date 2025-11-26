@@ -17,8 +17,25 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
 
+    # Cookie security settings
+    COOKIE_SECURE: bool = False  # Set to True in production with HTTPS
+    COOKIE_SAMESITE: str = "lax"  # Options: "lax", "strict", "none"
+
+    # API Key encryption
+    ENCRYPTION_KEY: Optional[str] = None  # 32-byte key for Fernet encryption
+
+    # Rate limiting
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_PER_MINUTE: int = 60
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 5  # Stricter for auth endpoints
+
     # Environment
     NODE_ENV: str = "development"
+
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production environment."""
+        return self.NODE_ENV.lower() == "production"
 
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [

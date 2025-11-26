@@ -39,17 +39,17 @@ async def update_profile(
         User.email == profile_data.email,
         User.id != user.id
     ).first()
-    
+
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already in use"
         )
-    
+
     user.email = profile_data.email
     db.commit()
     db.refresh(user)
-    
+
     return {
         "message": "Profile updated successfully",
         "user": {
@@ -66,9 +66,17 @@ async def update_api_key(
     db: Session = Depends(get_db)
 ):
     """Update user's OpenAI API key."""
-    user.api_key = api_key_data.api_key
+    # Validate API key format (basic check)
+    if api_key_data.api_key and not api_key_data.api_key.startswith("sk-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid API key format. OpenAI API keys should start with 'sk-'"
+        )
+
+    # Encrypt and store the API key
+    user.set_encrypted_api_key(api_key_data.api_key)
     db.commit()
-    
+
     return {"message": "API key updated successfully"}
 
 
@@ -86,8 +94,8 @@ async def delete_api_key(
     db: Session = Depends(get_db)
 ):
     """Delete user's OpenAI API key."""
-    user.api_key = None
+    user.set_encrypted_api_key(None)
     db.commit()
-    
+
     return {"message": "API key deleted successfully"}
 

@@ -61,6 +61,7 @@ class ConversationResponse(ConversationBase):
     id: str
     user_id: str
     document_id: str
+    title: Optional[str] = None  # Smart conversation title
     created_at: datetime
     updated_at: datetime
 
