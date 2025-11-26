@@ -82,8 +82,9 @@ class DocumentService:
         self,
         db: Session,
         user_id: str,
-        file: UploadFile
-    ) -> tuple[Document, Conversation]:
+        file: UploadFile,
+        create_conversation: bool = True
+    ) -> tuple[Document, Optional[Conversation]]:
         """Upload a document and create database records."""
         # Validate file type
         if not file.filename.lower().endswith('.pdf'):
@@ -107,16 +108,20 @@ class DocumentService:
         db.add(document)
         db.flush()  # Get the document ID without committing
 
-        # Create conversation record
-        conversation = Conversation(
-            user_id=user_id,
-            document_id=document.id,
-            updated_at=now
-        )
-        db.add(conversation)
+        # Create conversation record if requested
+        conversation = None
+        if create_conversation:
+            conversation = Conversation(
+                user_id=user_id,
+                document_id=document.id,
+                updated_at=now
+            )
+            db.add(conversation)
+
         db.commit()
         db.refresh(document)
-        db.refresh(conversation)
+        if conversation:
+            db.refresh(conversation)
 
         return document, conversation
 
@@ -157,6 +162,22 @@ class DocumentService:
             )
             chunks = text_splitter.split_documents(pages)
 
+            # Collect all chunk texts and metadata first
+            chunk_data = []
+            for chunk in chunks:
+                text_content = chunk.page_content
+                page_number = chunk.metadata.get("page", 0) + 1  # Convert to 1-indexed
+                chunk_data.append({
+                    'content': text_content,
+                    'page_number': page_number
+                })
+
+            # Generate all embeddings in batch (async, non-blocking)
+            logger.debug(f"Generating embeddings for {len(chunk_data)} chunks in batch")
+            texts = [data['content'] for data in chunk_data]
+            embeddings = await self.embedding_service.generate_batch_embeddings_async(texts)
+            logger.debug(f"Generated {len(embeddings)} embeddings")
+
             # Process chunks in batches for better transaction management
             successful_chunks = 0
             failed_chunks = 0
@@ -164,20 +185,14 @@ class DocumentService:
             chunks_to_add = []
 
             try:
-                for chunk in chunks:
+                # Map embeddings back to chunks by index
+                for i, data in enumerate(chunk_data):
                     try:
-                        # Extract text and metadata
-                        text_content = chunk.page_content
-                        page_number = chunk.metadata.get("page", 0) + 1  # Convert to 1-indexed
-
-                        # Generate embedding
-                        embedding = self.embedding_service.generate_embedding(text_content)
-
                         # Create chunk record (don't add to DB yet)
                         db_chunk = DocumentChunk(
-                            content=text_content,
-                            page_number=page_number,
-                            embedding=embedding,
+                            content=data['content'],
+                            page_number=data['page_number'],
+                            embedding=embeddings[i],
                             document_id=document_id,
                             position_data=None  # Can be enhanced later with text positions
                         )
@@ -192,7 +207,7 @@ class DocumentService:
                             logger.debug(f"Committed batch of {batch_size} chunks")
 
                     except Exception as e:
-                        logger.error(f"Error processing chunk on page {page_number}: {e}", exc_info=True)
+                        logger.error(f"Error processing chunk on page {data['page_number']}: {e}", exc_info=True)
                         failed_chunks += 1
                         # Continue processing other chunks
 

@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError, DatabaseError
 from typing import List, Dict, Optional, AsyncGenerator
-from openai import OpenAI, APIError
+from openai import AsyncOpenAI, APIError
 import logging
 import json
 import re
@@ -12,7 +12,7 @@ from ..models.conversation import Conversation, Message
 from ..models.document import DocumentChunk
 from ..models.user import User
 from .embedding_service import get_embedding_service
-from .retry_utils import retry_openai_call
+from .retry_utils import retry_openai_call, async_retry_openai_call
 from .cache_service import get_cache_service
 
 logger = logging.getLogger(__name__)
@@ -22,13 +22,13 @@ class ChatService:
     def __init__(self):
         self.embedding_service = get_embedding_service()
 
-    def _generate_conversation_title(self, user_message: str, user_api_key: str) -> str:
+    async def _generate_conversation_title(self, user_message: str, user_api_key: str) -> str:
         """
         Generate a smart, concise title for the conversation based on the first user message.
         Uses LLM to create a title that's 3-6 words.
         """
         try:
-            client = OpenAI(api_key=user_api_key)
+            client = AsyncOpenAI(api_key=user_api_key)
 
             prompt = f"""Generate a concise, descriptive title for this conversation based on the user's question.
 The title should be 3-6 words and capture the main topic or question.
@@ -44,9 +44,9 @@ Examples:
 
 Title:"""
 
-            # Use retry logic for OpenAI API call
-            def _create_completion():
-                return client.chat.completions.create(
+            # Use async retry logic for OpenAI API call
+            async def _create_completion():
+                return await client.chat.completions.create(
                     model="gpt-4o-mini",  # Use cheaper model for title generation
                     messages=[
                         {"role": "system", "content": "You are a helpful assistant that generates concise conversation titles."},
@@ -56,7 +56,7 @@ Title:"""
                     max_completion_tokens=20
                 )
 
-            completion = retry_openai_call(
+            completion = await async_retry_openai_call(
                 _create_completion,
                 max_attempts=3,  # Fewer retries for title generation (non-critical)
                 initial_wait=1.0,
@@ -186,7 +186,7 @@ Title:"""
             # Generate embedding if not cached
             if query_embedding is None:
                 logger.debug(f"Generating embedding for query: {query[:50]}...")
-                query_embedding = self.embedding_service.generate_embedding(query)
+                query_embedding = await self.embedding_service.generate_embedding_async(query)
                 logger.debug(f"Generated embedding with {len(query_embedding)} dimensions")
                 # Cache the embedding
                 await cache_service.set_embedding(query, query_embedding)
@@ -272,7 +272,7 @@ Title:"""
             # Get query embedding for response cache lookup
             query_embedding = await cache_service.get_embedding(content)
             if query_embedding is None:
-                query_embedding = self.embedding_service.generate_embedding(content)
+                query_embedding = await self.embedding_service.generate_embedding_async(content)
                 await cache_service.set_embedding(content, query_embedding)
 
             # Check for similar cached response (skip if conversation has history)
@@ -327,7 +327,7 @@ Title:"""
                     }
 
             # Initialize OpenAI client
-            client = OpenAI(api_key=api_key)
+            client = AsyncOpenAI(api_key=api_key)
 
             # Find relevant chunks
             logger.debug(f"Finding similar chunks for document {document_id}")
@@ -410,15 +410,15 @@ say you don't have enough information from the document and suggest looking at o
             # Call OpenAI with retry logic
             logger.debug(f"Calling OpenAI API with model {model}")
             try:
-                def _create_completion():
-                    return client.chat.completions.create(
+                async def _create_completion():
+                    return await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0.7,
                         max_completion_tokens=1000
                     )
 
-                completion = retry_openai_call(
+                completion = await async_retry_openai_call(
                     _create_completion,
                     max_attempts=5,  # More retries for main chat completion
                     initial_wait=1.0,
@@ -491,7 +491,7 @@ say you don't have enough information from the document and suggest looking at o
                     ).first()
 
                     if conversation and not conversation.title:
-                        title = self._generate_conversation_title(content, user.api_key)
+                        title = await self._generate_conversation_title(content, user.api_key)
                         conversation.title = title
                         logger.info(f"Set conversation title to: {title}")
                 except Exception as e:
@@ -574,7 +574,7 @@ say you don't have enough information from the document and suggest looking at o
             # Get query embedding for response cache lookup
             query_embedding = await cache_service.get_embedding(content)
             if query_embedding is None:
-                query_embedding = self.embedding_service.generate_embedding(content)
+                query_embedding = await self.embedding_service.generate_embedding_async(content)
                 await cache_service.set_embedding(content, query_embedding)
 
             # Check for similar cached response (skip if conversation has history)
@@ -637,7 +637,7 @@ say you don't have enough information from the document and suggest looking at o
                     return
 
             # Initialize OpenAI client
-            client = OpenAI(api_key=api_key)
+            client = AsyncOpenAI(api_key=api_key)
 
             # Find relevant chunks
             logger.debug(f"Finding similar chunks for document {document_id}")
@@ -736,8 +736,8 @@ say you don't have enough information from the document and suggest looking at o
             # Stream OpenAI response
             logger.debug(f"Calling OpenAI API with streaming for model {model}")
             try:
-                def _create_stream():
-                    return client.chat.completions.create(
+                async def _create_stream():
+                    return await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0.7,
@@ -745,7 +745,7 @@ say you don't have enough information from the document and suggest looking at o
                         stream=True
                     )
 
-                stream = retry_openai_call(
+                stream = await async_retry_openai_call(
                     _create_stream,
                     max_attempts=5,
                     initial_wait=1.0,
@@ -753,7 +753,7 @@ say you don't have enough information from the document and suggest looking at o
                 )
 
                 # Stream chunks
-                for chunk in stream:
+                async for chunk in stream:
                     if chunk.choices and len(chunk.choices) > 0:
                         delta = chunk.choices[0].delta
                         if delta and delta.content:
@@ -811,7 +811,7 @@ say you don't have enough information from the document and suggest looking at o
                     ).first()
 
                     if conversation and not conversation.title:
-                        title = self._generate_conversation_title(content, user.api_key)
+                        title = await self._generate_conversation_title(content, user.api_key)
                         conversation.title = title
                         logger.info(f"Set conversation title to: {title}")
                 except Exception as e:

@@ -16,14 +16,14 @@ class Conversation(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), name="userId", nullable=False)
-    document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, unique=True)
+    document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True)  # Smart title generated from first message
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     user = relationship("User", back_populates="conversations")
-    document = relationship("Document", back_populates="conversation")
+    document = relationship("Document", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
 
 
