@@ -21,6 +21,13 @@ class Document(Base):
     url = Column(String, nullable=False)
     blob_path = Column(String, nullable=False)
     content_hash = Column(String, nullable=True, index=True)
+
+    # Document processing status tracking
+    status = Column(String, default="pending", nullable=False, index=True)
+    # Possible values: pending, queued, processing, completed, failed
+    error_message = Column(Text, nullable=True)  # Store error details if processing fails
+    job_id = Column(String, nullable=True)  # Arq job ID for tracking background processing
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now(), onupdate=func.now())
 

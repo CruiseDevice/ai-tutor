@@ -47,7 +47,7 @@ class Settings(BaseSettings):
         return self.NODE_ENV.lower() == "production"
 
     # File upload limits
-    MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20MB in bytes
+    MAX_FILE_SIZE: int = 30 * 1024 * 1024  # 30MB in bytes
 
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [
