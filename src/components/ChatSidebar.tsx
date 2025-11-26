@@ -34,7 +34,7 @@ interface ChatSidebarProps {
   onSelectConversation: (conversationId: string, documentId: string) => void;
   currentConversationId: string | null;
   onDeleteConversation?: (conversationId: string, documentId: string) => void;
-  onCreateNewConversation?: (documentId: string) => Promise<void>;
+  onCreateNewConversation?: (documentId: string) => Promise<{ id: string; document_id?: string; title?: string; updated_at?: string } | void>;
 }
 
 export interface ChatSidebarRef {
@@ -65,21 +65,28 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
     setDocumentGroups(prev => {
       const updated = [...prev];
       const groupIndex = updated.findIndex(g => g.document?.id === newConversation.documentId);
+
       if (groupIndex >= 0) {
-        updated[groupIndex] = {
-          ...updated[groupIndex],
-          conversations: [
-            {
-              id: newConversation.id,
-              user_id: userId,
-              document_id: newConversation.documentId,
-              title: newConversation.title,
-              created_at: new Date().toISOString(),
-              updated_at: newConversation.updatedAt,
-            },
-            ...updated[groupIndex].conversations
-          ]
-        };
+        const group = updated[groupIndex];
+        // Check if conversation already exists to prevent duplicate keys
+        const exists = group.conversations.some(c => c.id === newConversation.id);
+
+        if (!exists) {
+          updated[groupIndex] = {
+            ...group,
+            conversations: [
+              {
+                id: newConversation.id,
+                user_id: userId,
+                document_id: newConversation.documentId,
+                title: newConversation.title,
+                created_at: new Date().toISOString(),
+                updated_at: newConversation.updatedAt,
+              },
+              ...group.conversations
+            ]
+          };
+        }
       }
       return updated;
     });
@@ -96,6 +103,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
       }
 
       const data = await response.json() as DocumentGroup[];
+      console.log('Refreshed conversations:', data);
       setDocumentGroups(data);
 
       // Expand documents that have the current conversation
@@ -193,15 +201,32 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
 
   const handleCreateNewConversation = async (e: React.MouseEvent, documentId: string) => {
     e.stopPropagation();
-    if (!onCreateNewConversation) return;
+    e.preventDefault();
+    if (!onCreateNewConversation) {
+      console.warn('onCreateNewConversation prop not provided');
+      return;
+    }
 
     setCreatingConversation(documentId);
+    // Expand the document first so the new conversation will be visible
+    setExpandedDocuments(prev => new Set([...prev, documentId]));
+
     try {
-      await onCreateNewConversation(documentId);
-      // Refresh to get the new conversation
-      await refreshConversations();
-      // Expand the document to show the new conversation
-      setExpandedDocuments(prev => new Set([...prev, documentId]));
+      const newConv = await onCreateNewConversation(documentId);
+
+      if (newConv && typeof newConv === 'object') {
+        // Manually add the new conversation to the list
+        // This avoids potential race conditions with refreshConversations returning stale data
+        addNewConversation({
+          id: newConv.id,
+          documentId: documentId,
+          title: newConv.title || 'New Chat',
+          updatedAt: newConv.updated_at || new Date().toISOString()
+        });
+      } else {
+        // Fallback if no conversation object returned
+        await refreshConversations();
+      }
     } catch (error) {
       console.error('Error creating new conversation: ', error);
       alert('Failed to create new conversation');
@@ -348,12 +373,16 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                         <div className="flex items-center gap-1 flex-shrink-0">
                           {/* New Chat Button */}
                           <button
-                            onClick={(e) => handleCreateNewConversation(e, documentId)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleCreateNewConversation(e, documentId);
+                            }}
                             disabled={creatingConversation === documentId}
-                            className={`p-1.5 rounded-lg transition-colors ${
+                            className={`p-1.5 rounded-lg transition-all ${
                               creatingConversation === documentId
-                                ? 'text-blue-400 opacity-50 cursor-not-allowed'
-                                : 'text-slate-500 hover:bg-blue-500/10 hover:text-blue-400 opacity-0 group-hover/document:opacity-100'
+                                ? 'text-blue-400 opacity-100 cursor-not-allowed'
+                                : 'text-slate-500 hover:bg-blue-500/10 hover:text-blue-400 opacity-70 group-hover/document:opacity-100'
                             }`}
                             title="New Chat"
                           >
@@ -365,7 +394,11 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                           </button>
                           {/* Expand/Collapse Button */}
                           <button
-                            onClick={() => toggleDocumentExpansion(documentId)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleDocumentExpansion(documentId);
+                            }}
                             className="p-1 rounded-lg hover:bg-slate-700/50 transition-colors"
                             title={isExpanded ? "Collapse" : "Expand"}
                           >
@@ -374,59 +407,59 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                         </div>
                       )}
                     </div>
-
-                    {/* Conversations List (when expanded) */}
-                    {isOpen && isExpanded && (
-                      <div className="ml-4 mt-1 space-y-1 border-l border-slate-700/50 pl-3">
-                        {group.conversations.map((conversation) => (
-                          <div key={conversation.id} className="group/conversation relative">
-                            <button
-                              onClick={() => onSelectConversation(conversation.id, documentId)}
-                              className={`w-full text-left rounded-lg transition-all duration-200 flex items-center group/item ${
-                                currentConversationId === conversation.id
-                                  ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700/50'
-                                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
-                              } p-2.5`}
-                            >
-                              <div className="relative flex-shrink-0 mr-2">
-                                <MessageSquare size={14} className={currentConversationId === conversation.id ? 'text-blue-400' : 'text-slate-500 group-hover/item:text-slate-400'} />
-                                {currentConversationId === conversation.id && (
-                                  <span className="absolute -right-0.5 -top-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 ring-1 ring-[#0f172a]" />
-                                )}
-                              </div>
-
-                              <div className="overflow-hidden flex-1 min-w-0">
-                                <div className="truncate font-medium text-xs leading-tight mb-0.5">
-                                  {conversation.title || 'New Chat'}
-                                </div>
-                                <div className="text-[10px] text-slate-500">
-                                  {formatDate(conversation.updated_at)}
-                                </div>
-                              </div>
-                            </button>
-
-                            {/* Delete Button */}
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/conversation:opacity-100 transition-opacity">
-                              <button
-                                onClick={(e) => handleDelete(e, conversation.id, documentId)}
-                                className={`p-1 rounded-lg hover:bg-red-500/10 hover:text-red-400 transition-colors ${
-                                  deleting === conversation.id ? 'text-red-400 opacity-100' : 'text-slate-500'
-                                }`}
-                                title="Delete conversation"
-                                disabled={deleting === conversation.id}
-                              >
-                                {deleting === conversation.id ? (
-                                  <div className="h-3 w-3 border-2 border-t-red-500 border-transparent rounded-full animate-spin" />
-                                ) : (
-                                  <Trash2 size={12} />
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
+
+                  {/* Conversations List (when expanded) */}
+                  {isOpen && isExpanded && (
+                    <div className="ml-4 mt-1 space-y-1 border-l border-slate-700/50 pl-3 pb-1">
+                      {group.conversations.map((conversation) => (
+                        <div key={conversation.id} className="group/conversation relative">
+                          <button
+                            onClick={() => onSelectConversation(conversation.id, documentId)}
+                            className={`w-full text-left rounded-lg transition-all duration-200 flex items-center group/item ${
+                              currentConversationId === conversation.id
+                                ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700/50'
+                                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                            } p-2.5`}
+                          >
+                            <div className="relative flex-shrink-0 mr-2">
+                              <MessageSquare size={14} className={currentConversationId === conversation.id ? 'text-blue-400' : 'text-slate-500 group-hover/item:text-slate-400'} />
+                              {currentConversationId === conversation.id && (
+                                <span className="absolute -right-0.5 -top-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 ring-1 ring-[#0f172a]" />
+                              )}
+                            </div>
+
+                            <div className="overflow-hidden flex-1 min-w-0">
+                              <div className="truncate font-medium text-xs leading-tight mb-0.5">
+                                {conversation.title || 'New Chat'}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {formatDate(conversation.updated_at)}
+                              </div>
+                            </div>
+                          </button>
+
+                          {/* Delete Button */}
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/conversation:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => handleDelete(e, conversation.id, documentId)}
+                              className={`p-1 rounded-lg hover:bg-red-500/10 hover:text-red-400 transition-colors ${
+                                deleting === conversation.id ? 'text-red-400 opacity-100' : 'text-slate-500'
+                              }`}
+                              title="Delete conversation"
+                              disabled={deleting === conversation.id}
+                            >
+                              {deleting === conversation.id ? (
+                                <div className="h-3 w-3 border-2 border-t-red-500 border-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Trash2 size={12} />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </li>
               );
             })}
