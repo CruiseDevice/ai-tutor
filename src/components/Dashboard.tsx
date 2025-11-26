@@ -2,16 +2,18 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react"
-import EnhancedPDFViewer from "./EnhancedPDFViewer";
+import EnhancedPDFViewer, { PDFViewerRef } from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
 import { authApi, documentApi, chatApi, conversationApi } from "@/lib/api-client";
+import type { AnnotationReference } from "@/types/annotations";
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  annotations?: AnnotationReference[];
 }
 
 function DashboardWithSearchParams () {
@@ -22,12 +24,20 @@ function DashboardWithSearchParams () {
   const [currentPDF, setCurrentPDF] = useState('');
   const [documentId, setDocumentId] = useState('');
   const [userId, setUserId] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentAnnotations, setCurrentAnnotations] = useState<AnnotationReference[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
+  const pdfViewerRef = useRef<PDFViewerRef>(null);
+
+  // Resizer state
+  const [splitPosition, setSplitPosition] = useState(60); // Percentage (60% for PDF, 40% for Chat)
+  const [isResizing, setIsResizing] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Function to update URL with the chat ID
   const updateUrl = useCallback((chatId: string | null) => {
@@ -69,12 +79,27 @@ function DashboardWithSearchParams () {
       }
 
       const data = await response.json();
+      console.log('[Dashboard] Loaded conversation:', data);
 
       // update state with the selected conversation
       setConversationId(convoId);
       setDocumentId(docId);
       setCurrentPDF(data.conversation.document.url);
       setMessages(data.messages);
+
+      // Check if the last assistant message has annotations
+      const lastAssistantMessage = [...data.messages].reverse().find(
+        (m: ChatMessage) => m.role === 'assistant' && m.annotations && m.annotations.length > 0
+      );
+
+      if (lastAssistantMessage?.annotations) {
+        console.log('[Dashboard] Found annotations in loaded conversation:', lastAssistantMessage.annotations);
+        setCurrentAnnotations(lastAssistantMessage.annotations);
+      } else {
+        // Clear previous annotations when switching conversations
+        setCurrentAnnotations([]);
+        pdfViewerRef.current?.clearAnnotations();
+      }
 
       // Update URL with the selected conversation
       updateUrl(convoId);
@@ -103,14 +128,15 @@ function DashboardWithSearchParams () {
     checkAuth();
   }, [router])
 
-  // fetch user ID on component mount
+  // fetch user ID and email on component mount
   useEffect(() => {
-    const fetchUserId = async () => {
+    const fetchUser = async () => {
       try {
         const response = await authApi.getUser();
         const data = await response.json();
         if(response.ok) {
           setUserId(data.id);
+          setUserEmail(data.email || '');
         } else {
           // TODO: Display error message to user
           console.error('Failed to fetch user: ', data);
@@ -120,7 +146,7 @@ function DashboardWithSearchParams () {
         console.error('Error fetching user:', error);
       }
     };
-    fetchUserId();
+    fetchUser();
   }, []);
 
   // Now effect to restore chat from URL parameter
@@ -211,8 +237,10 @@ function DashboardWithSearchParams () {
       setCurrentPDF(data.url);
       setDocumentId(data.id);
 
-      // reset messages for new document
+      // reset messages and annotations for new document
       setMessages([]);
+      setCurrentAnnotations([]);
+      pdfViewerRef.current?.clearAnnotations();
 
       // set new conversation id from the response
       if(data.conversationId){
@@ -300,12 +328,38 @@ function DashboardWithSearchParams () {
 
       const data = await response.json();
 
+      // Debug: Log the full response to check annotations
+      console.log('[Dashboard] Chat response received:', data);
+      console.log('[Dashboard] Assistant message annotations:', data.assistant_message?.annotations);
+
       // update messages with server response
       setMessages(prev => [
         ...prev.filter(m=>m.id !== userMessage.id), // Remove temp message
         data.user_message,  // Add actual user message with ID
         data.assistant_message // Add assistant response
       ]);
+
+      // If the assistant message has annotations, update the PDF viewer
+      if (data.assistant_message?.annotations && data.assistant_message.annotations.length > 0) {
+        console.log('[Dashboard] Processing annotations:', data.assistant_message.annotations);
+        setCurrentAnnotations(data.assistant_message.annotations);
+
+        // Auto-navigate to the first annotation's page
+        const firstAnnotation = data.assistant_message.annotations[0];
+        if (pdfViewerRef.current && firstAnnotation) {
+          console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
+          pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
+          if (firstAnnotation.sourceText) {
+            console.log('[Dashboard] Highlighting text:', firstAnnotation.sourceText);
+            // Small delay to allow page to render
+            setTimeout(() => {
+              pdfViewerRef.current?.highlightText(firstAnnotation.pageNumber, firstAnnotation.sourceText);
+            }, 500);
+          }
+        }
+      } else {
+        console.log('[Dashboard] No annotations in response');
+      }
 
       // Clear any previous errors on success
       setError(null);
@@ -319,6 +373,59 @@ function DashboardWithSearchParams () {
     }
   }
 
+  // Handle annotation click from chat - navigate to page and highlight text
+  const handleAnnotationClick = useCallback((annotation: AnnotationReference) => {
+    if (pdfViewerRef.current) {
+      // Navigate to the page
+      pdfViewerRef.current.goToPage(annotation.pageNumber);
+
+      // Set the annotation to be displayed
+      setCurrentAnnotations([annotation]);
+
+      // If there's text to highlight, use the highlight function
+      if (annotation.sourceText) {
+        pdfViewerRef.current.highlightText(annotation.pageNumber, annotation.sourceText);
+      }
+    }
+  }, []);
+
+  // Resizer handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing || !containerRef.current) return;
+
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newPosition = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+
+      // Constrain between 20% and 80% to prevent components from becoming too small
+      const constrainedPosition = Math.max(20, Math.min(80, newPosition));
+      setSplitPosition(constrainedPosition);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
   if (error) {
     return <div className="p-4 text-red-500">{error}</div>
   }
@@ -329,28 +436,63 @@ function DashboardWithSearchParams () {
       <ChatSidebar
         ref={chatSidebarRef}
         userId={userId}
+        userEmail={userEmail}
         onSelectConversation={handleSelectConversation}
         currentConversationId={conversationId}
         onDeleteConversation={handleDeleteConversation}
       />
 
       {/* Main content Area */}
-      <div className="flex flex-1 overflow-hidden">
+      <div ref={containerRef} className="flex flex-1 overflow-hidden relative">
         {/* PDF Viewer Section */}
-        <div className="w-3/5">
+        <div
+          className="h-full overflow-hidden"
+          style={{ width: `${splitPosition}%` }}
+        >
           <EnhancedPDFViewer
+            ref={pdfViewerRef}
             currentPDF={currentPDF}
             onFileUpload={handleFileUpload}
             fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
+            annotations={currentAnnotations}
+            onAnnotationClick={handleAnnotationClick}
           />
         </div>
+
+        {/* Resizer */}
+        <div
+          onMouseDown={handleMouseDown}
+          className={`absolute top-0 bottom-0 w-1 bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors z-20 ${
+            isResizing ? 'bg-blue-500' : ''
+          }`}
+          style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
+        >
+          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-12 rounded-full flex items-center justify-center transition-all ${
+            isResizing
+              ? 'bg-blue-500 shadow-lg scale-110'
+              : 'bg-gray-200 hover:bg-blue-400 hover:shadow-md'
+          }`}>
+            <div className="flex flex-col gap-1">
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
+            </div>
+          </div>
+        </div>
+
         {/* Chat Section */}
-        <ChatInterface
-          messages={messages}
-          onSendMessage={handleSendMessage}
-          onVoiceRecord={handleVoiceRecord}
-          isConversationSelected={!!conversationId}
-        />
+        <div
+          className="h-full overflow-hidden"
+          style={{ width: `${100 - splitPosition}%` }}
+        >
+          <ChatInterface
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            onVoiceRecord={handleVoiceRecord}
+            isConversationSelected={!!conversationId}
+            onAnnotationClick={handleAnnotationClick}
+          />
+        </div>
       </div>
     </div>
   )
