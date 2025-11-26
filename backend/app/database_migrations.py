@@ -195,3 +195,81 @@ def add_pgvector_hnsw_index(engine):
         logger.warning("Backend will continue to start, but vector search performance may be suboptimal")
         logger.warning("If pgvector extension is not installed, run: CREATE EXTENSION vector;")
 
+
+def add_document_status_fields(engine):
+    """
+    Add status tracking fields to the 'documents' table for background job processing:
+    - status: Track processing state (pending, queued, processing, completed, failed)
+    - error_message: Store error details if processing fails
+    - job_id: Store Arq job ID for tracking background jobs
+
+    These fields enable non-blocking document processing with proper status tracking.
+    """
+    try:
+        inspector = inspect(engine)
+
+        # Check if documents table exists
+        table_names = inspector.get_table_names()
+        if 'documents' not in table_names:
+            logger.info("documents table does not exist, will be created by create_all()")
+            return
+
+        # Check existing columns
+        existing_columns = {col['name'] for col in inspector.get_columns('documents')}
+
+        with engine.begin() as conn:
+            # Add status column (default: pending)
+            if 'status' not in existing_columns:
+                logger.info("Adding 'status' column to 'documents' table...")
+                conn.execute(text("""
+                    ALTER TABLE documents
+                    ADD COLUMN status VARCHAR(50) DEFAULT 'pending' NOT NULL
+                """))
+                logger.info("Successfully added 'status' column")
+            else:
+                logger.debug("'status' column already exists in 'documents' table")
+
+            # Add error_message column
+            if 'error_message' not in existing_columns:
+                logger.info("Adding 'error_message' column to 'documents' table...")
+                conn.execute(text("""
+                    ALTER TABLE documents
+                    ADD COLUMN error_message TEXT
+                """))
+                logger.info("Successfully added 'error_message' column")
+            else:
+                logger.debug("'error_message' column already exists in 'documents' table")
+
+            # Add job_id column
+            if 'job_id' not in existing_columns:
+                logger.info("Adding 'job_id' column to 'documents' table...")
+                conn.execute(text("""
+                    ALTER TABLE documents
+                    ADD COLUMN job_id VARCHAR(255)
+                """))
+                logger.info("Successfully added 'job_id' column")
+            else:
+                logger.debug("'job_id' column already exists in 'documents' table")
+
+        # Add index on status column for filtering (separate transaction)
+        with engine.begin() as conn:
+            existing_indexes = {idx['name'] for idx in inspector.get_indexes('documents')}
+            idx_name = 'idx_documents_status'
+
+            if idx_name not in existing_indexes:
+                logger.info(f"Creating index '{idx_name}' on documents.status...")
+                conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_documents_status
+                    ON documents(status)
+                """))
+                logger.info(f"Successfully created index '{idx_name}'")
+            else:
+                logger.debug(f"Index '{idx_name}' already exists")
+
+        logger.info("Document status tracking fields migration completed successfully")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_document_status_fields: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but background job tracking may not work")
+
