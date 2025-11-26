@@ -188,8 +188,18 @@ export const chatApi = {
 
 // Conversation API calls
 export const conversationApi = {
-  async list() {
-    return apiRequest('/api/conversations');
+  async list(groupByDocument: boolean = false) {
+    const url = groupByDocument
+      ? '/api/conversations?group_by_document=true'
+      : '/api/conversations';
+    return apiRequest(url);
+  },
+
+  async create(documentId: string) {
+    return apiRequest('/api/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ document_id: documentId }),
+    });
   },
 
   async get(conversationId: string) {
