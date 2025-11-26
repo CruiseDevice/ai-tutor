@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, DatabaseError
 import logging
+import json
 from ..database import get_db
 from ..core.deps import get_current_user
 from ..models.user import User
@@ -71,5 +73,69 @@ async def send_message(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process message: {str(e)}"
+        )
+
+
+@router.post("/stream")
+async def send_message_stream(
+    message_data: MessageCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Send a message and get streaming AI response using Server-Sent Events."""
+    try:
+        # Verify conversation belongs to user
+        conversation = db.query(Conversation).filter(
+            Conversation.id == message_data.conversation_id,
+            Conversation.user_id == user.id
+        ).first()
+
+        if not conversation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found"
+            )
+
+        async def generate():
+            try:
+                async for chunk in chat_service.generate_chat_response_stream(
+                    db=db,
+                    user=user,
+                    content=message_data.content,
+                    conversation_id=message_data.conversation_id,
+                    document_id=message_data.document_id,
+                    model=message_data.model or "gpt-4"
+                ):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error in streaming response: {str(e)}", exc_info=True)
+                error_data = json.dumps({'type': 'error', 'content': f'Streaming error: {str(e)}'})
+                yield f"data: {error_data}\n\n"
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"  # Disable buffering for nginx
+            }
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"ValueError in send_message_stream: {str(e)}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in send_message_stream: {str(e)}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start streaming: {str(e)}"
         )
 
