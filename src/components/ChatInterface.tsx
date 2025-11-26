@@ -183,19 +183,24 @@ export default function ChatInterface({
       return;
     }
 
+    const messageToSend = inputMessage;
+    setInputMessage('');
+    // Reset height
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
     setIsLoading(true);
     setError(null);
 
     try {
-      setInputMessage('');
-      // Reset height
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
-
-      await onSendMessage(inputMessage, selectedModel);
+      // onSendMessage now handles streaming and manages its own loading state
+      // But we keep isLoading here for UI feedback during streaming
+      await onSendMessage(messageToSend, selectedModel);
+      // Loading will be cleared by Dashboard when streaming completes
+      // But we'll also clear it here as a fallback after a delay
+      setTimeout(() => setIsLoading(false), 100);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message. Please try again.';
       setError(errorMessage);
-    } finally {
       setIsLoading(false);
     }
   }

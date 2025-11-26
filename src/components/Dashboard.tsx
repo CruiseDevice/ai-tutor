@@ -6,7 +6,7 @@ import EnhancedPDFViewer, { PDFViewerRef } from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
-import { authApi, documentApi, chatApi, conversationApi } from "@/lib/api-client";
+import { authApi, documentApi, chatApi, conversationApi, configApi } from "@/lib/api-client";
 import type { AnnotationReference } from "@/types/annotations";
 
 interface ChatMessage {
@@ -30,6 +30,7 @@ function DashboardWithSearchParams () {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [currentAnnotations, setCurrentAnnotations] = useState<AnnotationReference[]>([]);
+  const [maxFileSize, setMaxFileSize] = useState<number>(10 * 1024 * 1024); // Default to 10MB until config loads
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
   const pdfViewerRef = useRef<PDFViewerRef>(null);
@@ -149,6 +150,24 @@ function DashboardWithSearchParams () {
     fetchUser();
   }, []);
 
+  // fetch config (e.g., max file size) on component mount
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const response = await configApi.get();
+        if (response.ok) {
+          const data = await response.json();
+          setMaxFileSize(data.max_file_size);
+        } else {
+          console.warn('Failed to fetch config, using default max file size');
+        }
+      } catch (error) {
+        console.warn('Error fetching config, using default max file size:', error);
+      }
+    };
+    fetchConfig();
+  }, []);
+
   // Now effect to restore chat from URL parameter
   useEffect(() => {
     const chatId = searchParams.get('chat');
@@ -218,10 +237,10 @@ function DashboardWithSearchParams () {
       return;
     }
 
-    //  validate file size(e.g., 10MB limit)
-    const MAX_SIZE = 10 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      setError('File size should be less than 10MB');
+    // Validate file size using config from backend
+    if (file.size > maxFileSize) {
+      const maxSizeMB = (maxFileSize / (1024 * 1024)).toFixed(0);
+      setError(`File size should be less than ${maxSizeMB}MB`);
       return;
     }
 
@@ -301,88 +320,120 @@ function DashboardWithSearchParams () {
   const handleSendMessage = async (content: string, model: string) => {
     if (!content.trim() || !conversationId || !documentId) return;
 
+    const tempUserMessageId = `temp-user-${Date.now()}`;
+    const tempAssistantMessageId = `temp-assistant-${Date.now()}`;
+
     const userMessage = {
-      id: `temp=${Date.now()}`,
+      id: tempUserMessageId,
       role: 'user' as const,
       content: content.trim()
     };
 
-    // add user message to chat
+    // Add user message to chat
     setMessages(prev => [...prev, userMessage]);
 
+    // Create temporary assistant message for streaming
+    const assistantMessage: ChatMessage = {
+      id: tempAssistantMessageId,
+      role: 'assistant',
+      content: '',
+      annotations: undefined
+    };
+    setMessages(prev => [...prev, assistantMessage]);
+    setIsLoading(true);
+    setError(null);
+
     try {
-      const response = await chatApi.sendMessage(conversationId, documentId, content, model);
-      console.log(response)
-      if(!response.ok) {
-        // Try to extract error message from response
-        let errorMessage = 'Failed to send message';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorData.error || errorMessage;
-        } catch {
-          // If response is not JSON, use status text
-          errorMessage = response.statusText || errorMessage;
-        }
-        throw new Error(errorMessage);
-      }
+      await chatApi.sendMessageStream(
+        conversationId,
+        documentId,
+        content,
+        model,
+        // onChunk - update assistant message content incrementally
+        (chunk: string) => {
+          setMessages(prev => prev.map(msg =>
+            msg.id === tempAssistantMessageId
+              ? { ...msg, content: msg.content + chunk }
+              : msg
+          ));
+        },
+        // onDone - replace temp messages with final messages
+        (data: any) => {
+          console.log('[Dashboard] Stream completed:', data);
 
-      const data = await response.json();
-
-      // Debug: Log the full response to check annotations
-      console.log('[Dashboard] Chat response received:', data);
-      console.log('[Dashboard] Assistant message annotations:', data.assistant_message?.annotations);
-
-      // update messages with server response
-      setMessages(prev => [
-        ...prev.filter(m=>m.id !== userMessage.id), // Remove temp message
-        data.user_message,  // Add actual user message with ID
-        data.assistant_message // Add assistant response
-      ]);
-
-      // If the assistant message has annotations, update the PDF viewer
-      if (data.assistant_message?.annotations && data.assistant_message.annotations.length > 0) {
-        console.log('[Dashboard] Processing annotations:', data.assistant_message.annotations);
-        setCurrentAnnotations(data.assistant_message.annotations);
-
-        // Auto-navigate to the first annotation's page
-        const firstAnnotation = data.assistant_message.annotations[0];
-        if (pdfViewerRef.current && firstAnnotation) {
-          console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
-          pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
-          if (firstAnnotation.sourceText) {
-            console.log('[Dashboard] Highlighting text:', firstAnnotation.sourceText);
-            // Small delay to allow page to render
-            setTimeout(() => {
-              pdfViewerRef.current?.highlightText(firstAnnotation.pageNumber, firstAnnotation.sourceText);
-            }, 500);
-          }
-        }
-      } else {
-        console.log('[Dashboard] No annotations in response');
-      }
-
-      // Refresh sidebar to update conversation title (if this was the first message)
-      // Check if this is the first message by counting existing messages
-      const messageCountBefore = messages.length;
-      if (messageCountBefore === 0) {
-        // This was the first message, title should have been generated
-        // Refresh sidebar after a short delay to allow backend to save the title
-        setTimeout(() => {
-          if (chatSidebarRef.current) {
-            const sidebar = chatSidebarRef.current as unknown as { refreshConversations: () => void };
-            if (typeof sidebar.refreshConversations === 'function') {
-              sidebar.refreshConversations();
+          setMessages(prev => [
+            ...prev.filter(m => m.id !== tempUserMessageId && m.id !== tempAssistantMessageId),
+            {
+              id: data.user_message.id,
+              role: data.user_message.role as 'user',
+              content: data.user_message.content,
+              annotations: undefined
+            },
+            {
+              id: data.assistant_message.id,
+              role: data.assistant_message.role as 'assistant',
+              content: data.assistant_message.content,
+              annotations: data.assistant_message.annotations
             }
+          ]);
+
+          // If the assistant message has annotations, update the PDF viewer
+          if (data.assistant_message?.annotations && data.assistant_message.annotations.length > 0) {
+            console.log('[Dashboard] Processing annotations:', data.assistant_message.annotations);
+            setCurrentAnnotations(data.assistant_message.annotations);
+
+            // Auto-navigate to the first annotation's page
+            const firstAnnotation = data.assistant_message.annotations[0];
+            if (pdfViewerRef.current && firstAnnotation) {
+              console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
+              pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
+              if (firstAnnotation.sourceText) {
+                console.log('[Dashboard] Highlighting text:', firstAnnotation.sourceText);
+                // Small delay to allow page to render
+                setTimeout(() => {
+                  pdfViewerRef.current?.highlightText(firstAnnotation.pageNumber, firstAnnotation.sourceText);
+                }, 500);
+              }
+            }
+          } else {
+            console.log('[Dashboard] No annotations in response');
           }
-        }, 1000);
-      }
 
-      // Clear any previous errors on success
-      setError(null);
+          // Refresh sidebar to update conversation title (if this was the first message)
+          const messageCountBefore = messages.length;
+          if (messageCountBefore === 0) {
+            // This was the first message, title should have been generated
+            // Refresh sidebar after a short delay to allow backend to save the title
+            setTimeout(() => {
+              if (chatSidebarRef.current) {
+                const sidebar = chatSidebarRef.current as unknown as { refreshConversations: () => void };
+                if (typeof sidebar.refreshConversations === 'function') {
+                  sidebar.refreshConversations();
+                }
+              }
+            }, 1000);
+          }
+
+          setIsLoading(false);
+          setError(null);
+        },
+        // onError - handle errors
+        (errorMessage: string) => {
+          console.error('Streaming error:', errorMessage);
+          // Remove temporary messages on error
+          setMessages(prev => prev.filter(m =>
+            m.id !== tempUserMessageId && m.id !== tempAssistantMessageId
+          ));
+          setIsLoading(false);
+          setError(errorMessage);
+        }
+      );
     } catch (error) {
-      // Remove the temporary user message on error
-      setMessages(prev => prev.filter(m => m.id !== userMessage.id));
-
+      // Remove the temporary messages on error
+      setMessages(prev => prev.filter(m =>
+        m.id !== tempUserMessageId && m.id !== tempAssistantMessageId
+      ));
+      setIsLoading(false);
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
       console.error('Chat error: ', errorMessage);
       setError(errorMessage);

@@ -96,7 +96,7 @@ async def delete_document(
     db: Session = Depends(get_db)
 ):
     """Delete a document and all associated data."""
-    success = document_service.delete_document(db, document_id, user.id)
+    success = await document_service.delete_document(db, document_id, user.id)
 
     if not success:
         raise HTTPException(
