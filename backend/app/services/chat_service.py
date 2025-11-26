@@ -191,10 +191,13 @@ Title:"""
                 # Cache the embedding
                 await cache_service.set_embedding(query, query_embedding)
 
-            # Perform vector similarity search using pgvector
+            # Perform vector similarity search using pgvector with HNSW index
             # pgvector expects the vector in the format '[1,2,3]' as a string
             embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
+            # Optimized query to leverage HNSW index
+            # ORDER BY embedding <=> query directly (instead of calculated similarity)
+            # This allows PostgreSQL to use the HNSW index for efficient approximate nearest neighbor search
             query_sql = text("""
                 SELECT
                     id,
@@ -205,11 +208,14 @@ Title:"""
                     1 - (embedding <=> CAST(:embedding AS vector)) as similarity
                 FROM document_chunks
                 WHERE document_id = :document_id
-                ORDER BY similarity DESC
+                ORDER BY embedding <=> CAST(:embedding AS vector)
                 LIMIT :limit
             """)
 
             logger.debug(f"Executing vector search for document_id: {document_id}")
+            import time
+            start_time = time.time()
+
             result = db.execute(
                 query_sql,
                 {
@@ -218,6 +224,9 @@ Title:"""
                     "limit": limit
                 }
             )
+
+            query_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            logger.info(f"Vector search completed in {query_time:.2f}ms (document_id: {document_id})")
 
             chunks = []
             for row in result:

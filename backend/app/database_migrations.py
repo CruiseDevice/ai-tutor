@@ -96,3 +96,102 @@ def remove_unique_constraint_from_document_id(engine):
         logger.error(f"Migration error (non-fatal): {e}", exc_info=True)
         logger.warning("Backend will continue to start, but some features may not work until migration is fixed")
 
+
+def add_document_chunks_indexes(engine):
+    """
+    Add performance indexes to the 'document_chunks' table:
+    - Index on document_id for faster filtering
+    - Composite index on (document_id, page_number) for common queries
+
+    These indexes improve query performance when searching chunks by document.
+    """
+    try:
+        inspector = inspect(engine)
+
+        # Check if document_chunks table exists
+        table_names = inspector.get_table_names()
+        if 'document_chunks' not in table_names:
+            logger.info("document_chunks table does not exist, will be created by create_all()")
+            return
+
+        # Get existing indexes
+        existing_indexes = {idx['name'] for idx in inspector.get_indexes('document_chunks')}
+
+        with engine.begin() as conn:
+            # Index 1: document_id (for filtering by document)
+            idx_name_document = 'idx_document_chunks_document_id'
+            if idx_name_document not in existing_indexes:
+                logger.info(f"Creating index '{idx_name_document}' on document_chunks.document_id...")
+                conn.execute(text(
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_document_id "
+                    "ON document_chunks (document_id)"
+                ))
+                logger.info(f"Successfully created index '{idx_name_document}'")
+            else:
+                logger.debug(f"Index '{idx_name_document}' already exists")
+
+            # Index 2: Composite (document_id, page_number) for ordered page queries
+            idx_name_composite = 'idx_document_chunks_document_id_page_number'
+            if idx_name_composite not in existing_indexes:
+                logger.info(f"Creating composite index '{idx_name_composite}' on (document_id, page_number)...")
+                conn.execute(text(
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_document_id_page_number "
+                    "ON document_chunks (document_id, page_number)"
+                ))
+                logger.info(f"Successfully created composite index '{idx_name_composite}'")
+            else:
+                logger.debug(f"Index '{idx_name_composite}' already exists")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_document_chunks_indexes: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but query performance may be suboptimal")
+
+
+def add_pgvector_hnsw_index(engine):
+    """
+    Add HNSW (Hierarchical Navigable Small World) index to the embedding column
+    in document_chunks table for fast approximate nearest neighbor search.
+
+    HNSW parameters:
+    - m=16: Number of connections per layer (good balance of speed vs recall)
+    - ef_construction=64: Size of dynamic candidate list (higher = better index quality)
+
+    Uses cosine distance for semantic similarity (best for normalized embeddings).
+    """
+    try:
+        inspector = inspect(engine)
+
+        # Check if document_chunks table exists
+        table_names = inspector.get_table_names()
+        if 'document_chunks' not in table_names:
+            logger.info("document_chunks table does not exist, will be created by create_all()")
+            return
+
+        # Get existing indexes
+        existing_indexes = {idx['name'] for idx in inspector.get_indexes('document_chunks')}
+
+        idx_name = 'idx_document_chunks_embedding_hnsw'
+        if idx_name not in existing_indexes:
+            logger.info(f"Creating HNSW index '{idx_name}' on document_chunks.embedding...")
+            logger.info("This may take a few minutes for large datasets...")
+
+            with engine.begin() as conn:
+                # Create HNSW index with cosine distance operator
+                # Using CONCURRENTLY to avoid table locks during creation
+                conn.execute(text(
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_embedding_hnsw "
+                    "ON document_chunks USING hnsw (embedding vector_cosine_ops) "
+                    "WITH (m = 16, ef_construction = 64)"
+                ))
+                logger.info(f"Successfully created HNSW index '{idx_name}'")
+                logger.info("Vector searches will now use approximate nearest neighbor (ANN) search")
+        else:
+            logger.debug(f"HNSW index '{idx_name}' already exists")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_pgvector_hnsw_index: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but vector search performance may be suboptimal")
+        logger.warning("If pgvector extension is not installed, run: CREATE EXTENSION vector;")
+

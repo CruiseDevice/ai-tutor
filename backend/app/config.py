@@ -29,13 +29,14 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_AUTH_PER_MINUTE: int = 5  # Stricter for auth endpoints
 
-    # Redis Cache
+    # Redis Cache (optimized for performance)
     REDIS_URL: str = "redis://localhost:6379/0"
     CACHE_ENABLED: bool = True
-    CACHE_EMBEDDING_TTL: int = 86400  # 24 hours
-    CACHE_RESPONSE_TTL: int = 3600  # 1 hour
-    CACHE_CHUNK_TTL: int = 86400  # 24 hours
+    CACHE_EMBEDDING_TTL: int = 86400  # 24 hours (embeddings stable per query)
+    CACHE_RESPONSE_TTL: int = 7200  # 2 hours (increased from 1h for better hit rate)
+    CACHE_CHUNK_TTL: int = 259200  # 72 hours (increased from 24h - vector results are stable)
     CACHE_SIMILARITY_THRESHOLD: float = 0.85  # 85% similarity for response cache
+    CACHE_COMPRESSION_THRESHOLD: int = 1024  # Compress cache values larger than 1KB
 
     # Environment
     NODE_ENV: str = "development"

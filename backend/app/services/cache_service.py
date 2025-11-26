@@ -21,6 +21,15 @@ class CacheService:
         self.redis_client: Optional[Any] = None
         self._connection_pool: Optional[Any] = None
         self.enabled = settings.CACHE_ENABLED and aioredis is not None
+        # Cache metrics
+        self.stats = {
+            'embedding_hits': 0,
+            'embedding_misses': 0,
+            'chunk_hits': 0,
+            'chunk_misses': 0,
+            'response_hits': 0,
+            'response_misses': 0
+        }
 
     async def connect(self):
         """Initialize Redis connection."""
@@ -37,7 +46,7 @@ class CacheService:
             self._connection_pool = aioredis.ConnectionPool.from_url(
                 settings.REDIS_URL,
                 decode_responses=True,
-                max_connections=10
+                max_connections=20  # Increased from 10 for better concurrency
             )
             self.redis_client = aioredis.Redis(connection_pool=self._connection_pool)
             # Test connection
@@ -79,8 +88,10 @@ class CacheService:
             cache_key = f"embedding:{self._hash_text(query_text)}"
             cached = await self.redis_client.get(cache_key)
             if cached:
+                self.stats['embedding_hits'] += 1
                 logger.debug(f"Cache hit for embedding: {query_text[:50]}...")
                 return json.loads(cached)
+            self.stats['embedding_misses'] += 1
             logger.debug(f"Cache miss for embedding: {query_text[:50]}...")
             return None
         except Exception as e:
@@ -113,8 +124,10 @@ class CacheService:
             cache_key = f"chunks:{document_id}:{embedding_hash}"
             cached = await self.redis_client.get(cache_key)
             if cached:
+                self.stats['chunk_hits'] += 1
                 logger.debug(f"Cache hit for chunks: document_id={document_id}")
                 return json.loads(cached)
+            self.stats['chunk_misses'] += 1
             logger.debug(f"Cache miss for chunks: document_id={document_id}")
             return None
         except Exception as e:
@@ -202,8 +215,10 @@ class CacheService:
                     continue
 
             if best_match:
+                self.stats['response_hits'] += 1
                 logger.info(f"Found similar cached response with similarity {best_similarity:.3f}")
             else:
+                self.stats['response_misses'] += 1
                 logger.debug("No similar cached response found")
 
             return best_match
@@ -240,6 +255,34 @@ class CacheService:
             logger.debug(f"Cached response for document_id={document_id}")
         except Exception as e:
             logger.warning(f"Error caching response: {e}")
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics including hit rates."""
+        total_embedding = self.stats['embedding_hits'] + self.stats['embedding_misses']
+        total_chunk = self.stats['chunk_hits'] + self.stats['chunk_misses']
+        total_response = self.stats['response_hits'] + self.stats['response_misses']
+
+        return {
+            'enabled': self.enabled,
+            'embedding': {
+                'hits': self.stats['embedding_hits'],
+                'misses': self.stats['embedding_misses'],
+                'total': total_embedding,
+                'hit_rate': (self.stats['embedding_hits'] / total_embedding * 100) if total_embedding > 0 else 0
+            },
+            'chunk': {
+                'hits': self.stats['chunk_hits'],
+                'misses': self.stats['chunk_misses'],
+                'total': total_chunk,
+                'hit_rate': (self.stats['chunk_hits'] / total_chunk * 100) if total_chunk > 0 else 0
+            },
+            'response': {
+                'hits': self.stats['response_hits'],
+                'misses': self.stats['response_misses'],
+                'total': total_response,
+                'hit_rate': (self.stats['response_hits'] / total_response * 100) if total_response > 0 else 0
+            }
+        }
 
     async def clear_all(self):
         """Clear all cache entries (use with caution)."""
