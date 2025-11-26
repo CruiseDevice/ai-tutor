@@ -4,6 +4,9 @@ from sqlalchemy.exc import SQLAlchemyError, DatabaseError
 from typing import List, Dict, Optional
 from openai import OpenAI
 import logging
+import json
+import re
+import uuid
 from ..models.conversation import Conversation, Message
 from ..models.document import DocumentChunk
 from ..models.user import User
@@ -15,6 +18,74 @@ logger = logging.getLogger(__name__)
 class ChatService:
     def __init__(self):
         self.embedding_service = get_embedding_service()
+
+    def _parse_annotations(self, response_text: str, relevant_chunks: List[Dict]) -> tuple[str, List[Dict]]:
+        """
+        Parse annotations from the LLM response.
+        Returns (cleaned_response, annotations_list)
+        """
+        annotations = []
+        cleaned_response = response_text
+
+        # Look for annotations block
+        annotation_pattern = r'```annotations\s*([\s\S]*?)\s*```'
+        match = re.search(annotation_pattern, response_text)
+
+        if match:
+            # Remove the annotations block from the response
+            cleaned_response = re.sub(annotation_pattern, '', response_text).strip()
+
+            try:
+                annotation_data = json.loads(match.group(1))
+
+                if isinstance(annotation_data, list):
+                    for item in annotation_data:
+                        page_num = item.get('pageNumber', 1)
+                        text_to_highlight = item.get('textToHighlight', '')
+                        annotation_type = item.get('type', 'highlight')
+                        explanation = item.get('explanation', '')
+
+                        # Create annotation with estimated bounds
+                        # These are rough estimates - the frontend will refine them
+                        annotation = {
+                            'id': str(uuid.uuid4()),
+                            'type': annotation_type,
+                            'pageNumber': page_num,
+                            'bounds': {
+                                'x': 10,      # Default left margin
+                                'y': 30,      # Start from upper portion
+                                'width': 80,  # Most of page width
+                                'height': 5   # Rough text line height
+                            },
+                            'textContent': text_to_highlight,
+                            'color': self._get_annotation_color(annotation_type),
+                            'label': None
+                        }
+
+                        annotation_ref = {
+                            'pageNumber': page_num,
+                            'annotations': [annotation],
+                            'sourceText': text_to_highlight,
+                            'explanation': explanation
+                        }
+                        annotations.append(annotation_ref)
+
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse annotations JSON: {e}")
+            except Exception as e:
+                logger.warning(f"Error processing annotations: {e}")
+
+        return cleaned_response, annotations
+
+    def _get_annotation_color(self, annotation_type: str) -> str:
+        """Get color for annotation type."""
+        colors = {
+            'highlight': 'rgba(255, 235, 59, 0.4)',   # Yellow
+            'circle': 'rgba(33, 150, 243, 0.5)',      # Blue
+            'box': 'rgba(76, 175, 80, 0.3)',          # Green
+            'underline': 'rgba(244, 67, 54, 0.5)'     # Red
+        }
+        return colors.get(annotation_type, colors['highlight'])
 
     def find_similar_chunks(
         self,
@@ -115,7 +186,7 @@ class ChatService:
             else:
                 context_text = "No relevant document sections found."
 
-            # Create system message with context
+            # Create system message with context and annotation instructions
             system_message = {
                 "role": "system",
                 "content": f"""You are an AI tutor helping a student understand a PDF document.
@@ -132,6 +203,29 @@ IMPORTANT FORMATTING INSTRUCTIONS:
 3. When referring to specific sections, use [Page X] to cite the page number.
 4. Use bullet points or numbered lists for step-by-step explanations.
 5. For critical information or warnings, use "⚠️" at the beginning of the paragraph.
+
+PDF ANNOTATION FEATURE - IMPORTANT:
+You MUST identify specific parts of the document that are relevant to your answer.
+At the END of your response, ALWAYS include an ANNOTATIONS section with the following JSON format:
+
+```annotations
+[
+  {{
+    "pageNumber": <page number from context above>,
+    "type": "highlight",
+    "textToHighlight": "<3-10 word phrase copied exactly from the document>",
+    "explanation": "<why this text answers the question>"
+  }}
+]
+```
+
+ANNOTATION RULES - FOLLOW STRICTLY:
+1. ALWAYS include at least 1 annotation when you reference document content
+2. The "pageNumber" MUST match a page number from the [Page X] citations above
+3. The "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
+4. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
+5. Copy the exact words from the document - do not paraphrase
+6. Include 1-2 annotations per response
 
 Make your responses helpful, clear, and educational. If the context doesn't contain the answer,
 say you don't have enough information from the document and suggest looking at other pages."""
@@ -170,8 +264,17 @@ say you don't have enough information from the document and suggest looking at o
                 logger.error(f"OpenAI API error: {str(e)}", exc_info=True)
                 raise ValueError(f"OpenAI API error: {str(e)}")
 
-            assistant_content = completion.choices[0].message.content
-            logger.debug("Received response from OpenAI")
+            raw_assistant_content = completion.choices[0].message.content
+            logger.info(f"[Annotations] Raw OpenAI response: {raw_assistant_content[:500]}...")
+
+            # Parse annotations from the response
+            assistant_content, annotations = self._parse_annotations(
+                raw_assistant_content,
+                relevant_chunks
+            )
+            logger.info(f"[Annotations] Parsed {len(annotations)} annotations from response")
+            if annotations:
+                logger.info(f"[Annotations] Annotation details: {annotations}")
 
             # Save user message
             user_message = Message(
@@ -182,12 +285,16 @@ say you don't have enough information from the document and suggest looking at o
             db.add(user_message)
             db.flush()
 
-            # Save assistant message with context
+            # Save assistant message with context (store annotations in context)
+            message_context = {
+                "chunks": relevant_chunks,
+                "annotations": annotations
+            }
             assistant_message = Message(
                 content=assistant_content,
                 role="assistant",
                 conversation_id=conversation_id,
-                context=relevant_chunks
+                context=message_context
             )
             db.add(assistant_message)
             db.commit()
@@ -203,14 +310,16 @@ say you don't have enough information from the document and suggest looking at o
                     "role": user_message.role,
                     "content": user_message.content,
                     "created_at": user_message.created_at,
-                    "context": None
+                    "context": None,
+                    "annotations": None
                 },
                 "assistant_message": {
                     "id": assistant_message.id,
                     "role": assistant_message.role,
                     "content": assistant_message.content,
                     "created_at": assistant_message.created_at,
-                    "context": relevant_chunks
+                    "context": relevant_chunks,
+                    "annotations": annotations
                 }
             }
         except ValueError:

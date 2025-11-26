@@ -13,12 +13,37 @@ class MessageCreate(MessageBase):
     model: Optional[str] = "gpt-4"
 
 
+class AnnotationBounds(BaseModel):
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+class PDFAnnotation(BaseModel):
+    id: str
+    type: str  # 'highlight', 'circle', 'underline', 'box'
+    pageNumber: int
+    bounds: AnnotationBounds
+    textContent: Optional[str] = None
+    color: Optional[str] = None
+    label: Optional[str] = None
+
+
+class AnnotationReference(BaseModel):
+    pageNumber: int
+    annotations: List[PDFAnnotation]
+    sourceText: str
+    explanation: Optional[str] = None
+
+
 class MessageResponse(MessageBase):
     id: str
     role: str
     created_at: datetime
     context: Optional[Any] = None
-    
+    annotations: Optional[List[AnnotationReference]] = None
+
     class Config:
         from_attributes = True
 
@@ -38,7 +63,7 @@ class ConversationResponse(ConversationBase):
     document_id: str
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
 

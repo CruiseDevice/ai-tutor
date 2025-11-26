@@ -20,12 +20,12 @@ async def list_conversations(
     conversations = db.query(Conversation).filter(
         Conversation.user_id == user.id
     ).order_by(Conversation.updated_at.desc()).all()
-    
+
     result = []
     for conv in conversations:
         # Get document info
         document = db.query(Document).filter(Document.id == conv.document_id).first()
-        
+
         result.append({
             "id": conv.id,
             "user_id": conv.user_id,
@@ -38,7 +38,7 @@ async def list_conversations(
                 "url": document.url
             } if document else None
         })
-    
+
     return result
 
 
@@ -53,21 +53,34 @@ async def get_conversation(
         Conversation.id == conversation_id,
         Conversation.user_id == user.id
     ).first()
-    
+
     if not conversation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found"
         )
-    
+
     # Get messages
     messages = db.query(Message).filter(
         Message.conversation_id == conversation_id
     ).order_by(Message.created_at).all()
-    
+
     # Get document
     document = db.query(Document).filter(Document.id == conversation.document_id).first()
-    
+
+    # Build messages with annotations extracted from context
+    message_list = []
+    for msg in messages:
+        message_data = {
+            "id": msg.id,
+            "content": msg.content,
+            "role": msg.role,
+            "created_at": msg.created_at,
+            "context": msg.context.get("chunks") if isinstance(msg.context, dict) else msg.context,
+            "annotations": msg.context.get("annotations") if isinstance(msg.context, dict) else None
+        }
+        message_list.append(message_data)
+
     return {
         "conversation": {
             "id": conversation.id,
@@ -81,16 +94,7 @@ async def get_conversation(
                 "url": document.url
             } if document else None
         },
-        "messages": [
-            {
-                "id": msg.id,
-                "content": msg.content,
-                "role": msg.role,
-                "created_at": msg.created_at,
-                "context": msg.context
-            }
-            for msg in messages
-        ]
+        "messages": message_list
     }
 
 
@@ -105,32 +109,32 @@ async def delete_conversation(
         Conversation.id == conversation_id,
         Conversation.user_id == user.id
     ).first()
-    
+
     if not conversation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found"
         )
-    
+
     # Get associated document
     document = db.query(Document).filter(Document.id == conversation.document_id).first()
-    
+
     # Delete all messages
     db.query(Message).filter(Message.conversation_id == conversation_id).delete()
-    
+
     # Delete conversation
     db.delete(conversation)
-    
+
     # Delete document chunks
     if document:
         from ..models.document import DocumentChunk
         db.query(DocumentChunk).filter(DocumentChunk.document_id == document.id).delete()
-        
+
         # Delete document
         db.delete(document)
-    
+
     db.commit()
-    
+
     return {
         "success": True,
         "message": "Conversation and associated data deleted successfully"
