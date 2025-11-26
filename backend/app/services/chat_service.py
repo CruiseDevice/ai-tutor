@@ -13,6 +13,7 @@ from ..models.document import DocumentChunk
 from ..models.user import User
 from .embedding_service import get_embedding_service
 from .retry_utils import retry_openai_call
+from .cache_service import get_cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -156,19 +157,39 @@ Title:"""
         }
         return colors.get(annotation_type, colors['highlight'])
 
-    def find_similar_chunks(
+    async def find_similar_chunks(
         self,
         db: Session,
         query: str,
         document_id: str,
         limit: int = 5
     ) -> List[Dict]:
-        """Find similar document chunks using vector similarity search."""
+        """Find similar document chunks using vector similarity search with caching."""
         try:
-            # Generate embedding for the query
-            logger.debug(f"Generating embedding for query: {query[:50]}...")
-            query_embedding = self.embedding_service.generate_embedding(query)
-            logger.debug(f"Generated embedding with {len(query_embedding)} dimensions")
+            cache_service = await get_cache_service()
+
+            # Check cache for chunks first
+            query_embedding = None
+            cached_chunks = None
+
+            # Try to get embedding from cache
+            cached_embedding = await cache_service.get_embedding(query)
+            if cached_embedding:
+                query_embedding = cached_embedding
+                logger.debug(f"Using cached embedding for query: {query[:50]}...")
+                # Check cache for chunks with this embedding
+                cached_chunks = await cache_service.get_chunks(document_id, query_embedding)
+                if cached_chunks:
+                    logger.info(f"Cache hit: Returning {len(cached_chunks)} cached chunks")
+                    return cached_chunks
+
+            # Generate embedding if not cached
+            if query_embedding is None:
+                logger.debug(f"Generating embedding for query: {query[:50]}...")
+                query_embedding = self.embedding_service.generate_embedding(query)
+                logger.debug(f"Generated embedding with {len(query_embedding)} dimensions")
+                # Cache the embedding
+                await cache_service.set_embedding(query, query_embedding)
 
             # Perform vector similarity search using pgvector
             # pgvector expects the vector in the format '[1,2,3]' as a string
@@ -210,6 +231,10 @@ Title:"""
                 })
 
             logger.debug(f"Found {len(chunks)} similar chunks")
+
+            # Cache the chunks
+            await cache_service.set_chunks(document_id, query_embedding, chunks)
+
             return chunks
         except (SQLAlchemyError, DatabaseError) as e:
             logger.error(f"Database error in find_similar_chunks: {str(e)}", exc_info=True)
@@ -241,12 +266,72 @@ Title:"""
 
             logger.debug(f"Generating chat response for user {user.id}, conversation {conversation_id}")
 
+            # Initialize cache service
+            cache_service = await get_cache_service()
+
+            # Get query embedding for response cache lookup
+            query_embedding = await cache_service.get_embedding(content)
+            if query_embedding is None:
+                query_embedding = self.embedding_service.generate_embedding(content)
+                await cache_service.set_embedding(content, query_embedding)
+
+            # Check for similar cached response (skip if conversation has history)
+            history_count = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).count()
+
+            if history_count == 0:  # Only cache responses for first message (no context)
+                cached_response = await cache_service.find_similar_response(query_embedding, document_id)
+                if cached_response:
+                    logger.info("Using cached response")
+                    # Still need to save messages to database
+                    user_message = Message(
+                        content=content,
+                        role="user",
+                        conversation_id=conversation_id
+                    )
+                    db.add(user_message)
+                    db.flush()
+
+                    assistant_message = Message(
+                        content=cached_response['content'],
+                        role="assistant",
+                        conversation_id=conversation_id,
+                        context={
+                            "chunks": cached_response['chunks'],
+                            "annotations": cached_response['annotations']
+                        }
+                    )
+                    db.add(assistant_message)
+                    db.commit()
+                    db.refresh(user_message)
+                    db.refresh(assistant_message)
+
+                    return {
+                        "user_message": {
+                            "id": user_message.id,
+                            "role": user_message.role,
+                            "content": user_message.content,
+                            "created_at": user_message.created_at,
+                            "context": None,
+                            "annotations": None
+                        },
+                        "assistant_message": {
+                            "id": assistant_message.id,
+                            "role": assistant_message.role,
+                            "content": assistant_message.content,
+                            "created_at": assistant_message.created_at,
+                            "context": cached_response['chunks'],
+                            "annotations": cached_response['annotations']
+                        }
+                    }
+
             # Initialize OpenAI client
             client = OpenAI(api_key=api_key)
 
             # Find relevant chunks
             logger.debug(f"Finding similar chunks for document {document_id}")
-            relevant_chunks = self.find_similar_chunks(db, content, document_id, limit=5)
+            relevant_chunks = await self.find_similar_chunks(db, content, document_id, limit=5)
 
             # Format context from chunks
             if relevant_chunks:
@@ -420,6 +505,16 @@ say you don't have enough information from the document and suggest looking at o
 
             logger.debug("Messages saved successfully")
 
+            # Cache the response (only for first message to avoid context issues)
+            if is_first_message:
+                await cache_service.set_response(
+                    document_id,
+                    query_embedding,
+                    assistant_content,
+                    annotations,
+                    relevant_chunks
+                )
+
             return {
                 "user_message": {
                     "id": user_message.id,
@@ -473,12 +568,80 @@ say you don't have enough information from the document and suggest looking at o
 
             logger.debug(f"Generating streaming chat response for user {user.id}, conversation {conversation_id}")
 
+            # Initialize cache service
+            cache_service = await get_cache_service()
+
+            # Get query embedding for response cache lookup
+            query_embedding = await cache_service.get_embedding(content)
+            if query_embedding is None:
+                query_embedding = self.embedding_service.generate_embedding(content)
+                await cache_service.set_embedding(content, query_embedding)
+
+            # Check for similar cached response (skip if conversation has history)
+            history_count = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).count()
+
+            if history_count == 0:  # Only cache responses for first message (no context)
+                cached_response = await cache_service.find_similar_response(query_embedding, document_id)
+                if cached_response:
+                    logger.info("Using cached response for streaming")
+                    # Stream the cached content
+                    for char in cached_response['content']:
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': char})}\n\n"
+
+                    # Save messages to database
+                    user_message = Message(
+                        content=content,
+                        role="user",
+                        conversation_id=conversation_id
+                    )
+                    db.add(user_message)
+                    db.flush()
+
+                    assistant_message = Message(
+                        content=cached_response['content'],
+                        role="assistant",
+                        conversation_id=conversation_id,
+                        context={
+                            "chunks": cached_response['chunks'],
+                            "annotations": cached_response['annotations']
+                        }
+                    )
+                    db.add(assistant_message)
+                    db.commit()
+                    db.refresh(user_message)
+                    db.refresh(assistant_message)
+
+                    # Send final message
+                    final_data = {
+                        'type': 'done',
+                        'user_message': {
+                            "id": user_message.id,
+                            "role": user_message.role,
+                            "content": user_message.content,
+                            "created_at": user_message.created_at.isoformat(),
+                            "context": None,
+                            "annotations": None
+                        },
+                        'assistant_message': {
+                            "id": assistant_message.id,
+                            "role": assistant_message.role,
+                            "content": assistant_message.content,
+                            "created_at": assistant_message.created_at.isoformat(),
+                            "context": cached_response['chunks'],
+                            "annotations": cached_response['annotations']
+                        }
+                    }
+                    yield f"data: {json.dumps(final_data)}\n\n"
+                    return
+
             # Initialize OpenAI client
             client = OpenAI(api_key=api_key)
 
             # Find relevant chunks
             logger.debug(f"Finding similar chunks for document {document_id}")
-            relevant_chunks = self.find_similar_chunks(db, content, document_id, limit=5)
+            relevant_chunks = await self.find_similar_chunks(db, content, document_id, limit=5)
 
             # Format context from chunks
             if relevant_chunks:
@@ -659,6 +822,16 @@ say you don't have enough information from the document and suggest looking at o
             db.refresh(assistant_message)
 
             logger.debug("Messages saved successfully")
+
+            # Cache the response (only for first message to avoid context issues)
+            if is_first_message:
+                await cache_service.set_response(
+                    document_id,
+                    query_embedding,
+                    assistant_content,
+                    annotations,
+                    relevant_chunks
+                )
 
             # Send final message with complete data
             final_data = {

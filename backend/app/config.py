@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_AUTH_PER_MINUTE: int = 5  # Stricter for auth endpoints
 
+    # Redis Cache
+    REDIS_URL: str = "redis://localhost:6379/0"
+    CACHE_ENABLED: bool = True
+    CACHE_EMBEDDING_TTL: int = 86400  # 24 hours
+    CACHE_RESPONSE_TTL: int = 3600  # 1 hour
+    CACHE_CHUNK_TTL: int = 86400  # 24 hours
+    CACHE_SIMILARITY_THRESHOLD: float = 0.85  # 85% similarity for response cache
+
     # Environment
     NODE_ENV: str = "development"
 
@@ -36,6 +44,9 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.NODE_ENV.lower() == "production"
+
+    # File upload limits
+    MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20MB in bytes
 
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [

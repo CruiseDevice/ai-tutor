@@ -11,6 +11,7 @@ from ..models.document import Document, DocumentChunk
 from ..models.conversation import Conversation
 from ..config import settings
 from .embedding_service import get_embedding_service
+from .cache_service import get_cache_service
 from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import uuid
@@ -37,7 +38,16 @@ class DocumentService:
         try:
             # Read file content
             content = await file.read()
-            await file.seek(0)  # Reset file pointer
+
+            # Validate file size after reading
+            file_size = len(content)
+            if file_size > settings.MAX_FILE_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File size ({file_size / (1024 * 1024):.2f}MB) exceeds maximum allowed size ({settings.MAX_FILE_SIZE / (1024 * 1024)}MB)"
+                )
+
+            await file.seek(0)  # Reset file pointer (though we already read it)
 
             # Upload to S3
             self.s3_client.put_object(
@@ -51,6 +61,8 @@ class DocumentService:
             url = f"https://{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/{unique_filename}"
 
             return url, unique_filename
+        except HTTPException:
+            raise
         except ClientError as e:
             raise HTTPException(status_code=500, detail=f"Failed to upload to S3: {str(e)}")
 
@@ -77,6 +89,7 @@ class DocumentService:
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
+        # File size validation happens in upload_to_s3 after reading content
         # Upload to S3
         url, blob_path = await self.upload_to_s3(file, user_id)
 
@@ -198,6 +211,15 @@ class DocumentService:
                     detail=f"Failed to process document chunks: {str(e)}"
                 )
 
+            # Invalidate cache for this document since chunks have been updated
+            try:
+                cache_service = await get_cache_service()
+                await cache_service.invalidate_document_chunks(document_id)
+                logger.info(f"Invalidated cache for document_id={document_id}")
+            except Exception as e:
+                logger.warning(f"Failed to invalidate cache for document {document_id}: {e}")
+                # Don't fail the request if cache invalidation fails
+
             return {
                 "success": True,
                 "message": "Document processed successfully",
@@ -215,7 +237,7 @@ class DocumentService:
         documents = db.query(Document).filter(Document.user_id == user_id).order_by(Document.created_at.desc()).all()
         return documents
 
-    def delete_document(self, db: Session, document_id: str, user_id: str) -> bool:
+    async def delete_document(self, db: Session, document_id: str, user_id: str) -> bool:
         """Delete a document and all associated data."""
         document = db.query(Document).filter(
             Document.id == document_id,
@@ -233,6 +255,15 @@ class DocumentService:
             )
         except ClientError as e:
             logger.warning(f"Failed to delete document from S3 (blob_path: {document.blob_path}): {e}")
+
+        # Invalidate cache for this document before deletion
+        try:
+            cache_service = await get_cache_service()
+            await cache_service.invalidate_document_chunks(document_id)
+            logger.info(f"Invalidated cache for deleted document_id={document_id}")
+        except Exception as e:
+            logger.warning(f"Failed to invalidate cache for document {document_id}: {e}")
+            # Don't fail the deletion if cache invalidation fails
 
         # Delete from database (cascades to chunks, conversation, messages)
         db.delete(document)
