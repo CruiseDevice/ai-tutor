@@ -99,6 +99,7 @@ function DashboardWithSearchParams () {
 
       // Update URL
       updateUrl(newConversation.id);
+      return newConversation;
     } catch (error) {
       console.error('Error creating new conversation: ', error);
       throw error; // Re-throw so ChatSidebar can handle it

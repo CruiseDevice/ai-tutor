@@ -54,36 +54,43 @@ def remove_unique_constraint_from_document_id(engine):
             logger.info("conversations table does not exist, will be created by create_all()")
             return
 
-        # Get all unique constraints on the conversations table
-        unique_constraints = inspector.get_unique_constraints('conversations')
+        with engine.begin() as conn:
+            # Try multiple approaches to remove the unique constraint
+            # PostgreSQL auto-generates constraint names, so we try common patterns
 
-        # Find the unique constraint on document_id
-        document_id_unique_constraint = None
-        for constraint in unique_constraints:
-            if 'document_id' in constraint['column_names']:
-                document_id_unique_constraint = constraint
-                break
+            constraint_names_to_try = [
+                'conversations_document_id_key',  # PostgreSQL auto-generated name
+                'uq_conversations_document_id',   # SQLAlchemy naming convention
+                'conversations_document_id_unique',
+            ]
 
-        if document_id_unique_constraint:
-            constraint_name = document_id_unique_constraint['name']
-            logger.info(f"Removing unique constraint '{constraint_name}' from 'conversations.document_id'...")
-            with engine.begin() as conn:
-                # Drop the unique constraint
-                # PostgreSQL uses DROP CONSTRAINT, SQLite uses different syntax
-                # Try PostgreSQL syntax first (most common)
+            # Also try to find constraint dynamically
+            try:
+                unique_constraints = inspector.get_unique_constraints('conversations')
+                for constraint in unique_constraints:
+                    if 'document_id' in constraint['column_names']:
+                        constraint_names_to_try.insert(0, constraint['name'])
+                        break
+            except Exception as e:
+                logger.debug(f"Could not inspect unique constraints: {e}")
+
+            # Try dropping each possible constraint name
+            for constraint_name in constraint_names_to_try:
                 try:
                     conn.execute(text(f"ALTER TABLE conversations DROP CONSTRAINT IF EXISTS {constraint_name}"))
-                    logger.info(f"Successfully removed unique constraint '{constraint_name}' from 'conversations.document_id'")
-                except ProgrammingError:
-                    # If PostgreSQL syntax fails, try SQLite syntax
-                    try:
-                        # SQLite doesn't support DROP CONSTRAINT directly, need to recreate table
-                        # But this is complex, so we'll just log a warning
-                        logger.warning("SQLite detected - unique constraint removal may require manual intervention")
-                    except Exception as e:
-                        logger.error(f"Failed to remove unique constraint: {e}")
-        else:
-            logger.debug("No unique constraint found on 'conversations.document_id' - already migrated or never existed")
+                    logger.info(f"Attempted to drop constraint '{constraint_name}'")
+                except Exception as e:
+                    logger.debug(f"Could not drop constraint '{constraint_name}': {e}")
+
+            # Also try dropping any unique index on document_id (PostgreSQL creates these for unique constraints)
+            try:
+                conn.execute(text("DROP INDEX IF EXISTS conversations_document_id_key"))
+                logger.info("Attempted to drop index 'conversations_document_id_key'")
+            except Exception as e:
+                logger.debug(f"Could not drop index: {e}")
+
+            logger.info("Unique constraint removal migration completed")
+
     except Exception as e:
         # Log error but don't crash the backend - migration failures shouldn't prevent startup
         logger.error(f"Migration error (non-fatal): {e}", exc_info=True)

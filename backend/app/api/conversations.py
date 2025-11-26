@@ -24,7 +24,7 @@ async def create_conversation(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new conversation for an existing document, or return existing one if it exists."""
+    """Create a new conversation for an existing document. Multiple conversations per document are allowed."""
     # Verify document belongs to user
     document = db.query(Document).filter(
         Document.id == conversation_data.document_id,
@@ -37,24 +37,7 @@ async def create_conversation(
             detail="Document not found"
         )
 
-    # Check if a conversation already exists for this document and user
-    existing_conversation = db.query(Conversation).filter(
-        Conversation.document_id == document.id,
-        Conversation.user_id == user.id
-    ).first()
-
-    if existing_conversation:
-        # Return existing conversation
-        return ConversationResponse(
-            id=existing_conversation.id,
-            user_id=existing_conversation.user_id,
-            document_id=existing_conversation.document_id,
-            title=existing_conversation.title,
-            created_at=existing_conversation.created_at,
-            updated_at=existing_conversation.updated_at
-        )
-
-    # Create new conversation
+    # Create new conversation (multiple conversations per document are allowed)
     conversation = Conversation(
         user_id=user.id,
         document_id=document.id,
@@ -68,21 +51,6 @@ async def create_conversation(
         db.refresh(conversation)
     except IntegrityError as e:
         db.rollback()
-        # If we get a unique constraint violation, try to fetch the existing conversation
-        # This handles race conditions where two requests create conversations simultaneously
-        existing_conversation = db.query(Conversation).filter(
-            Conversation.document_id == document.id,
-            Conversation.user_id == user.id
-        ).first()
-        if existing_conversation:
-            return ConversationResponse(
-                id=existing_conversation.id,
-                user_id=existing_conversation.user_id,
-                document_id=existing_conversation.document_id,
-                title=existing_conversation.title,
-                created_at=existing_conversation.created_at,
-                updated_at=existing_conversation.updated_at
-            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create conversation: {str(e)}"
