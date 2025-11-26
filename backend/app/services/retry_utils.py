@@ -12,7 +12,8 @@ from tenacity import (
 )
 from openai import APIError, RateLimitError, APIConnectionError, APITimeoutError, APIStatusError
 import logging
-from typing import Callable, TypeVar, Any
+from typing import Callable, TypeVar, Any, Coroutine
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -151,4 +152,46 @@ def retry_openai_call(
         return func()
 
     return _retry_wrapper()
+
+
+async def async_retry_openai_call(
+    func: Callable[[], Coroutine[Any, Any, T]],
+    max_attempts: int = 5,
+    initial_wait: float = 1.0,
+    max_wait: float = 60.0,
+    exponential_base: float = 2.0
+) -> T:
+    """
+    Execute an async OpenAI API call with retry logic.
+
+    Args:
+        func: Async function to execute (should be a callable that returns a coroutine)
+        max_attempts: Maximum number of retry attempts (default: 5)
+        initial_wait: Initial wait time in seconds (default: 1.0)
+        max_wait: Maximum wait time in seconds (default: 60.0)
+        exponential_base: Base for exponential backoff (default: 2.0)
+
+    Returns:
+        Result of the async function call
+
+    Raises:
+        The last exception if all retries are exhausted
+    """
+    @retry(
+        stop=stop_after_attempt(max_attempts),
+        wait=wait_exponential(
+            multiplier=initial_wait,
+            min=initial_wait,
+            max=max_wait,
+            exp_base=exponential_base
+        ),
+        retry=retry_if_exception(is_retryable_error),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        after=after_log(logger, logging.INFO),
+        reraise=True
+    )
+    async def _async_retry_wrapper():
+        return await func()
+
+    return await _async_retry_wrapper()
 

@@ -56,18 +56,55 @@ function DashboardWithSearchParams () {
     router.push(`${pathname}?${params.toString()}`, {scroll: false});
   }, [searchParams, pathname, router]);
 
-  const handleDeleteConversation = useCallback((deletedConversationId: string) => {
+  const handleDeleteConversation = useCallback((deletedConversationId: string, documentId: string) => {
     if (deletedConversationId === conversationId) {
+      // Only clear state if the deleted conversation is the current one
       setCurrentPDF('');
       setDocumentId('');
       setConversationId(null);
       setMessages([]);
+      setCurrentAnnotations([]);
+      pdfViewerRef.current?.clearAnnotations();
       // update url to remove the chat parameter
       const params = new URLSearchParams(searchParams.toString());
       params.delete('chat');
       router.push(`${pathname}${params.toString() ? '?' + params.toString() : ''}`, {scroll: false});
     }
   }, [conversationId, pathname, router, searchParams])
+
+  const handleCreateNewConversation = useCallback(async (documentId: string) => {
+    try {
+      // Create new conversation
+      const response = await conversationApi.create(documentId);
+      if (!response.ok) {
+        throw new Error('Failed to create conversation');
+      }
+
+      const newConversation = await response.json();
+
+      // Get document info to set PDF URL
+      const docResponse = await documentApi.get(documentId);
+      if (!docResponse.ok) {
+        throw new Error('Failed to fetch document');
+      }
+      const docData = await docResponse.json();
+
+      // Set the new conversation as active
+      setConversationId(newConversation.id);
+      setDocumentId(documentId);
+      setCurrentPDF(docData.url);
+      setMessages([]);
+      setCurrentAnnotations([]);
+      pdfViewerRef.current?.clearAnnotations();
+
+      // Update URL
+      updateUrl(newConversation.id);
+      return newConversation;
+    } catch (error) {
+      console.error('Error creating new conversation: ', error);
+      throw error; // Re-throw so ChatSidebar can handle it
+    }
+  }, [updateUrl])
 
 
   const handleSelectConversation = useCallback(async (convoId: string, docId: string) => {
@@ -507,6 +544,7 @@ function DashboardWithSearchParams () {
         onSelectConversation={handleSelectConversation}
         currentConversationId={conversationId}
         onDeleteConversation={handleDeleteConversation}
+        onCreateNewConversation={handleCreateNewConversation}
       />
 
       {/* Main content Area */}

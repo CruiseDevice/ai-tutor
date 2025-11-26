@@ -27,7 +27,7 @@ class Document(Base):
     # Relationships
     user = relationship("User", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
-    conversation = relationship("Conversation", back_populates="document", uselist=False, cascade="all, delete-orphan")
+    conversations = relationship("Conversation", back_populates="document", uselist=True, cascade="all, delete-orphan")
 
 
 class DocumentChunk(Base):
