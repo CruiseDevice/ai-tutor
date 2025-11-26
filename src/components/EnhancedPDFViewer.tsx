@@ -1,29 +1,123 @@
 // app/components/EnhancedPDFViewer.tsx
-import { ChevronLeft, ChevronRight, Loader2, Upload, ZoomIn, ZoomOut, RotateCw, Search } from "lucide-react";
-import { useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Loader2, Upload, ZoomIn, ZoomOut, RotateCw, Search, Eye, EyeOff } from "lucide-react";
+import { useRef, useState, useCallback, useImperativeHandle, forwardRef, useEffect, useMemo } from "react";
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/TextLayer.css';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
+import type { PDFAnnotation, AnnotationReference } from '@/types/annotations';
 
 // Initialize pdfjs worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+
+// Annotation Shape Component
+interface AnnotationShapeProps {
+  annotation: PDFAnnotation;
+  onClick?: () => void;
+}
+
+function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
+  const { type, bounds, color } = annotation;
+
+  const baseStyle: React.CSSProperties = {
+    position: 'absolute',
+    left: `${bounds.x}%`,
+    top: `${bounds.y}%`,
+    width: `${bounds.width}%`,
+    height: `${bounds.height}%`,
+    pointerEvents: 'auto',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  };
+
+  switch (type) {
+    case 'highlight':
+      return (
+        <div
+          style={{
+            ...baseStyle,
+            backgroundColor: color || 'rgba(255, 235, 59, 0.4)',
+            borderRadius: '2px',
+          }}
+          onClick={onClick}
+          className="hover:brightness-110 hover:shadow-lg"
+        />
+      );
+
+    case 'circle':
+      return (
+        <div
+          style={{
+            ...baseStyle,
+            border: `3px solid ${color || 'rgba(33, 150, 243, 0.8)'}`,
+            borderRadius: '50%',
+            backgroundColor: 'transparent',
+          }}
+          onClick={onClick}
+          className="hover:border-4 hover:shadow-lg animate-pulse"
+        />
+      );
+
+    case 'box':
+      return (
+        <div
+          style={{
+            ...baseStyle,
+            border: `3px solid ${color || 'rgba(76, 175, 80, 0.8)'}`,
+            backgroundColor: color?.replace('0.8', '0.1') || 'rgba(76, 175, 80, 0.1)',
+            borderRadius: '4px',
+          }}
+          onClick={onClick}
+          className="hover:border-4 hover:shadow-lg"
+        />
+      );
+
+    case 'underline':
+      return (
+        <div
+          style={{
+            ...baseStyle,
+            height: '3px',
+            top: `${bounds.y + bounds.height}%`,
+            backgroundColor: color || 'rgba(244, 67, 54, 0.8)',
+          }}
+          onClick={onClick}
+          className="hover:h-1"
+        />
+      );
+
+    default:
+      return null;
+  }
+}
+
+export interface PDFViewerRef {
+  goToPage: (pageNum: number) => void;
+  setAnnotations: (annotations: AnnotationReference[]) => void;
+  clearAnnotations: () => void;
+  highlightText: (pageNum: number, textToFind: string) => void;
+}
 
 interface EnhancedPDFViewerProps {
   currentPDF: string | null;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
+  annotations?: AnnotationReference[];
+  onAnnotationClick?: (annotation: AnnotationReference) => void;
 }
 
-export default function EnhancedPDFViewer({
+const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   currentPDF,
   onFileUpload,
   fileInputRef: externalFileInputRef,
-}: EnhancedPDFViewerProps){
+  annotations: externalAnnotations = [],
+  onAnnotationClick,
+}, ref) => {
 
   const internalFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = externalFileInputRef || internalFileInputRef;
   const pageInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pageContainerRef = useRef<HTMLDivElement>(null);
 
   const [pageNumber, setPageNumber] = useState(1);
   const [numPages, setNumPages] = useState<number | null>(null);
@@ -32,13 +126,156 @@ export default function EnhancedPDFViewer({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [pageInputError, setPageInputError] = useState<string | null>(null);
+  const [localAnnotations, setLocalAnnotations] = useState<AnnotationReference[]>([]);
+  const [showAnnotations, setShowAnnotations] = useState(true);
+  const [highlightedTextRects, setHighlightedTextRects] = useState<{x: number, y: number, width: number, height: number}[]>([]);
 
-  const goToPage = (pageNum: number) => {
+  // Combine external and local annotations
+  const allAnnotations = useMemo(() => [...externalAnnotations, ...localAnnotations], [externalAnnotations, localAnnotations]);
+
+  // Get annotations for current page
+  const currentPageAnnotations = useMemo(
+    () => allAnnotations.filter(a => a.pageNumber === pageNumber),
+    [allAnnotations, pageNumber]
+  );
+
+  const goToPage = useCallback((pageNum: number) => {
     if(pageNum >= 1 && pageNum <= (numPages || 1)) {
       setPageNumber(pageNum);
       setPageInputError(null);
     }
-  }
+  }, [numPages]);
+
+  // Function to find text on the current page and get its position
+  const findTextOnPage = useCallback((searchText: string) => {
+    if (!pageContainerRef.current || !searchText) {
+      console.log('[PDF Annotation] No container or search text');
+      return;
+    }
+
+    const textLayer = pageContainerRef.current.querySelector('.react-pdf__Page__textContent');
+    if (!textLayer) {
+      console.log('[PDF Annotation] Text layer not found, retrying...');
+      // Retry after a short delay if text layer isn't ready
+      setTimeout(() => findTextOnPage(searchText), 300);
+      return;
+    }
+
+    const textSpans = textLayer.querySelectorAll('span');
+    const searchLower = searchText.toLowerCase().trim();
+    const searchWords = searchLower.split(/\s+/).filter(w => w.length > 2);
+    const rects: {x: number, y: number, width: number, height: number}[] = [];
+
+    console.log(`[PDF Annotation] Searching for: "${searchText}" (${textSpans.length} spans on page)`);
+
+    // Strategy 1: Look for spans containing significant words from search text
+    const matchingSpans: Element[] = [];
+
+    textSpans.forEach((span) => {
+      const spanText = span.textContent?.toLowerCase() || '';
+      if (!spanText.trim()) return;
+
+      // Check if span contains any of the significant search words
+      const matchesWord = searchWords.some(word => spanText.includes(word));
+      // Or if search text contains the span text (for short spans)
+      const spanContainedInSearch = spanText.trim().length > 3 && searchLower.includes(spanText.trim());
+
+      if (matchesWord || spanContainedInSearch) {
+        matchingSpans.push(span);
+      }
+    });
+
+    console.log(`[PDF Annotation] Found ${matchingSpans.length} matching spans`);
+
+    // Get positions of matching spans
+    matchingSpans.forEach((span) => {
+      const rect = span.getBoundingClientRect();
+      const containerRect = pageContainerRef.current!.getBoundingClientRect();
+
+      if (rect.width > 0 && rect.height > 0) {
+        rects.push({
+          x: rect.left - containerRect.left,
+          y: rect.top - containerRect.top,
+          width: rect.width,
+          height: rect.height
+        });
+      }
+    });
+
+    // Strategy 2: If no matches, try fuzzy word matching
+    if (rects.length === 0 && searchWords.length > 0) {
+      console.log('[PDF Annotation] Trying fuzzy match with first word:', searchWords[0]);
+      textSpans.forEach((span) => {
+        const spanText = span.textContent?.toLowerCase() || '';
+        if (spanText.includes(searchWords[0])) {
+          const rect = span.getBoundingClientRect();
+          const containerRect = pageContainerRef.current!.getBoundingClientRect();
+
+          if (rect.width > 0 && rect.height > 0) {
+            rects.push({
+              x: rect.left - containerRect.left,
+              y: rect.top - containerRect.top,
+              width: rect.width,
+              height: rect.height
+            });
+          }
+        }
+      });
+    }
+
+    console.log(`[PDF Annotation] Final highlight rects: ${rects.length}`);
+    setHighlightedTextRects(rects);
+  }, []);
+
+  // Expose methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    goToPage: (pageNum: number) => {
+      console.log(`[PDF Annotation] goToPage called: ${pageNum}`);
+      goToPage(pageNum);
+    },
+    setAnnotations: (annotations: AnnotationReference[]) => {
+      console.log(`[PDF Annotation] setAnnotations called:`, annotations);
+      setLocalAnnotations(annotations);
+    },
+    clearAnnotations: () => {
+      console.log('[PDF Annotation] clearAnnotations called');
+      setLocalAnnotations([]);
+      setHighlightedTextRects([]);
+    },
+    highlightText: (pageNum: number, textToFind: string) => {
+      console.log(`[PDF Annotation] highlightText called: page ${pageNum}, text "${textToFind}"`);
+      goToPage(pageNum);
+      // Text highlighting will be handled by findTextOnPage after page renders
+      setTimeout(() => findTextOnPage(textToFind), 800);
+    }
+  }), [goToPage, findTextOnPage]);
+
+  // Effect to find text when annotations change
+  useEffect(() => {
+    if (currentPageAnnotations.length > 0 && showAnnotations) {
+      // Find text for each annotation on the current page
+      currentPageAnnotations.forEach(annotationRef => {
+        if (annotationRef.sourceText) {
+          setTimeout(() => findTextOnPage(annotationRef.sourceText), 300);
+        }
+      });
+    } else {
+      setHighlightedTextRects([]);
+    }
+  }, [currentPageAnnotations, showAnnotations, findTextOnPage, pageNumber]);
+
+  // Handler for page load success - triggers text search for current annotations
+  const handlePageLoadSuccess = useCallback(() => {
+    console.log('[PDF Annotation] Page rendered successfully');
+    // Re-trigger text search for current annotations after page renders
+    if (currentPageAnnotations.length > 0 && showAnnotations) {
+      currentPageAnnotations.forEach(annotationRef => {
+        if (annotationRef.sourceText) {
+          setTimeout(() => findTextOnPage(annotationRef.sourceText), 500);
+        }
+      });
+    }
+  }, [currentPageAnnotations, showAnnotations, findTextOnPage]);
 
   const handlePageInputChange = () => {
     if (pageInputError) setPageInputError(null);
@@ -197,6 +434,20 @@ export default function EnhancedPDFViewer({
 
             {/* Right: Tools */}
             <div className="flex items-center gap-2">
+              {/* Annotation Toggle */}
+              {allAnnotations.length > 0 && (
+                <button
+                  onClick={() => setShowAnnotations(!showAnnotations)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    showAnnotations
+                      ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                      : 'hover:bg-slate-100 text-slate-400'
+                  }`}
+                  title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
+                >
+                  {showAnnotations ? <Eye size={18} /> : <EyeOff size={18} />}
+                </button>
+              )}
               <button
                 onClick={rotate}
                 className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
@@ -257,6 +508,7 @@ export default function EnhancedPDFViewer({
               className="pdf-document transition-opacity duration-300 ease-in-out"
             >
               <div
+                ref={pageContainerRef}
                 className="relative transition-all duration-300 ease-out shadow-2xl shadow-slate-200/50 rounded-sm overflow-hidden"
                 style={{
                   transform: `scale(${1})`, // Scale handled by react-pdf prop usually, but we can wrap for effects
@@ -271,7 +523,57 @@ export default function EnhancedPDFViewer({
                   renderTextLayer={true}
                   className="bg-white"
                   width={containerRef.current?.clientWidth ? Math.min(containerRef.current.clientWidth - 48, 800) : undefined}
+                  onRenderSuccess={handlePageLoadSuccess}
                 />
+
+                {/* Annotation Overlay Layer */}
+                {showAnnotations && (
+                  <div className="absolute inset-0 pointer-events-none z-10">
+                    {/* Render highlight rectangles from text search */}
+                    {highlightedTextRects.map((rect, idx) => (
+                      <div
+                        key={`highlight-rect-${idx}`}
+                        className="absolute pointer-events-auto cursor-pointer transition-all duration-200 animate-pulse"
+                        style={{
+                          left: rect.x,
+                          top: rect.y,
+                          width: rect.width,
+                          height: rect.height,
+                          backgroundColor: 'rgba(255, 235, 59, 0.5)',
+                          border: '2px solid rgba(255, 193, 7, 0.8)',
+                          borderRadius: '2px',
+                          boxShadow: '0 0 8px rgba(255, 235, 59, 0.6)',
+                        }}
+                        onClick={() => {
+                          if (onAnnotationClick && currentPageAnnotations[0]) {
+                            onAnnotationClick(currentPageAnnotations[0]);
+                          }
+                        }}
+                      />
+                    ))}
+
+                    {/* Render annotation shapes from annotation data */}
+                    {currentPageAnnotations.map((annotationRef) =>
+                      annotationRef.annotations.map((annotation) => (
+                        <AnnotationShape
+                          key={annotation.id}
+                          annotation={annotation}
+                          onClick={() => onAnnotationClick?.(annotationRef)}
+                        />
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* Annotation indicator badge */}
+                {showAnnotations && currentPageAnnotations.length > 0 && (
+                  <div className="absolute top-2 right-2 z-20">
+                    <div className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded-full shadow-md flex items-center gap-1 animate-bounce">
+                      <Eye size={12} />
+                      {currentPageAnnotations.length} highlight{currentPageAnnotations.length > 1 ? 's' : ''}
+                    </div>
+                  </div>
+                )}
               </div>
             </Document>
           </div>
@@ -336,4 +638,8 @@ export default function EnhancedPDFViewer({
       </div>
     </div>
   );
-}
+});
+
+EnhancedPDFViewer.displayName = 'EnhancedPDFViewer';
+
+export default EnhancedPDFViewer;

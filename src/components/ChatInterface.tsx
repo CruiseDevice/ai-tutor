@@ -1,15 +1,17 @@
 // app/components/ChatInterface.tsx
-import { Bot, ChevronDown, Loader2, Send, Sparkles, User, Paperclip, StopCircle, Search } from "lucide-react";
+import { Bot, ChevronDown, Loader2, Send, Sparkles, User, Paperclip, StopCircle, Search, FileText, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { userApi } from "@/lib/api-client";
+import type { AnnotationReference } from "@/types/annotations";
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  annotations?: AnnotationReference[];
 }
 
 const AVAILABLE_MODELS = [
@@ -55,13 +57,15 @@ interface ChatInterfaceProps {
   onSendMessage: (message: string, model: string) => Promise<void>;
   onVoiceRecord: () => void;
   isConversationSelected: boolean;
+  onAnnotationClick?: (annotation: AnnotationReference) => void;
 }
 
 export default function ChatInterface({
   messages,
   onSendMessage,
   // onVoiceRecord,
-  isConversationSelected
+  isConversationSelected,
+  onAnnotationClick
 }: ChatInterfaceProps) {
   const router = useRouter();
   // const [isRecording, setIsRecording] = useState(false);
@@ -404,18 +408,52 @@ export default function ChatInterface({
             )}
 
             <div
-              className={`max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl shadow-sm text-sm leading-relaxed ${
+              className={`max-w-[85%] sm:max-w-[75%] rounded-2xl shadow-sm text-sm leading-relaxed ${
                 message.role === 'user'
-                ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-tr-sm'
-                : 'bg-white border border-gray-100 text-slate-700 rounded-tl-sm'
+                ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-tr-sm p-4'
+                : 'bg-white border border-gray-100 text-slate-700 rounded-tl-sm overflow-hidden'
               }`}
             >
               {message.role === 'user' ? (
                 message.content
               ) : (
-                <div className="markdown-content prose prose-sm max-w-none prose-headings:text-slate-800 prose-p:text-slate-700 prose-a:text-blue-600 hover:prose-a:underline prose-strong:text-slate-900 prose-code:text-pink-600 prose-code:bg-pink-50 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-pre:bg-slate-900 prose-pre:text-slate-50">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-                </div>
+                <>
+                  <div className="p-4 markdown-content prose prose-sm max-w-none prose-headings:text-slate-800 prose-p:text-slate-700 prose-a:text-blue-600 hover:prose-a:underline prose-strong:text-slate-900 prose-code:text-pink-600 prose-code:bg-pink-50 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-pre:bg-slate-900 prose-pre:text-slate-50">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                  </div>
+
+                  {/* Annotation References */}
+                  {message.annotations && message.annotations.length > 0 && (
+                    <div className="border-t border-gray-100 bg-gradient-to-r from-yellow-50 to-amber-50 p-3">
+                      <div className="flex items-center gap-2 text-xs font-medium text-amber-700 mb-2">
+                        <FileText size={14} />
+                        <span>Referenced in PDF</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {message.annotations.map((annotation, idx) => (
+                          <button
+                            key={`${message.id}-annotation-${idx}`}
+                            onClick={() => onAnnotationClick?.(annotation)}
+                            className="group flex items-center gap-2 px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-xs text-slate-700 hover:bg-amber-100 hover:border-amber-300 hover:text-amber-800 transition-all shadow-sm hover:shadow"
+                          >
+                            <span className="font-semibold text-amber-600">
+                              Page {annotation.pageNumber}
+                            </span>
+                            {annotation.explanation && (
+                              <>
+                                <span className="text-gray-300">|</span>
+                                <span className="max-w-[150px] truncate text-slate-500 group-hover:text-slate-700">
+                                  {annotation.explanation}
+                                </span>
+                              </>
+                            )}
+                            <ArrowRight size={12} className="text-amber-500 group-hover:translate-x-0.5 transition-transform" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

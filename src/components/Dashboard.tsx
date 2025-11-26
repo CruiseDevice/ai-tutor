@@ -2,16 +2,18 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react"
-import EnhancedPDFViewer from "./EnhancedPDFViewer";
+import EnhancedPDFViewer, { PDFViewerRef } from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
 import { authApi, documentApi, chatApi, conversationApi } from "@/lib/api-client";
+import type { AnnotationReference } from "@/types/annotations";
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  annotations?: AnnotationReference[];
 }
 
 function DashboardWithSearchParams () {
@@ -27,8 +29,10 @@ function DashboardWithSearchParams () {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentAnnotations, setCurrentAnnotations] = useState<AnnotationReference[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
+  const pdfViewerRef = useRef<PDFViewerRef>(null);
 
   // Resizer state
   const [splitPosition, setSplitPosition] = useState(60); // Percentage (60% for PDF, 40% for Chat)
@@ -75,12 +79,27 @@ function DashboardWithSearchParams () {
       }
 
       const data = await response.json();
+      console.log('[Dashboard] Loaded conversation:', data);
 
       // update state with the selected conversation
       setConversationId(convoId);
       setDocumentId(docId);
       setCurrentPDF(data.conversation.document.url);
       setMessages(data.messages);
+
+      // Check if the last assistant message has annotations
+      const lastAssistantMessage = [...data.messages].reverse().find(
+        (m: ChatMessage) => m.role === 'assistant' && m.annotations && m.annotations.length > 0
+      );
+
+      if (lastAssistantMessage?.annotations) {
+        console.log('[Dashboard] Found annotations in loaded conversation:', lastAssistantMessage.annotations);
+        setCurrentAnnotations(lastAssistantMessage.annotations);
+      } else {
+        // Clear previous annotations when switching conversations
+        setCurrentAnnotations([]);
+        pdfViewerRef.current?.clearAnnotations();
+      }
 
       // Update URL with the selected conversation
       updateUrl(convoId);
@@ -218,8 +237,10 @@ function DashboardWithSearchParams () {
       setCurrentPDF(data.url);
       setDocumentId(data.id);
 
-      // reset messages for new document
+      // reset messages and annotations for new document
       setMessages([]);
+      setCurrentAnnotations([]);
+      pdfViewerRef.current?.clearAnnotations();
 
       // set new conversation id from the response
       if(data.conversationId){
@@ -307,12 +328,38 @@ function DashboardWithSearchParams () {
 
       const data = await response.json();
 
+      // Debug: Log the full response to check annotations
+      console.log('[Dashboard] Chat response received:', data);
+      console.log('[Dashboard] Assistant message annotations:', data.assistant_message?.annotations);
+
       // update messages with server response
       setMessages(prev => [
         ...prev.filter(m=>m.id !== userMessage.id), // Remove temp message
         data.user_message,  // Add actual user message with ID
         data.assistant_message // Add assistant response
       ]);
+
+      // If the assistant message has annotations, update the PDF viewer
+      if (data.assistant_message?.annotations && data.assistant_message.annotations.length > 0) {
+        console.log('[Dashboard] Processing annotations:', data.assistant_message.annotations);
+        setCurrentAnnotations(data.assistant_message.annotations);
+
+        // Auto-navigate to the first annotation's page
+        const firstAnnotation = data.assistant_message.annotations[0];
+        if (pdfViewerRef.current && firstAnnotation) {
+          console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
+          pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
+          if (firstAnnotation.sourceText) {
+            console.log('[Dashboard] Highlighting text:', firstAnnotation.sourceText);
+            // Small delay to allow page to render
+            setTimeout(() => {
+              pdfViewerRef.current?.highlightText(firstAnnotation.pageNumber, firstAnnotation.sourceText);
+            }, 500);
+          }
+        }
+      } else {
+        console.log('[Dashboard] No annotations in response');
+      }
 
       // Clear any previous errors on success
       setError(null);
@@ -325,6 +372,22 @@ function DashboardWithSearchParams () {
       setError(errorMessage);
     }
   }
+
+  // Handle annotation click from chat - navigate to page and highlight text
+  const handleAnnotationClick = useCallback((annotation: AnnotationReference) => {
+    if (pdfViewerRef.current) {
+      // Navigate to the page
+      pdfViewerRef.current.goToPage(annotation.pageNumber);
+
+      // Set the annotation to be displayed
+      setCurrentAnnotations([annotation]);
+
+      // If there's text to highlight, use the highlight function
+      if (annotation.sourceText) {
+        pdfViewerRef.current.highlightText(annotation.pageNumber, annotation.sourceText);
+      }
+    }
+  }, []);
 
   // Resizer handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -387,9 +450,12 @@ function DashboardWithSearchParams () {
           style={{ width: `${splitPosition}%` }}
         >
           <EnhancedPDFViewer
+            ref={pdfViewerRef}
             currentPDF={currentPDF}
             onFileUpload={handleFileUpload}
             fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
+            annotations={currentAnnotations}
+            onAnnotationClick={handleAnnotationClick}
           />
         </div>
 
@@ -424,6 +490,7 @@ function DashboardWithSearchParams () {
             onSendMessage={handleSendMessage}
             onVoiceRecord={handleVoiceRecord}
             isConversationSelected={!!conversationId}
+            onAnnotationClick={handleAnnotationClick}
           />
         </div>
       </div>
