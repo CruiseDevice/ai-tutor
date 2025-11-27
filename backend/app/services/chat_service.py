@@ -15,6 +15,7 @@ from .embedding_service import get_embedding_service
 from .rerank_service import get_rerank_service
 from .retry_utils import retry_openai_call, async_retry_openai_call
 from .cache_service import get_cache_service
+from .query_expansion_service import get_query_expansion_service
 
 logger = logging.getLogger(__name__)
 
@@ -245,19 +246,98 @@ Title:"""
             # Return empty list to allow fallback to semantic-only search
             return []
 
+    def _combine_results_with_rrf(
+        self,
+        result_sets: List[List[Dict]],
+        rrf_k: int = 60
+    ) -> List[Dict]:
+        """
+        Combine multiple result sets using Reciprocal Rank Fusion (RRF).
+
+        RRF is a simple yet effective algorithm for combining ranked lists from different
+        retrieval methods. It assigns a score to each document based on its rank position
+        across all result sets.
+
+        Formula: RRF_score(d) = sum over all rankings r: 1 / (k + rank_r(d))
+        where k is a constant (typically 60) that reduces the impact of high rankings.
+
+        Args:
+            result_sets: List of ranked result lists (each list contains chunks with metadata)
+            rrf_k: RRF constant (default: 60, standard value from literature)
+
+        Returns:
+            Combined and sorted list of chunks with RRF scores
+        """
+        if not result_sets:
+            logger.warning("No result sets provided to RRF")
+            return []
+
+        # Filter out empty result sets
+        result_sets = [rs for rs in result_sets if rs]
+
+        if not result_sets:
+            logger.warning("All result sets are empty")
+            return []
+
+        # If only one result set, return it directly
+        if len(result_sets) == 1:
+            return result_sets[0]
+
+        # Track RRF scores and chunk data
+        rrf_scores = {}  # chunk_id -> total RRF score
+        chunk_data = {}  # chunk_id -> chunk metadata
+
+        # Calculate RRF scores
+        for result_set in result_sets:
+            for rank, chunk in enumerate(result_set, start=1):
+                chunk_id = chunk["id"]
+
+                # Calculate RRF score contribution from this ranking
+                rrf_contribution = 1.0 / (rrf_k + rank)
+
+                # Accumulate RRF score
+                if chunk_id in rrf_scores:
+                    rrf_scores[chunk_id] += rrf_contribution
+                else:
+                    rrf_scores[chunk_id] = rrf_contribution
+                    # Store chunk data (use first occurrence)
+                    chunk_data[chunk_id] = chunk
+
+        # Create final result list with RRF scores
+        combined_results = []
+        for chunk_id, rrf_score in rrf_scores.items():
+            chunk = chunk_data[chunk_id].copy()
+            # Replace similarity score with RRF score for ranking
+            chunk["similarity"] = float(rrf_score)
+            # Keep original score for debugging
+            if "similarity" in chunk_data[chunk_id]:
+                chunk["_original_score"] = chunk_data[chunk_id]["similarity"]
+            chunk["_rrf_score"] = float(rrf_score)
+            combined_results.append(chunk)
+
+        # Sort by RRF score (descending)
+        combined_results.sort(key=lambda x: x["similarity"], reverse=True)
+
+        logger.info(f"RRF combined {len(result_sets)} result sets into {len(combined_results)} unique chunks")
+        logger.debug(f"Top 3 RRF scores: {[c['similarity'] for c in combined_results[:3]]}")
+
+        return combined_results
+
     async def find_similar_chunks(
         self,
         db: Session,
         query: str,
         document_id: str,
-        limit: int = 5
+        limit: int = 5,
+        user_api_key: Optional[str] = None
     ) -> List[Dict]:
         """
         Find similar document chunks using hybrid search (semantic + keyword).
 
         Combines:
-        1. Semantic search: pgvector cosine similarity (70% weight by default)
-        2. Keyword search: PostgreSQL full-text search (30% weight by default)
+        1. Query Expansion (optional): Multi-query retrieval with RRF (if enabled)
+        2. Semantic search: pgvector cosine similarity (70% weight by default)
+        3. Keyword search: PostgreSQL full-text search (30% weight by default)
 
         Results are fused using weighted scoring for improved retrieval accuracy.
         Falls back to semantic-only search if keyword search fails.
@@ -265,88 +345,230 @@ Title:"""
         try:
             from ..config import settings
 
-            # Get search weights from config (with defaults)
+            # Get search weights and query expansion settings from config
             semantic_weight = getattr(settings, 'SEMANTIC_SEARCH_WEIGHT', 0.7)
             keyword_weight = getattr(settings, 'KEYWORD_SEARCH_WEIGHT', 0.3)
             rerank_enabled = getattr(settings, 'RERANK_ENABLED', False)
+            query_expansion_enabled = getattr(settings, 'QUERY_EXPANSION_ENABLED', False)
+            rrf_k = getattr(settings, 'RRF_K', 60)
 
             cache_service = await get_cache_service()
-
-            # Check cache for chunks first
-            query_embedding = None
-            cached_chunks = None
-
-            # Try to get embedding from cache
-            cached_embedding = await cache_service.get_embedding(query)
-            if cached_embedding:
-                query_embedding = cached_embedding
-                logger.debug(f"Using cached embedding for query: {query[:50]}...")
-                # Check cache for chunks with this embedding (include rerank status in cache key)
-                cached_chunks = await cache_service.get_chunks(
-                    document_id, query_embedding, rerank_enabled=rerank_enabled
-                )
-                if cached_chunks:
-                    logger.info(f"Cache hit: Returning {len(cached_chunks)} cached chunks")
-                    return cached_chunks
-
-            # Generate embedding if not cached
-            if query_embedding is None:
-                logger.debug(f"Generating embedding for query: {query[:50]}...")
-                query_embedding = await self.embedding_service.generate_embedding_async(query)
-                logger.debug(f"Generated embedding with {len(query_embedding)} dimensions")
-                # Cache the embedding
-                await cache_service.set_embedding(query, query_embedding)
-
-            # Perform SEMANTIC search using pgvector with HNSW index
-            # pgvector expects the vector in the format '[1,2,3]' as a string
-            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
             # Retrieve more candidates for fusion (e.g., top 10-15)
             semantic_limit = max(limit * 2, 10)
 
-            # Optimized query to leverage HNSW index
-            query_sql = text("""
-                SELECT
-                    id,
-                    content,
-                    page_number,
-                    document_id,
-                    position_data,
-                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
-                FROM document_chunks
-                WHERE document_id = :document_id
-                ORDER BY embedding <=> CAST(:embedding AS vector)
-                LIMIT :limit
-            """)
-
-            logger.debug(f"Executing semantic search for document_id: {document_id}")
-            import time
-            semantic_start = time.time()
-
-            result = db.execute(
-                query_sql,
-                {
-                    "embedding": embedding_str,
-                    "document_id": document_id,
-                    "limit": semantic_limit
-                }
-            )
-
-            semantic_time = (time.time() - semantic_start) * 1000
-            logger.info(f"Semantic search completed in {semantic_time:.2f}ms (document_id: {document_id})")
-
+            # QUERY EXPANSION: Multi-query retrieval with RRF (if enabled)
             semantic_chunks = {}
-            for row in result:
-                semantic_chunks[row.id] = {
-                    "id": row.id,
-                    "content": row.content,
-                    "pageNumber": row.page_number,
-                    "documentId": row.document_id,
-                    "positionData": row.position_data,
-                    "semantic_score": float(row.similarity)
-                }
+            query_embedding = None  # Initialize query_embedding early
 
-            logger.debug(f"Found {len(semantic_chunks)} semantic matches")
+            if query_expansion_enabled and user_api_key:
+                logger.info("Query expansion enabled - performing multi-query retrieval")
+
+                try:
+                    # Get or generate embedding for the original query (needed for caching)
+                    cached_embedding = await cache_service.get_embedding(query)
+                    if cached_embedding:
+                        query_embedding = cached_embedding
+                        logger.debug(f"Using cached embedding for original query: {query[:50]}...")
+                    else:
+                        query_embedding = await self.embedding_service.generate_embedding_async(query)
+                        await cache_service.set_embedding(query, query_embedding)
+                        logger.debug(f"Generated embedding for original query: {query[:50]}...")
+
+                    # Generate query variations
+                    query_expansion_service = get_query_expansion_service()
+                    query_variations = await query_expansion_service.generate_query_variations(
+                        query=query,
+                        user_api_key=user_api_key
+                    )
+                    logger.info(f"Generated {len(query_variations)} query variations (including original)")
+
+                    # Perform semantic search for each variation in parallel
+                    import time
+                    multi_query_start = time.time()
+
+                    async def search_single_variation(variation_query: str) -> List[Dict]:
+                        """Search for a single query variation."""
+                        # Check cache for embedding
+                        cached_embedding = await cache_service.get_embedding(variation_query)
+                        if cached_embedding:
+                            variation_embedding = cached_embedding
+                            logger.debug(f"Using cached embedding for variation: {variation_query[:40]}...")
+                        else:
+                            # Generate embedding
+                            variation_embedding = await self.embedding_service.generate_embedding_async(variation_query)
+                            # Cache the embedding
+                            await cache_service.set_embedding(variation_query, variation_embedding)
+
+                        # Perform semantic search
+                        embedding_str = '[' + ','.join(str(x) for x in variation_embedding) + ']'
+
+                        query_sql = text("""
+                            SELECT
+                                id,
+                                content,
+                                page_number,
+                                document_id,
+                                position_data,
+                                1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                            FROM document_chunks
+                            WHERE document_id = :document_id
+                            ORDER BY embedding <=> CAST(:embedding AS vector)
+                            LIMIT :limit
+                        """)
+
+                        result = db.execute(
+                            query_sql,
+                            {
+                                "embedding": embedding_str,
+                                "document_id": document_id,
+                                "limit": semantic_limit
+                            }
+                        )
+
+                        # Convert to list of dicts
+                        chunks = []
+                        for row in result:
+                            chunks.append({
+                                "id": row.id,
+                                "content": row.content,
+                                "pageNumber": row.page_number,
+                                "documentId": row.document_id,
+                                "positionData": row.position_data,
+                                "similarity": float(row.similarity)
+                            })
+
+                        logger.debug(f"Found {len(chunks)} chunks for variation: {variation_query[:40]}...")
+                        return chunks
+
+                    # Execute all searches in parallel
+                    variation_results = await asyncio.gather(
+                        *[search_single_variation(var) for var in query_variations],
+                        return_exceptions=True
+                    )
+
+                    # Filter out any errors (use graceful degradation)
+                    valid_results = []
+                    for i, result in enumerate(variation_results):
+                        if isinstance(result, Exception):
+                            logger.warning(f"Error searching variation {i}: {result}")
+                        else:
+                            valid_results.append(result)
+
+                    if not valid_results:
+                        logger.error("All query variations failed, falling back to single-query search")
+                        raise Exception("All query variations failed")
+
+                    multi_query_time = (time.time() - multi_query_start) * 1000
+                    logger.info(f"Multi-query search completed in {multi_query_time:.2f}ms ({len(valid_results)} variations)")
+
+                    # Combine results using RRF
+                    combined_chunks = self._combine_results_with_rrf(valid_results, rrf_k=rrf_k)
+
+                    # Convert list to dict (for compatibility with hybrid fusion below)
+                    for chunk in combined_chunks:
+                        semantic_chunks[chunk["id"]] = {
+                            "id": chunk["id"],
+                            "content": chunk["content"],
+                            "pageNumber": chunk["pageNumber"],
+                            "documentId": chunk["documentId"],
+                            "positionData": chunk["positionData"],
+                            "semantic_score": chunk["similarity"]  # RRF score
+                        }
+
+                    logger.info(f"RRF combined results: {len(semantic_chunks)} unique chunks")
+
+                except Exception as e:
+                    logger.error(f"Query expansion failed, falling back to single-query search: {e}")
+                    # Fall through to single-query search below
+                    query_expansion_enabled = False  # Disable for this request
+
+            # SINGLE-QUERY SEMANTIC SEARCH (original behavior or fallback)
+            if not query_expansion_enabled or not user_api_key:
+                if not query_expansion_enabled:
+                    logger.debug("Query expansion disabled - using single-query search")
+                else:
+                    logger.debug("No user API key provided - using single-query search")
+
+                # Check cache for chunks first
+                cached_chunks = None
+
+                # Try to get embedding from cache (if not already set from query expansion)
+                if query_embedding is None:
+                    cached_embedding = await cache_service.get_embedding(query)
+                    if cached_embedding:
+                        query_embedding = cached_embedding
+                        logger.debug(f"Using cached embedding for query: {query[:50]}...")
+                        # Check cache for chunks with this embedding (include rerank status in cache key)
+                        cached_chunks = await cache_service.get_chunks(
+                            document_id, query_embedding, rerank_enabled=rerank_enabled
+                        )
+                        if cached_chunks:
+                            logger.info(f"Cache hit: Returning {len(cached_chunks)} cached chunks")
+                            return cached_chunks
+                else:
+                    # query_embedding already set from query expansion, check cache for chunks
+                    cached_chunks = await cache_service.get_chunks(
+                        document_id, query_embedding, rerank_enabled=rerank_enabled
+                    )
+                    if cached_chunks:
+                        logger.info(f"Cache hit: Returning {len(cached_chunks)} cached chunks")
+                        return cached_chunks
+
+                # Generate embedding if not cached
+                if query_embedding is None:
+                    logger.debug(f"Generating embedding for query: {query[:50]}...")
+                    query_embedding = await self.embedding_service.generate_embedding_async(query)
+                    logger.debug(f"Generated embedding with {len(query_embedding)} dimensions")
+                    # Cache the embedding
+                    await cache_service.set_embedding(query, query_embedding)
+
+                # Perform SEMANTIC search using pgvector with HNSW index
+                # pgvector expects the vector in the format '[1,2,3]' as a string
+                embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+
+                # Optimized query to leverage HNSW index
+                query_sql = text("""
+                    SELECT
+                        id,
+                        content,
+                        page_number,
+                        document_id,
+                        position_data,
+                        1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                    FROM document_chunks
+                    WHERE document_id = :document_id
+                    ORDER BY embedding <=> CAST(:embedding AS vector)
+                    LIMIT :limit
+                """)
+
+                logger.debug(f"Executing semantic search for document_id: {document_id}")
+                import time
+                semantic_start = time.time()
+
+                result = db.execute(
+                    query_sql,
+                    {
+                        "embedding": embedding_str,
+                        "document_id": document_id,
+                        "limit": semantic_limit
+                    }
+                )
+
+                semantic_time = (time.time() - semantic_start) * 1000
+                logger.info(f"Semantic search completed in {semantic_time:.2f}ms (document_id: {document_id})")
+
+                for row in result:
+                    semantic_chunks[row.id] = {
+                        "id": row.id,
+                        "content": row.content,
+                        "pageNumber": row.page_number,
+                        "documentId": row.document_id,
+                        "positionData": row.position_data,
+                        "semantic_score": float(row.similarity)
+                    }
+
+                logger.debug(f"Found {len(semantic_chunks)} semantic matches")
 
             # Perform KEYWORD search using PostgreSQL full-text search
             keyword_chunks = {}
@@ -576,7 +798,7 @@ Title:"""
 
             # Find relevant chunks
             logger.debug(f"Finding similar chunks for document {document_id}")
-            relevant_chunks = await self.find_similar_chunks(db, content, document_id, limit=5)
+            relevant_chunks = await self.find_similar_chunks(db, content, document_id, limit=5, user_api_key=api_key)
 
             # Format context from chunks
             if relevant_chunks:
@@ -886,7 +1108,7 @@ say you don't have enough information from the document and suggest looking at o
 
             # Find relevant chunks
             logger.debug(f"Finding similar chunks for document {document_id}")
-            relevant_chunks = await self.find_similar_chunks(db, content, document_id, limit=5)
+            relevant_chunks = await self.find_similar_chunks(db, content, document_id, limit=5, user_api_key=api_key)
 
             # Format context from chunks
             if relevant_chunks:
