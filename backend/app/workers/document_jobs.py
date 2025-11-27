@@ -65,8 +65,15 @@ async def process_document_job(
         # Initialize document service
         document_service = DocumentService()
 
-        # Process document (this does the heavy lifting)
-        result = await document_service.process_document(db, document_id)
+        # Process document using streaming or standard approach based on config
+        from app.config import settings
+
+        if settings.USE_STREAMING_PROCESSING:
+            logger.info(f"Using streaming processing for document {document_id}")
+            result = await document_service.process_document_streaming(db, document_id)
+        else:
+            logger.info(f"Using standard processing for document {document_id}")
+            result = await document_service.process_document(db, document_id)
 
         # Update document status based on result
         if result.get("success", False):

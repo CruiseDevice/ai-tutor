@@ -49,6 +49,30 @@ class Settings(BaseSettings):
     # File upload limits
     MAX_FILE_SIZE: int = 30 * 1024 * 1024  # 30MB in bytes
 
+    # Document Processing Optimizations (Phase 3)
+    USE_STREAMING_PROCESSING: bool = True  # Enable streaming PDF processing for progressive availability
+
+    # Hybrid Search Configuration
+    # Controls the weighting between semantic and keyword search
+    # semantic_weight + keyword_weight should = 1.0 for optimal results
+    SEMANTIC_SEARCH_WEIGHT: float = 0.7  # Weight for pgvector semantic search (default: 70%)
+    KEYWORD_SEARCH_WEIGHT: float = 0.3   # Weight for PostgreSQL full-text keyword search (default: 30%)
+
+    # Re-Ranking Configuration
+    # Cross-encoder re-ranking improves retrieval quality by re-ranking top candidates
+    RERANK_ENABLED: bool = True  # Enable/disable cross-encoder re-ranking
+    RERANK_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Cross-encoder model for re-ranking
+    RERANK_TOP_K: int = 20  # Number of candidates to retrieve before re-ranking
+    RERANK_FINAL_K: int = 5  # Final number of chunks to return after re-ranking
+
+    # Query Expansion Configuration
+    # Multi-query retrieval generates query variations to improve retrieval accuracy for ambiguous/complex queries
+    QUERY_EXPANSION_ENABLED: bool = True  # Enable/disable query expansion (default: off for backwards compatibility)
+    QUERY_EXPANSION_MODEL: str = "gpt-4o-mini"  # LLM model for generating query variations (cheaper model recommended)
+    QUERY_EXPANSION_NUM_VARIATIONS: int = 3  # Number of query variations to generate (including original query)
+    QUERY_EXPANSION_TEMPERATURE: float = 0.7  # Temperature for variation generation (0.7 for diverse variations)
+    RRF_K: int = 60  # Reciprocal Rank Fusion constant (standard value, controls score normalization)
+
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",

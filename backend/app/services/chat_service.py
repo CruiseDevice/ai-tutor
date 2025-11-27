@@ -12,6 +12,7 @@ from ..models.conversation import Conversation, Message
 from ..models.document import DocumentChunk
 from ..models.user import User
 from .embedding_service import get_embedding_service
+from .rerank_service import get_rerank_service
 from .retry_utils import retry_openai_call, async_retry_openai_call
 from .cache_service import get_cache_service
 
@@ -157,6 +158,93 @@ Title:"""
         }
         return colors.get(annotation_type, colors['highlight'])
 
+    def _find_keyword_matches(
+        self,
+        db: Session,
+        query: str,
+        document_id: str,
+        limit: int = 10
+    ) -> List[Dict]:
+        """
+        Find document chunks using PostgreSQL full-text search with keyword matching.
+
+        Uses PostgreSQL's native full-text search capabilities:
+        - to_tsquery() for query preprocessing (tokenization, stemming)
+        - ts_rank_cd() for relevance scoring with phrase proximity
+        - GIN index for fast search performance
+
+        Returns chunks with normalized similarity scores (0-1 range) for fusion with semantic search.
+        """
+        try:
+            # Sanitize query for tsquery (replace special characters, handle phrases)
+            # PostgreSQL tsquery uses & (AND), | (OR), ! (NOT), and <-> (phrase)
+            # For simplicity, we'll use plainto_tsquery which handles plain text safely
+            query_sql = text("""
+                SELECT
+                    id,
+                    content,
+                    page_number,
+                    document_id,
+                    position_data,
+                    ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :query)) as rank
+                FROM document_chunks
+                WHERE document_id = :document_id
+                    AND to_tsvector('english', content) @@ plainto_tsquery('english', :query)
+                ORDER BY rank DESC
+                LIMIT :limit
+            """)
+
+            logger.debug(f"Executing keyword search for document_id: {document_id}, query: {query[:50]}...")
+            import time
+            start_time = time.time()
+
+            result = db.execute(
+                query_sql,
+                {
+                    "query": query,
+                    "document_id": document_id,
+                    "limit": limit
+                }
+            )
+
+            query_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            logger.info(f"Keyword search completed in {query_time:.2f}ms (document_id: {document_id})")
+
+            chunks = []
+            max_rank = 0.0
+
+            # First pass: collect chunks and find max rank for normalization
+            rows = list(result)
+            if rows:
+                max_rank = max(row.rank for row in rows)
+
+            # Second pass: normalize scores to 0-1 range
+            for row in rows:
+                # Normalize rank to 0-1 range (ts_rank_cd returns values typically between 0 and 1, but can be higher)
+                # Use min-max normalization if we have a max_rank > 0
+                normalized_score = (row.rank / max_rank) if max_rank > 0 else 0.0
+
+                chunks.append({
+                    "id": row.id,
+                    "content": row.content,
+                    "pageNumber": row.page_number,
+                    "documentId": row.document_id,
+                    "positionData": row.position_data,
+                    "similarity": float(normalized_score)  # Normalized keyword relevance score
+                })
+
+            logger.debug(f"Found {len(chunks)} keyword matches")
+            return chunks
+
+        except (SQLAlchemyError, DatabaseError) as e:
+            logger.warning(f"Database error in keyword search: {str(e)}")
+            # Return empty list to allow fallback to semantic-only search
+            return []
+        except Exception as e:
+            logger.warning(f"Error in keyword search: {str(e)}")
+            # Return empty list to allow fallback to semantic-only search
+            return []
+
     async def find_similar_chunks(
         self,
         db: Session,
@@ -164,8 +252,24 @@ Title:"""
         document_id: str,
         limit: int = 5
     ) -> List[Dict]:
-        """Find similar document chunks using vector similarity search with caching."""
+        """
+        Find similar document chunks using hybrid search (semantic + keyword).
+
+        Combines:
+        1. Semantic search: pgvector cosine similarity (70% weight by default)
+        2. Keyword search: PostgreSQL full-text search (30% weight by default)
+
+        Results are fused using weighted scoring for improved retrieval accuracy.
+        Falls back to semantic-only search if keyword search fails.
+        """
         try:
+            from ..config import settings
+
+            # Get search weights from config (with defaults)
+            semantic_weight = getattr(settings, 'SEMANTIC_SEARCH_WEIGHT', 0.7)
+            keyword_weight = getattr(settings, 'KEYWORD_SEARCH_WEIGHT', 0.3)
+            rerank_enabled = getattr(settings, 'RERANK_ENABLED', False)
+
             cache_service = await get_cache_service()
 
             # Check cache for chunks first
@@ -177,8 +281,10 @@ Title:"""
             if cached_embedding:
                 query_embedding = cached_embedding
                 logger.debug(f"Using cached embedding for query: {query[:50]}...")
-                # Check cache for chunks with this embedding
-                cached_chunks = await cache_service.get_chunks(document_id, query_embedding)
+                # Check cache for chunks with this embedding (include rerank status in cache key)
+                cached_chunks = await cache_service.get_chunks(
+                    document_id, query_embedding, rerank_enabled=rerank_enabled
+                )
                 if cached_chunks:
                     logger.info(f"Cache hit: Returning {len(cached_chunks)} cached chunks")
                     return cached_chunks
@@ -191,13 +297,14 @@ Title:"""
                 # Cache the embedding
                 await cache_service.set_embedding(query, query_embedding)
 
-            # Perform vector similarity search using pgvector with HNSW index
+            # Perform SEMANTIC search using pgvector with HNSW index
             # pgvector expects the vector in the format '[1,2,3]' as a string
             embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
+            # Retrieve more candidates for fusion (e.g., top 10-15)
+            semantic_limit = max(limit * 2, 10)
+
             # Optimized query to leverage HNSW index
-            # ORDER BY embedding <=> query directly (instead of calculated similarity)
-            # This allows PostgreSQL to use the HNSW index for efficient approximate nearest neighbor search
             query_sql = text("""
                 SELECT
                     id,
@@ -212,39 +319,168 @@ Title:"""
                 LIMIT :limit
             """)
 
-            logger.debug(f"Executing vector search for document_id: {document_id}")
+            logger.debug(f"Executing semantic search for document_id: {document_id}")
             import time
-            start_time = time.time()
+            semantic_start = time.time()
 
             result = db.execute(
                 query_sql,
                 {
                     "embedding": embedding_str,
                     "document_id": document_id,
-                    "limit": limit
+                    "limit": semantic_limit
                 }
             )
 
-            query_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-            logger.info(f"Vector search completed in {query_time:.2f}ms (document_id: {document_id})")
+            semantic_time = (time.time() - semantic_start) * 1000
+            logger.info(f"Semantic search completed in {semantic_time:.2f}ms (document_id: {document_id})")
 
-            chunks = []
+            semantic_chunks = {}
             for row in result:
-                chunks.append({
+                semantic_chunks[row.id] = {
                     "id": row.id,
                     "content": row.content,
                     "pageNumber": row.page_number,
                     "documentId": row.document_id,
                     "positionData": row.position_data,
-                    "similarity": float(row.similarity)
-                })
+                    "semantic_score": float(row.similarity)
+                }
 
-            logger.debug(f"Found {len(chunks)} similar chunks")
+            logger.debug(f"Found {len(semantic_chunks)} semantic matches")
 
-            # Cache the chunks
-            await cache_service.set_chunks(document_id, query_embedding, chunks)
+            # Perform KEYWORD search using PostgreSQL full-text search
+            keyword_chunks = {}
+            keyword_search_success = False
 
-            return chunks
+            try:
+                keyword_limit = max(limit * 2, 10)
+                keyword_results = self._find_keyword_matches(db, query, document_id, limit=keyword_limit)
+
+                if keyword_results:
+                    keyword_search_success = True
+                    for chunk in keyword_results:
+                        keyword_chunks[chunk["id"]] = {
+                            "id": chunk["id"],
+                            "content": chunk["content"],
+                            "pageNumber": chunk["pageNumber"],
+                            "documentId": chunk["documentId"],
+                            "positionData": chunk["positionData"],
+                            "keyword_score": chunk["similarity"]
+                        }
+                    logger.debug(f"Found {len(keyword_chunks)} keyword matches")
+                else:
+                    logger.info("No keyword matches found, using semantic-only results")
+
+            except Exception as e:
+                logger.warning(f"Keyword search failed, falling back to semantic-only: {str(e)}")
+                keyword_search_success = False
+
+            # HYBRID FUSION: Combine semantic and keyword results
+            fused_chunks = {}
+
+            # Get all unique chunk IDs from both result sets
+            all_chunk_ids = set(semantic_chunks.keys()) | set(keyword_chunks.keys())
+
+            for chunk_id in all_chunk_ids:
+                # Get scores (0 if chunk not in that result set)
+                semantic_score = semantic_chunks.get(chunk_id, {}).get('semantic_score', 0.0)
+                keyword_score = keyword_chunks.get(chunk_id, {}).get('keyword_score', 0.0)
+
+                # Calculate weighted fusion score
+                if keyword_search_success:
+                    # Hybrid: combine both scores with weights
+                    fused_score = (semantic_weight * semantic_score) + (keyword_weight * keyword_score)
+                else:
+                    # Fallback: semantic-only (weight = 1.0)
+                    fused_score = semantic_score
+
+                # Get chunk data (prefer semantic result as it has all fields)
+                chunk_data = semantic_chunks.get(chunk_id) or keyword_chunks.get(chunk_id)
+
+                fused_chunks[chunk_id] = {
+                    "id": chunk_data["id"],
+                    "content": chunk_data["content"],
+                    "pageNumber": chunk_data["pageNumber"],
+                    "documentId": chunk_data["documentId"],
+                    "positionData": chunk_data["positionData"],
+                    "similarity": float(fused_score),  # Final fused score
+                    "_semantic_score": semantic_score,  # Debug info
+                    "_keyword_score": keyword_score     # Debug info
+                }
+
+            # Sort by fused score
+            sorted_chunks = sorted(
+                fused_chunks.values(),
+                key=lambda x: x["similarity"],
+                reverse=True
+            )
+
+            # Apply re-ranking if enabled (already loaded at top of function)
+
+            if rerank_enabled:
+                try:
+                    # Get re-ranking parameters from config
+                    rerank_top_k = getattr(settings, 'RERANK_TOP_K', 20)
+                    rerank_final_k = getattr(settings, 'RERANK_FINAL_K', limit)
+
+                    # Get top candidates for re-ranking
+                    candidates_for_rerank = sorted_chunks[:rerank_top_k]
+
+                    if candidates_for_rerank:
+                        logger.info(f"Re-ranking top {len(candidates_for_rerank)} candidates")
+
+                        # Get rerank service and re-rank chunks
+                        rerank_service = get_rerank_service()
+                        reranked_chunks = await rerank_service.rerank_chunks(
+                            query=query,
+                            chunks=candidates_for_rerank,
+                            top_k=rerank_final_k
+                        )
+
+                        # Use re-ranked results
+                        sorted_chunks = reranked_chunks
+                        logger.info(f"Re-ranking completed, returning {len(sorted_chunks)} chunks")
+                    else:
+                        # No candidates to re-rank, use original sorted results
+                        sorted_chunks = sorted_chunks[:limit]
+                        logger.info("No candidates to re-rank, using original results")
+
+                except Exception as e:
+                    # Fallback to original sorting if re-ranking fails
+                    logger.warning(f"Re-ranking failed, falling back to original ranking: {str(e)}")
+                    sorted_chunks = sorted_chunks[:limit]
+            else:
+                # Re-ranking disabled, use original sorted results
+                sorted_chunks = sorted_chunks[:limit]
+
+            # Clean up debug fields before returning
+            final_chunks = []
+            for chunk in sorted_chunks:
+                # Preserve rerank_score if it exists (for debugging)
+                chunk_data = {
+                    "id": chunk["id"],
+                    "content": chunk["content"],
+                    "pageNumber": chunk["pageNumber"],
+                    "documentId": chunk["documentId"],
+                    "positionData": chunk["positionData"],
+                    "similarity": chunk["similarity"]
+                }
+                # Optionally include rerank score for debugging
+                if "rerank_score" in chunk:
+                    chunk_data["rerank_score"] = chunk["rerank_score"]
+                final_chunks.append(chunk_data)
+
+            search_type = "hybrid" if keyword_search_success else "semantic-only"
+            rerank_status = "with re-ranking" if rerank_enabled else "without re-ranking"
+            logger.info(f"Hybrid search ({search_type}, {rerank_status}) returned {len(final_chunks)} chunks")
+
+            # Cache the final results (cache key includes re-ranking status)
+            await cache_service.set_chunks(
+                document_id, query_embedding, final_chunks, rerank_enabled=rerank_enabled
+            )
+
+            return final_chunks
+
         except (SQLAlchemyError, DatabaseError) as e:
             logger.error(f"Database error in find_similar_chunks: {str(e)}", exc_info=True)
             # Rollback the transaction to allow subsequent queries to work
