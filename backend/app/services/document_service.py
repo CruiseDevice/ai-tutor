@@ -249,6 +249,188 @@ class DocumentService:
 
         return document, conversation
 
+    async def _extract_and_chunk_pages_streaming(
+        self,
+        pdf_path: str,
+        chunk_size: int = 1000,
+        chunk_overlap: int = 200
+    ):
+        """
+        Stream PDF pages one at a time, chunking each page as it's extracted.
+
+        This allows for progressive processing - chunks become searchable as soon as
+        they're processed, rather than waiting for the entire document.
+
+        Args:
+            pdf_path: Path to the PDF file
+            chunk_size: Size of each chunk
+            chunk_overlap: Overlap between chunks
+
+        Yields:
+            Tuple of (page_number, chunks_data) for each page
+            chunks_data is a list of dicts with 'content' and 'page_number'
+        """
+        from pypdf import PdfReader
+
+        logger.info(f"Starting streaming PDF extraction from {pdf_path}")
+
+        # Create text splitter with semantic boundaries
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " ", ""],
+            length_function=len,
+            is_separator_regex=False,
+        )
+
+        # Read PDF
+        reader = PdfReader(pdf_path)
+        total_pages = len(reader.pages)
+        logger.info(f"PDF has {total_pages} pages, starting streaming extraction")
+
+        # Process each page individually
+        for page_num, page in enumerate(reader.pages, start=1):
+            try:
+                # Extract text from this page
+                page_text = page.extract_text()
+
+                if not page_text or not page_text.strip():
+                    logger.warning(f"Page {page_num} has no text content, skipping")
+                    continue
+
+                # Chunk the page text
+                chunks = text_splitter.split_text(page_text)
+
+                # Prepare chunk data
+                page_chunks_data = []
+                for chunk_text in chunks:
+                    if chunk_text.strip():  # Only include non-empty chunks
+                        page_chunks_data.append({
+                            'content': chunk_text,
+                            'page_number': page_num
+                        })
+
+                logger.info(f"Page {page_num}/{total_pages}: Extracted {len(page_chunks_data)} chunks")
+
+                # Yield this page's chunks for processing
+                yield page_num, page_chunks_data, total_pages
+
+            except Exception as e:
+                logger.error(f"Error processing page {page_num}: {e}", exc_info=True)
+                continue
+
+        logger.info(f"Completed streaming extraction of {total_pages} pages")
+
+    async def process_document_streaming(
+        self,
+        db: Session,
+        document_id: str
+    ) -> Dict:
+        """
+        Process a document using streaming approach - process pages as they're extracted.
+
+        This provides faster time-to-first-chunk and better user experience as chunks
+        become searchable progressively rather than all at once.
+
+        Args:
+            db: Database session
+            document_id: ID of the document to process
+
+        Returns:
+            Dict with processing results
+        """
+        import requests
+        import tempfile
+        import os
+
+        # Get document
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Get signed URL for the PDF
+        signed_url = self.get_signed_url(document.blob_path)
+
+        # Download PDF to temporary file
+        response = requests.get(signed_url)
+        if not response.ok:
+            raise HTTPException(status_code=500, detail="Failed to download PDF from S3")
+
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(response.content)
+            temp_file_path = temp_file.name
+
+        total_chunks_processed = 0
+        total_chunks_failed = 0
+
+        try:
+            logger.info(f"Starting streaming processing for document {document_id}")
+
+            # Process pages as they're extracted
+            async for page_num, page_chunks_data, total_pages in self._extract_and_chunk_pages_streaming(temp_file_path):
+                if not page_chunks_data:
+                    continue
+
+                # Extract texts for embedding generation
+                texts = [chunk['content'] for chunk in page_chunks_data]
+
+                # Generate embeddings for this page's chunks in parallel
+                logger.info(f"Generating embeddings for page {page_num} ({len(texts)} chunks)")
+                embeddings = await self._generate_embeddings_parallel(
+                    texts,
+                    batch_size=50,
+                    max_concurrent=4
+                )
+
+                # Prepare chunks with embeddings
+                chunks_with_embeddings = []
+                for i, chunk_data in enumerate(page_chunks_data):
+                    chunks_with_embeddings.append({
+                        'content': chunk_data['content'],
+                        'page_number': chunk_data['page_number'],
+                        'embedding': embeddings[i]
+                    })
+
+                # Save this page's chunks to database immediately
+                logger.info(f"Saving page {page_num} chunks to database")
+                result = await self._save_chunks_parallel(
+                    db,
+                    document_id,
+                    chunks_with_embeddings,
+                    batch_size=50
+                )
+
+                total_chunks_processed += result['success']
+                total_chunks_failed += result['errors']
+
+                # Log progress
+                progress_percent = (page_num / total_pages) * 100
+                logger.info(
+                    f"Progress: {page_num}/{total_pages} pages ({progress_percent:.1f}%) | "
+                    f"Chunks processed: {total_chunks_processed}, failed: {total_chunks_failed}"
+                )
+
+            # Invalidate cache for this document since chunks have been updated
+            try:
+                cache_service = await get_cache_service()
+                await cache_service.invalidate_document_chunks(document_id)
+                logger.info(f"Invalidated cache for document_id={document_id}")
+            except Exception as e:
+                logger.warning(f"Failed to invalidate cache for document {document_id}: {e}")
+
+            return {
+                "success": True,
+                "message": "Document processed successfully using streaming",
+                "chunks_processed": total_chunks_processed,
+                "chunks_failed": total_chunks_failed
+            }
+
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
     async def process_document(
         self,
         db: Session,
@@ -279,11 +461,26 @@ class DocumentService:
             loader = PyPDFLoader(temp_file_path)
             pages = loader.load()
 
-            # Split into chunks
+            # Split into chunks with semantic boundaries
+            # Use improved separators to preserve paragraphs, sentences, and meaning
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=1000,
-                chunk_overlap=200
+                chunk_overlap=200,
+                separators=[
+                    "\n\n",  # Paragraph breaks (highest priority)
+                    "\n",    # Line breaks
+                    ". ",    # Sentence endings
+                    "! ",    # Exclamation sentences
+                    "? ",    # Question sentences
+                    "; ",    # Semicolons
+                    ", ",    # Commas
+                    " ",     # Spaces
+                    "",      # Characters (fallback)
+                ],
+                length_function=len,
+                is_separator_regex=False,
             )
+            logger.info("Using semantic chunking with intelligent separators for better search quality")
             chunks = text_splitter.split_documents(pages)
 
             # Collect all chunk texts and metadata first
