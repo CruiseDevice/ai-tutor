@@ -80,6 +80,16 @@ class Settings(BaseSettings):
     CHUNK_TRUNCATION_ENABLED: bool = True  # Enable truncating chunks to fit within token limits
     TOKEN_TRACKING_ENABLED: bool = True  # Enable tracking token usage per request for analytics
 
+    # Advanced Prompting & Answer Quality Configuration
+    # Enhance system prompts with few-shot examples, chain-of-thought, and quality scoring
+    ENABLE_QUERY_CLASSIFICATION: bool = True  # Enable automatic query type classification (factual, analytical, etc.)
+    ENABLE_CHAIN_OF_THOUGHT: bool = True  # Enable chain-of-thought prompting for complex queries
+    COT_COMPLEXITY_THRESHOLD: str = "moderate"  # Enable COT for queries with "moderate" or "complex" complexity
+    ENABLE_CITATION_VERIFICATION: bool = True  # Enable post-processing verification of page citations
+    ENABLE_ANSWER_QUALITY_SCORING: bool = True  # Enable LLM-based answer quality evaluation
+    QUERY_CLASSIFICATION_MODEL: str = "gpt-4o-mini"  # Model for query classification (cost-efficient)
+    QUALITY_SCORING_MODEL: str = "gpt-4o-mini"  # Model for quality scoring (cost-efficient)
+
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
