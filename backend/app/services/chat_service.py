@@ -16,6 +16,7 @@ from .rerank_service import get_rerank_service
 from .retry_utils import retry_openai_call, async_retry_openai_call
 from .cache_service import get_cache_service
 from .query_expansion_service import get_query_expansion_service
+from .token_service import TokenService
 
 logger = logging.getLogger(__name__)
 
@@ -714,6 +715,158 @@ Title:"""
             # Return empty list instead of raising to allow chat to continue
             return []
 
+    def _select_chunks_by_token_limit(
+        self,
+        chunks: List[Dict],
+        max_tokens: int,
+        model: str,
+        system_prompt_tokens: int,
+        user_message_tokens: int,
+        history_tokens: int,
+        response_reserve_tokens: int
+    ) -> tuple[List[Dict], Dict[str, int]]:
+        """
+        Dynamically select chunks based on token limits instead of fixed count.
+
+        Args:
+            chunks: List of chunks sorted by relevance (from find_similar_chunks)
+            max_tokens: Maximum context window size
+            model: Model name for token counting
+            system_prompt_tokens: Tokens used by system prompt template (excluding chunks)
+            user_message_tokens: Tokens in current user message
+            history_tokens: Tokens in conversation history
+            response_reserve_tokens: Tokens reserved for model response
+
+        Returns:
+            Tuple of (selected_chunks, token_usage_stats)
+        """
+        from ..config import settings
+
+        # Get configuration
+        buffer_tokens = getattr(settings, 'TOKEN_RESERVE_BUFFER', 20000)
+        truncation_enabled = getattr(settings, 'CHUNK_TRUNCATION_ENABLED', True)
+
+        # Calculate available tokens for chunks
+        available_tokens = TokenService.calculate_available_tokens(
+            max_context_tokens=max_tokens,
+            system_prompt_tokens=system_prompt_tokens,
+            user_message_tokens=user_message_tokens,
+            history_tokens=history_tokens,
+            response_reserve_tokens=response_reserve_tokens,
+            buffer_tokens=buffer_tokens
+        )
+
+        logger.info(
+            f"Token budget: max={max_tokens}, system={system_prompt_tokens}, "
+            f"user={user_message_tokens}, history={history_tokens}, "
+            f"response_reserve={response_reserve_tokens}, buffer={buffer_tokens}, "
+            f"available_for_chunks={available_tokens}"
+        )
+
+        if available_tokens <= 0:
+            logger.warning(
+                f"No tokens available for chunks! "
+                f"Consider reducing history or using a larger context model."
+            )
+            return [], {
+                "selected_chunks": 0,
+                "total_chunk_tokens": 0,
+                "available_tokens": available_tokens,
+                "truncated_chunks": 0,
+                "skipped_chunks": len(chunks)
+            }
+
+        selected_chunks = []
+        tokens_used = 0
+        truncated_count = 0
+        skipped_count = 0
+
+        for i, chunk in enumerate(chunks):
+            chunk_content = chunk.get("content", "")
+            page_number = chunk.get("pageNumber", "Unknown")
+
+            # Format chunk as it would appear in context (with page number)
+            formatted_chunk = f"[Page {page_number}]: {chunk_content}"
+
+            # Count tokens in formatted chunk
+            chunk_tokens = TokenService.count_tokens(formatted_chunk, model)
+
+            # Check if chunk fits
+            if tokens_used + chunk_tokens <= available_tokens:
+                # Chunk fits completely
+                selected_chunks.append(chunk)
+                tokens_used += chunk_tokens
+                logger.debug(
+                    f"Added chunk {i+1}/{len(chunks)} "
+                    f"(page {page_number}, {chunk_tokens} tokens, "
+                    f"total: {tokens_used}/{available_tokens})"
+                )
+            elif truncation_enabled and tokens_used < available_tokens:
+                # Chunk doesn't fit, but we have room and truncation is enabled
+                remaining_tokens = available_tokens - tokens_used
+
+                # Need at least some minimum tokens to make truncation worthwhile
+                min_useful_tokens = 50
+                if remaining_tokens >= min_useful_tokens:
+                    # Truncate the chunk content to fit
+                    truncated_content = TokenService.truncate_text_to_tokens(
+                        chunk_content,
+                        max_tokens=remaining_tokens - 20,  # Reserve tokens for page number formatting
+                        model=model,
+                        prefer_sentence_boundaries=True
+                    )
+
+                    # Create truncated chunk
+                    truncated_chunk = chunk.copy()
+                    truncated_chunk["content"] = truncated_content
+                    truncated_chunk["truncated"] = True
+
+                    selected_chunks.append(truncated_chunk)
+                    truncated_count += 1
+
+                    # Count actual tokens in truncated formatted chunk
+                    truncated_formatted = f"[Page {page_number}]: {truncated_content}"
+                    actual_tokens = TokenService.count_tokens(truncated_formatted, model)
+                    tokens_used += actual_tokens
+
+                    logger.info(
+                        f"Truncated chunk {i+1}/{len(chunks)} "
+                        f"(page {page_number}, {chunk_tokens} -> {actual_tokens} tokens, "
+                        f"total: {tokens_used}/{available_tokens})"
+                    )
+                else:
+                    # Not enough room even for truncation
+                    skipped_count += 1
+                    logger.debug(
+                        f"Skipped chunk {i+1}/{len(chunks)} - insufficient remaining tokens "
+                        f"({remaining_tokens} < {min_useful_tokens})"
+                    )
+                break  # No more room for additional chunks
+            else:
+                # Chunk doesn't fit and truncation is disabled
+                skipped_count += 1
+                logger.debug(
+                    f"Skipped chunk {i+1}/{len(chunks)} "
+                    f"(page {page_number}, {chunk_tokens} tokens) - would exceed limit"
+                )
+
+        # Token usage statistics
+        stats = {
+            "selected_chunks": len(selected_chunks),
+            "total_chunk_tokens": tokens_used,
+            "available_tokens": available_tokens,
+            "truncated_chunks": truncated_count,
+            "skipped_chunks": skipped_count
+        }
+
+        logger.info(
+            f"Chunk selection complete: {len(selected_chunks)}/{len(chunks)} chunks selected, "
+            f"{tokens_used}/{available_tokens} tokens used, "
+            f"{truncated_count} truncated, {skipped_count} skipped"
+        )
+
+        return selected_chunks, stats
+
     async def generate_chat_response(
         self,
         db: Session,
@@ -796,9 +949,93 @@ Title:"""
             # Initialize OpenAI client
             client = AsyncOpenAI(api_key=api_key)
 
-            # Find relevant chunks
+            # Get configuration
+            from ..config import settings
+            max_context_tokens = getattr(settings, 'MAX_CONTEXT_TOKENS', 100000)
+            rerank_top_k = getattr(settings, 'RERANK_TOP_K', 20)
+
+            # Find relevant chunks (retrieve more for token-based selection)
             logger.debug(f"Finding similar chunks for document {document_id}")
-            relevant_chunks = await self.find_similar_chunks(db, content, document_id, limit=5, user_api_key=api_key)
+            candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key)
+
+            # Get conversation history for token counting
+            logger.debug(f"Fetching conversation history for {conversation_id}")
+            history = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).order_by(Message.created_at).limit(10).all()
+
+            # Count tokens for dynamic chunk selection
+            # 1. System prompt template (without chunks)
+            system_prompt_template = """You are an AI tutor helping a student understand a PDF document.
+You have access to the following document chunks that are relevant to the student's question:
+
+{context_text}
+
+When referring to content, always cite the page number like [Page X].
+Make sure to use the correct page number for each piece of information.
+
+IMPORTANT FORMATTING INSTRUCTIONS:
+1. Use markdown to highlight important concepts, terms, or phrases by making them **bold** or using *italics*.
+2. For direct quotes from the document, use > blockquote formatting.
+3. When referring to specific sections, use [Page X] to cite the page number.
+4. Use bullet points or numbered lists for step-by-step explanations.
+5. For critical information or warnings, use "⚠️" at the beginning of the paragraph.
+
+PDF ANNOTATION FEATURE - IMPORTANT:
+You MUST identify specific parts of the document that are relevant to your answer.
+At the END of your response, ALWAYS include an ANNOTATIONS section with the following JSON format:
+
+```annotations
+[
+  {{
+    "pageNumber": <page number from context above>,
+    "type": "highlight",
+    "textToHighlight": "<3-10 word phrase copied exactly from the document>",
+    "explanation": "<why this text answers the question>"
+  }}
+]
+```
+
+ANNOTATION RULES - FOLLOW STRICTLY:
+1. ALWAYS include at least 1 annotation when you reference document content
+2. The "pageNumber" MUST match a page number from the [Page X] citations above
+3. The "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
+4. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
+5. Copy the exact words from the document - do not paraphrase
+6. Include 1-2 annotations per response
+
+Make your responses helpful, clear, and educational. If the context doesn't contain the answer,
+say you don't have enough information from the document and suggest looking at other pages."""
+
+            system_prompt_tokens = TokenService.count_tokens(system_prompt_template, model)
+
+            # 2. User message tokens
+            user_message_tokens = TokenService.count_tokens(content, model)
+
+            # 3. History tokens
+            history_messages = [{"role": msg.role, "content": msg.content} for msg in history]
+            history_tokens = TokenService.estimate_context_tokens(history_messages, model)
+
+            # 4. Response reserve (max_completion_tokens)
+            response_reserve_tokens = 1000
+
+            # Select chunks dynamically based on token limits
+            relevant_chunks, chunk_stats = self._select_chunks_by_token_limit(
+                chunks=candidate_chunks,
+                max_tokens=max_context_tokens,
+                model=model,
+                system_prompt_tokens=system_prompt_tokens,
+                user_message_tokens=user_message_tokens,
+                history_tokens=history_tokens,
+                response_reserve_tokens=response_reserve_tokens
+            )
+
+            logger.info(
+                f"Dynamic chunk selection: {chunk_stats['selected_chunks']}/{len(candidate_chunks)} chunks, "
+                f"{chunk_stats['total_chunk_tokens']} tokens, "
+                f"{chunk_stats['truncated_chunks']} truncated, "
+                f"{chunk_stats['skipped_chunks']} skipped"
+            )
 
             # Format context from chunks
             if relevant_chunks:
@@ -854,13 +1091,7 @@ Make your responses helpful, clear, and educational. If the context doesn't cont
 say you don't have enough information from the document and suggest looking at other pages."""
             }
 
-            # Get conversation history
-            logger.debug(f"Fetching conversation history for {conversation_id}")
-            history = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).order_by(Message.created_at).limit(10).all()
-
-            # Format history for OpenAI
+            # Format history for OpenAI (history already fetched above for token counting)
             messages = [system_message]
             for msg in history:
                 messages.append({
@@ -912,6 +1143,27 @@ say you don't have enough information from the document and suggest looking at o
             raw_assistant_content = completion.choices[0].message.content
             logger.info(f"[Annotations] Raw OpenAI response: {raw_assistant_content[:500]}...")
 
+            # Extract token usage from completion
+            token_usage = None
+            if hasattr(completion, 'usage') and completion.usage:
+                token_usage = {
+                    "prompt_tokens": completion.usage.prompt_tokens,
+                    "completion_tokens": completion.usage.completion_tokens,
+                    "total_tokens": completion.usage.total_tokens
+                }
+                logger.info(
+                    f"Token usage: {token_usage['prompt_tokens']} prompt + "
+                    f"{token_usage['completion_tokens']} completion = "
+                    f"{token_usage['total_tokens']} total tokens"
+                )
+                logger.info(
+                    f"Token budget utilization: "
+                    f"{token_usage['total_tokens']}/{max_context_tokens} "
+                    f"({100 * token_usage['total_tokens'] / max_context_tokens:.1f}%)"
+                )
+            else:
+                logger.warning("Token usage information not available from OpenAI response")
+
             # Parse annotations from the response
             assistant_content, annotations = self._parse_annotations(
                 raw_assistant_content,
@@ -937,10 +1189,12 @@ say you don't have enough information from the document and suggest looking at o
             db.add(user_message)
             db.flush()
 
-            # Save assistant message with context (store annotations in context)
+            # Save assistant message with context (store annotations, token usage, and chunk stats)
             message_context = {
                 "chunks": relevant_chunks,
-                "annotations": annotations
+                "annotations": annotations,
+                "token_usage": token_usage,
+                "chunk_selection_stats": chunk_stats
             }
             assistant_message = Message(
                 content=assistant_content,
@@ -1106,9 +1360,93 @@ say you don't have enough information from the document and suggest looking at o
             # Initialize OpenAI client
             client = AsyncOpenAI(api_key=api_key)
 
-            # Find relevant chunks
+            # Get configuration
+            from ..config import settings
+            max_context_tokens = getattr(settings, 'MAX_CONTEXT_TOKENS', 100000)
+            rerank_top_k = getattr(settings, 'RERANK_TOP_K', 20)
+
+            # Find relevant chunks (retrieve more for token-based selection)
             logger.debug(f"Finding similar chunks for document {document_id}")
-            relevant_chunks = await self.find_similar_chunks(db, content, document_id, limit=5, user_api_key=api_key)
+            candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key)
+
+            # Get conversation history for token counting
+            logger.debug(f"Fetching conversation history for {conversation_id}")
+            history = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).order_by(Message.created_at).limit(10).all()
+
+            # Count tokens for dynamic chunk selection
+            # 1. System prompt template (without chunks)
+            system_prompt_template = """You are an AI tutor helping a student understand a PDF document.
+You have access to the following document chunks that are relevant to the student's question:
+
+{context_text}
+
+When referring to content, always cite the page number like [Page X].
+Make sure to use the correct page number for each piece of information.
+
+IMPORTANT FORMATTING INSTRUCTIONS:
+1. Use markdown to highlight important concepts, terms, or phrases by making them **bold** or using *italics*.
+2. For direct quotes from the document, use > blockquote formatting.
+3. When referring to specific sections, use [Page X] to cite the page number.
+4. Use bullet points or numbered lists for step-by-step explanations.
+5. For critical information or warnings, use "⚠️" at the beginning of the paragraph.
+
+PDF ANNOTATION FEATURE - IMPORTANT:
+You MUST identify specific parts of the document that are relevant to your answer.
+At the END of your response, ALWAYS include an ANNOTATIONS section with the following JSON format:
+
+```annotations
+[
+  {{
+    "pageNumber": <page number from context above>,
+    "type": "highlight",
+    "textToHighlight": "<3-10 word phrase copied exactly from the document>",
+    "explanation": "<why this text answers the question>"
+  }}
+]
+```
+
+ANNOTATION RULES - FOLLOW STRICTLY:
+1. ALWAYS include at least 1 annotation when you reference document content
+2. The "pageNumber" MUST match a page number from the [Page X] citations above
+3. The "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
+4. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
+5. Copy the exact words from the document - do not paraphrase
+6. Include 1-2 annotations per response
+
+Make your responses helpful, clear, and educational. If the context doesn't contain the answer,
+say you don't have enough information from the document and suggest looking at other pages."""
+
+            system_prompt_tokens = TokenService.count_tokens(system_prompt_template, model)
+
+            # 2. User message tokens
+            user_message_tokens = TokenService.count_tokens(content, model)
+
+            # 3. History tokens
+            history_messages = [{"role": msg.role, "content": msg.content} for msg in history]
+            history_tokens = TokenService.estimate_context_tokens(history_messages, model)
+
+            # 4. Response reserve (max_completion_tokens)
+            response_reserve_tokens = 1000
+
+            # Select chunks dynamically based on token limits
+            relevant_chunks, chunk_stats = self._select_chunks_by_token_limit(
+                chunks=candidate_chunks,
+                max_tokens=max_context_tokens,
+                model=model,
+                system_prompt_tokens=system_prompt_tokens,
+                user_message_tokens=user_message_tokens,
+                history_tokens=history_tokens,
+                response_reserve_tokens=response_reserve_tokens
+            )
+
+            logger.info(
+                f"[Stream] Dynamic chunk selection: {chunk_stats['selected_chunks']}/{len(candidate_chunks)} chunks, "
+                f"{chunk_stats['total_chunk_tokens']} tokens, "
+                f"{chunk_stats['truncated_chunks']} truncated, "
+                f"{chunk_stats['skipped_chunks']} skipped"
+            )
 
             # Format context from chunks
             if relevant_chunks:
@@ -1164,13 +1502,7 @@ Make your responses helpful, clear, and educational. If the context doesn't cont
 say you don't have enough information from the document and suggest looking at other pages."""
             }
 
-            # Get conversation history
-            logger.debug(f"Fetching conversation history for {conversation_id}")
-            history = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).order_by(Message.created_at).limit(10).all()
-
-            # Format history for OpenAI
+            # Format history for OpenAI (history already fetched above for token counting)
             messages = [system_message]
             for msg in history:
                 messages.append({
@@ -1257,10 +1589,42 @@ say you don't have enough information from the document and suggest looking at o
             )
             logger.info(f"[Annotations] Parsed {len(annotations)} annotations from response")
 
-            # Save assistant message with context
+            # Estimate token usage for streaming response (OpenAI doesn't provide usage in streams)
+            token_usage = None
+            try:
+                # Count input tokens (context + user message + history)
+                prompt_tokens = TokenService.estimate_context_tokens(messages, model)
+
+                # Count output tokens
+                completion_tokens = TokenService.count_tokens(accumulated_content, model)
+
+                total_tokens = prompt_tokens + completion_tokens
+
+                token_usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens
+                }
+
+                logger.info(
+                    f"[Stream] Estimated token usage: {token_usage['prompt_tokens']} prompt + "
+                    f"{token_usage['completion_tokens']} completion = "
+                    f"{token_usage['total_tokens']} total tokens"
+                )
+                logger.info(
+                    f"[Stream] Token budget utilization: "
+                    f"{token_usage['total_tokens']}/{max_context_tokens} "
+                    f"({100 * token_usage['total_tokens'] / max_context_tokens:.1f}%)"
+                )
+            except Exception as e:
+                logger.warning(f"[Stream] Failed to estimate token usage: {e}")
+
+            # Save assistant message with context (include token usage and chunk stats)
             message_context = {
                 "chunks": relevant_chunks,
-                "annotations": annotations
+                "annotations": annotations,
+                "token_usage": token_usage,
+                "chunk_selection_stats": chunk_stats
             }
             assistant_message = Message(
                 content=assistant_content,
