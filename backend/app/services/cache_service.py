@@ -114,40 +114,68 @@ class CacheService:
         except Exception as e:
             logger.warning(f"Error caching embedding: {e}")
 
-    async def get_chunks(self, document_id: str, query_embedding: List[float]) -> Optional[List[Dict]]:
-        """Get cached chunks for a document and query embedding."""
+    async def get_chunks(
+        self,
+        document_id: str,
+        query_embedding: List[float],
+        rerank_enabled: bool = False
+    ) -> Optional[List[Dict]]:
+        """Get cached chunks for a document and query embedding.
+
+        Args:
+            document_id: The document ID
+            query_embedding: The query embedding vector
+            rerank_enabled: Whether re-ranking is enabled (affects cache key)
+        """
         if not self._ensure_connected():
             return None
 
         try:
             embedding_hash = self._hash_embedding(query_embedding)
-            cache_key = f"chunks:{document_id}:{embedding_hash}"
+            # Include re-ranking status in cache key to avoid mixing ranked/unranked results
+            rerank_suffix = "rerank" if rerank_enabled else "no-rerank"
+            cache_key = f"chunks:{document_id}:{embedding_hash}:{rerank_suffix}"
             cached = await self.redis_client.get(cache_key)
             if cached:
                 self.stats['chunk_hits'] += 1
-                logger.debug(f"Cache hit for chunks: document_id={document_id}")
+                logger.debug(f"Cache hit for chunks: document_id={document_id} (rerank={rerank_enabled})")
                 return json.loads(cached)
             self.stats['chunk_misses'] += 1
-            logger.debug(f"Cache miss for chunks: document_id={document_id}")
+            logger.debug(f"Cache miss for chunks: document_id={document_id} (rerank={rerank_enabled})")
             return None
         except Exception as e:
             logger.warning(f"Error getting chunks from cache: {e}")
             return None
 
-    async def set_chunks(self, document_id: str, query_embedding: List[float], chunks: List[Dict]):
-        """Cache chunks for a document and query embedding."""
+    async def set_chunks(
+        self,
+        document_id: str,
+        query_embedding: List[float],
+        chunks: List[Dict],
+        rerank_enabled: bool = False
+    ):
+        """Cache chunks for a document and query embedding.
+
+        Args:
+            document_id: The document ID
+            query_embedding: The query embedding vector
+            chunks: The chunks to cache
+            rerank_enabled: Whether re-ranking is enabled (affects cache key)
+        """
         if not self._ensure_connected():
             return
 
         try:
             embedding_hash = self._hash_embedding(query_embedding)
-            cache_key = f"chunks:{document_id}:{embedding_hash}"
+            # Include re-ranking status in cache key to avoid mixing ranked/unranked results
+            rerank_suffix = "rerank" if rerank_enabled else "no-rerank"
+            cache_key = f"chunks:{document_id}:{embedding_hash}:{rerank_suffix}"
             await self.redis_client.setex(
                 cache_key,
                 settings.CACHE_CHUNK_TTL,
                 json.dumps(chunks)
             )
-            logger.debug(f"Cached chunks for document_id={document_id}")
+            logger.debug(f"Cached chunks for document_id={document_id} (rerank={rerank_enabled})")
         except Exception as e:
             logger.warning(f"Error caching chunks: {e}")
 

@@ -273,3 +273,52 @@ def add_document_status_fields(engine):
         logger.error(f"Migration error (non-fatal) - add_document_status_fields: {e}", exc_info=True)
         logger.warning("Backend will continue to start, but background job tracking may not work")
 
+
+def add_fulltext_search_index(engine):
+    """
+    Add GIN (Generalized Inverted Index) index for full-text search on document_chunks.content.
+
+    This enables hybrid search combining semantic (pgvector) and keyword (PostgreSQL FTS) search
+    for improved retrieval accuracy, especially for exact matches and technical terms.
+
+    Uses PostgreSQL's native full-text search with:
+    - GIN index for fast text search (better for static data)
+    - English language configuration for stemming and stop words
+    - CONCURRENTLY option to avoid table locks during index creation
+    """
+    try:
+        inspector = inspect(engine)
+
+        # Check if document_chunks table exists
+        table_names = inspector.get_table_names()
+        if 'document_chunks' not in table_names:
+            logger.info("document_chunks table does not exist, will be created by create_all()")
+            return
+
+        # Get existing indexes
+        existing_indexes = {idx['name'] for idx in inspector.get_indexes('document_chunks')}
+
+        idx_name = 'idx_document_chunks_content_fts'
+        if idx_name not in existing_indexes:
+            logger.info(f"Creating GIN full-text search index '{idx_name}' on document_chunks.content...")
+            logger.info("This may take a few minutes for large datasets...")
+
+            with engine.begin() as conn:
+                # Create GIN index for full-text search
+                # Using to_tsvector with 'english' configuration for proper stemming
+                # CONCURRENTLY avoids blocking other operations
+                conn.execute(text(
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_content_fts "
+                    "ON document_chunks USING gin(to_tsvector('english', content))"
+                ))
+                logger.info(f"Successfully created GIN index '{idx_name}'")
+                logger.info("Full-text search is now enabled for hybrid search")
+        else:
+            logger.debug(f"GIN index '{idx_name}' already exists")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_fulltext_search_index: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but keyword search may not work optimally")
+        logger.warning("Hybrid search will fall back to semantic-only search if needed")
+
