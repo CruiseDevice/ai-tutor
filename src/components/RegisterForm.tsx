@@ -39,8 +39,6 @@ export default function RegisterForm () {
       newErrors.password = 'Password is required';
     } else if (formData.password.length < 8) {
       newErrors.password = 'Password must be at least 8 characters long';
-    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
-      newErrors.password = 'Password must contain at least one uppercase letter, one lowercase letter, and one number';
     }
 
     // Confirm password validation
@@ -149,8 +147,6 @@ export default function RegisterForm () {
             <p className="font-medium text-slate-700">Password requirements</p>
             <ul className="mt-1.5 space-y-0.5 list-disc list-inside">
               <li>At least 8 characters</li>
-              <li>One uppercase and one lowercase letter</li>
-              <li>At least one number</li>
             </ul>
           </div>
 
