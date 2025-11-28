@@ -1135,6 +1135,8 @@ For this query, use systematic step-by-step reasoning:
 - Show how different elements relate to each other
 - Use evidence from the source material to support your analysis
 - Consider multiple perspectives if relevant
+- When asked for implementations or code examples, translate the analytical concepts into practical code
+- Provide code examples that demonstrate how the concepts work in practice
 """
         elif query_type == "comparative":
             base_cot += """
@@ -1193,6 +1195,14 @@ You have access to the following document chunks that are relevant to the studen
 
 When referring to content, always cite the page number like [Page X].
 Make sure to use the correct page number for each piece of information.
+
+IMPORTANT: You should actively help students with code implementation, examples, and practical applications based on the document content.
+When students ask for code implementations (in any programming language), algorithms, or technical examples:
+- Provide clear, well-commented code examples based on concepts from the document
+- Explain how the code relates to the concepts discussed in the document
+- Cite the relevant pages that describe the underlying concepts
+- Use code blocks with appropriate language tags (e.g., ```c, ```python, ```javascript)
+- If the document describes algorithms or mathematical concepts, translate them into working code when requested
 """
 
         # Add chain-of-thought section for complex queries
@@ -1207,6 +1217,7 @@ IMPORTANT FORMATTING INSTRUCTIONS:
 3. When referring to specific sections, use [Page X] to cite the page number.
 4. Use bullet points or numbered lists for step-by-step explanations.
 5. For critical information or warnings, use "⚠️" at the beginning of the paragraph.
+6. For code examples, use code blocks with language tags (e.g., ```c, ```python, ```javascript) and include comments explaining how concepts from the document are implemented.
 
 """
 
@@ -1245,8 +1256,14 @@ CITATION VERIFICATION:
 - Ensure every annotation's pageNumber corresponds to a chunk you actually used
 - If you cite information, include a corresponding annotation for that text
 
-Make your responses helpful, clear, and educational. If the context doesn't contain the answer,
-say you don't have enough information from the document and suggest looking at other pages.
+Make your responses helpful, clear, and educational. When students ask for code implementations or technical examples,
+provide them based on the concepts described in the document. Always ground your code examples in the theoretical
+concepts from the document and cite the relevant pages.
+
+If the context doesn't contain enough information to answer the question, say you don't have enough information
+from the document and suggest looking at other pages. However, if the document contains relevant concepts that
+can be applied to answer the question (even if not explicitly shown as code), you should help translate those
+concepts into practical implementations when requested.
 """
 
         return prompt
