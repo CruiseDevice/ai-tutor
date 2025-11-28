@@ -41,7 +41,10 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
+    logger.info("Starting application initialization...")
+
     try:
+        logger.info("Initializing database...")
         # Create database tables
         from .database import engine, Base
         # Import models to register them with SQLAlchemy Base
@@ -49,6 +52,7 @@ async def startup_event():
         Base.metadata.create_all(bind=engine)
 
         # Run migrations for existing databases
+        logger.info("Running database migrations...")
         from .database_migrations import (
             add_title_column_if_missing,
             remove_unique_constraint_from_document_id,
@@ -63,29 +67,27 @@ async def startup_event():
         add_pgvector_hnsw_index(engine)
         add_document_status_fields(engine)
         add_fulltext_search_index(engine)  # Enable hybrid search with full-text index
+        logger.info("Database initialization complete")
     except Exception as e:
         logger.error(f"Database initialization error: {e}", exc_info=True)
         # Don't crash - let the app start even if migrations fail
         # The app can still function, though some features may not work
 
-    # Initialize embedding service (loads the model once)
-    try:
-        from .services import embedding_service as emb_module
-        if emb_module.embedding_service is None:
-            emb_module.embedding_service = EmbeddingService()
-    except Exception as e:
-        logger.error(f"Embedding service initialization error: {e}", exc_info=True)
-        # Don't crash - app can start without embedding service
-        # (though chat features won't work)
+    # Initialize embedding service lazily (loads the model on first use)
+    # This prevents blocking startup while downloading the model
+    logger.info("Embedding service will be initialized on first use (lazy loading)")
 
     # Initialize cache service
     try:
+        logger.info("Initializing cache service...")
         from .services.cache_service import get_cache_service
         await get_cache_service()  # This will connect to Redis
         logger.info("Cache service initialized successfully")
     except Exception as e:
         logger.warning(f"Cache service initialization error: {e}. Caching will be disabled.")
         # Don't crash - app can function without cache (just slower)
+
+    logger.info("Application initialization complete")
 
 
 @app.on_event("shutdown")

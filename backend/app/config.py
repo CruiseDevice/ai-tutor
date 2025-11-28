@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Rate limiting
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 60
-    RATE_LIMIT_AUTH_PER_MINUTE: int = 5  # Stricter for auth endpoints
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 20  # More lenient for development (can be overridden via env var)
 
     # Redis Cache (optimized for performance)
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -52,6 +52,20 @@ class Settings(BaseSettings):
     # Document Processing Optimizations (Phase 3)
     USE_STREAMING_PROCESSING: bool = True  # Enable streaming PDF processing for progressive availability
 
+    # Semantic Chunking Configuration
+    # Advanced chunking strategy that preserves document structure and adapts to content types
+    CHUNK_SIZE_MIN: int = 500  # Minimum chunk size in characters
+    CHUNK_SIZE_MAX: int = 2000  # Maximum chunk size in characters
+    CHUNK_SIZE_DEFAULT: int = 1000  # Default chunk size in characters
+    CHUNK_OVERLAP_MIN: int = 50  # Minimum overlap in characters
+    CHUNK_OVERLAP_MAX: int = 400  # Maximum overlap in characters
+    CHUNK_OVERLAP_DEFAULT: int = 200  # Default overlap in characters
+    CHUNK_OVERLAP_PERCENTAGE: float = 0.15  # Adaptive overlap as percentage of chunk size (15%)
+    USE_SEMANTIC_CHUNKING: bool = True  # Enable semantic boundary detection using embeddings
+    SEMANTIC_CHUNKING_BREAKPOINT_THRESHOLD: float = 0.5  # Threshold for detecting semantic boundaries (0.0-1.0)
+    CHUNK_BY_CONTENT_TYPE: bool = True  # Enable content-type-based adaptive chunking (headers, tables, lists, etc.)
+    PRESERVE_METADATA: bool = True  # Enable extraction and storage of structural metadata (headers, sections, content types)
+
     # Hybrid Search Configuration
     # Controls the weighting between semantic and keyword search
     # semantic_weight + keyword_weight should = 1.0 for optimal results
@@ -72,6 +86,30 @@ class Settings(BaseSettings):
     QUERY_EXPANSION_NUM_VARIATIONS: int = 3  # Number of query variations to generate (including original query)
     QUERY_EXPANSION_TEMPERATURE: float = 0.7  # Temperature for variation generation (0.7 for diverse variations)
     RRF_K: int = 60  # Reciprocal Rank Fusion constant (standard value, controls score normalization)
+
+    # Token Management and Context Window Configuration
+    # Dynamic chunk selection based on token limits instead of fixed chunk count
+    MAX_CONTEXT_TOKENS: int = 100000  # Maximum context window limit (GPT-4 supports up to 128k)
+    TOKEN_RESERVE_BUFFER: int = 20000  # Reserve tokens for system prompt, history, and response generation
+    CHUNK_TRUNCATION_ENABLED: bool = True  # Enable truncating chunks to fit within token limits
+    TOKEN_TRACKING_ENABLED: bool = True  # Enable tracking token usage per request for analytics
+
+    # Advanced Prompting & Answer Quality Configuration
+    # Enhance system prompts with few-shot examples, chain-of-thought, and quality scoring
+    ENABLE_QUERY_CLASSIFICATION: bool = True  # Enable automatic query type classification (factual, analytical, etc.)
+    ENABLE_CHAIN_OF_THOUGHT: bool = True  # Enable chain-of-thought prompting for complex queries
+    COT_COMPLEXITY_THRESHOLD: str = "moderate"  # Enable COT for queries with "moderate" or "complex" complexity
+    ENABLE_CITATION_VERIFICATION: bool = True  # Enable post-processing verification of page citations
+    ENABLE_ANSWER_QUALITY_SCORING: bool = True  # Enable LLM-based answer quality evaluation
+    QUERY_CLASSIFICATION_MODEL: str = "gpt-4o-mini"  # Model for query classification (cost-efficient)
+    QUALITY_SCORING_MODEL: str = "gpt-4o-mini"  # Model for quality scoring (cost-efficient)
+
+    # Agent Configuration (LangGraph Integration)
+    # Multi-step reasoning system with adaptive routing and quality verification
+    AGENT_ENABLED: bool = True  # Feature flag for gradual rollout (default: disabled)
+    AGENT_DEFAULT_MODEL: str = "gpt-4o-mini"  # Default model for agent nodes (cost-efficient)
+    AGENT_COMPLEXITY_THRESHOLD: str = "medium"  # Use agents for queries with "medium" or "complex" complexity
+    AGENT_STREAMING_ENABLED: bool = True  # Enable streaming support for agent workflow execution
 
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [

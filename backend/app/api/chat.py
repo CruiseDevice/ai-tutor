@@ -46,7 +46,8 @@ async def send_message(
             content=message_data.content,
             conversation_id=message_data.conversation_id,
             document_id=message_data.document_id,
-            model=message_data.model or "gpt-4"
+            model=message_data.model or "gpt-4",
+            use_agent=message_data.use_agent or False
         )
 
         return ChatResponse(**result)
@@ -82,7 +83,12 @@ async def send_message_stream(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Send a message and get streaming AI response using Server-Sent Events."""
+    """
+    Send a message and get streaming AI response using Server-Sent Events.
+
+    Supports both linear pipeline and agent workflow streaming.
+    If use_agent=True, streams intermediate workflow steps (understand, retrieve, generate, verify).
+    """
     try:
         # Verify conversation belongs to user
         conversation = db.query(Conversation).filter(
@@ -98,15 +104,28 @@ async def send_message_stream(
 
         async def generate():
             try:
-                async for chunk in chat_service.generate_chat_response_stream(
-                    db=db,
-                    user=user,
-                    content=message_data.content,
-                    conversation_id=message_data.conversation_id,
-                    document_id=message_data.document_id,
-                    model=message_data.model or "gpt-4"
-                ):
-                    yield chunk
+                # Route to agent streaming if requested
+                if message_data.use_agent:
+                    async for chunk in chat_service.generate_chat_response_stream_with_agent(
+                        db=db,
+                        user=user,
+                        content=message_data.content,
+                        conversation_id=message_data.conversation_id,
+                        document_id=message_data.document_id,
+                        model=message_data.model or "gpt-4"
+                    ):
+                        yield chunk
+                else:
+                    # Use linear pipeline streaming
+                    async for chunk in chat_service.generate_chat_response_stream(
+                        db=db,
+                        user=user,
+                        content=message_data.content,
+                        conversation_id=message_data.conversation_id,
+                        document_id=message_data.document_id,
+                        model=message_data.model or "gpt-4"
+                    ):
+                        yield chunk
             except Exception as e:
                 logger.error(f"Error in streaming response: {str(e)}", exc_info=True)
                 error_data = json.dumps({'type': 'error', 'content': f'Streaming error: {str(e)}'})

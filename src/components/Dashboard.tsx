@@ -7,13 +7,20 @@ import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
 import { authApi, documentApi, chatApi, conversationApi, configApi } from "@/lib/api-client";
-import type { AnnotationReference } from "@/types/annotations";
+import type { AnnotationReference, AgentMetadata } from "@/types/annotations";
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   annotations?: AnnotationReference[];
+  metadata?: AgentMetadata;
+}
+
+interface WorkflowStep {
+  node: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  data?: any;
 }
 
 function DashboardWithSearchParams () {
@@ -31,6 +38,8 @@ function DashboardWithSearchParams () {
   const [isLoading, setIsLoading] = useState(false);
   const [currentAnnotations, setCurrentAnnotations] = useState<AnnotationReference[]>([]);
   const [maxFileSize, setMaxFileSize] = useState<number>(10 * 1024 * 1024); // Default to 10MB until config loads
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
+  const [showWorkflow, setShowWorkflow] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
   const pdfViewerRef = useRef<PDFViewerRef>(null);
@@ -354,7 +363,7 @@ function DashboardWithSearchParams () {
     console.log('Voice recording toggled');
   }
 
-  const handleSendMessage = async (content: string, model: string) => {
+  const handleSendMessage = async (content: string, model: string, useAgent: boolean) => {
     if (!content.trim() || !conversationId || !documentId) return;
 
     const tempUserMessageId = `temp-user-${Date.now()}`;
@@ -368,6 +377,20 @@ function DashboardWithSearchParams () {
 
     // Add user message to chat
     setMessages(prev => [...prev, userMessage]);
+
+    // Initialize workflow steps if using agent
+    if (useAgent) {
+      setShowWorkflow(true);
+      setWorkflowSteps([
+        { node: 'understand_query', status: 'in_progress' },
+        { node: 'retrieve_context', status: 'pending' },
+        { node: 'generate_answer', status: 'pending' },
+        { node: 'format_response', status: 'pending' },
+      ]);
+    } else {
+      setShowWorkflow(false);
+      setWorkflowSteps([]);
+    }
 
     // Create temporary assistant message for streaming
     const assistantMessage: ChatMessage = {
@@ -386,6 +409,7 @@ function DashboardWithSearchParams () {
         documentId,
         content,
         model,
+        useAgent,
         // onChunk - update assistant message content incrementally
         (chunk: string) => {
           setMessages(prev => prev.map(msg =>
@@ -394,33 +418,67 @@ function DashboardWithSearchParams () {
               : msg
           ));
         },
+        // onStep - update workflow steps as backend emits events
+        (step) => {
+          setWorkflowSteps((prev) => {
+            const currentIndex = prev.findIndex((s) => s.node === step.node);
+            return prev.map((s, index) => {
+              if (s.node === step.node) {
+                // Mark current step as completed
+                return { ...s, status: 'completed' as const, data: step.data };
+              } else if (index === currentIndex + 1) {
+                // Mark next step as in_progress
+                return { ...s, status: 'in_progress' as const };
+              }
+              return s;
+            });
+          });
+        },
         // onDone - replace temp messages with final messages
         (data: any) => {
           console.log('[Dashboard] Stream completed:', data);
+          console.log('[Dashboard] Data structure:', {
+            hasData: !!data,
+            hasUserMessage: !!data?.user_message,
+            hasAssistantMessage: !!data?.assistant_message,
+            dataKeys: data ? Object.keys(data) : []
+          });
+
+          // Handle both direct data and nested data structures
+          const userData = data?.user_message || data?.data?.user_message;
+          const assistantData = data?.assistant_message || data?.data?.assistant_message;
+
+          if (!userData || !assistantData) {
+            console.error('[Dashboard] Missing message data:', { userData, assistantData });
+            setIsLoading(false);
+            setShowWorkflow(false);
+            return;
+          }
 
           setMessages(prev => [
             ...prev.filter(m => m.id !== tempUserMessageId && m.id !== tempAssistantMessageId),
             {
-              id: data.user_message.id,
-              role: data.user_message.role as 'user',
-              content: data.user_message.content,
+              id: userData.id || `user-${Date.now()}`,
+              role: (userData.role || 'user') as 'user',
+              content: userData.content,
               annotations: undefined
             },
             {
-              id: data.assistant_message.id,
-              role: data.assistant_message.role as 'assistant',
-              content: data.assistant_message.content,
-              annotations: data.assistant_message.annotations
+              id: assistantData.id || `assistant-${Date.now()}`,
+              role: (assistantData.role || 'assistant') as 'assistant',
+              content: assistantData.content,
+              annotations: assistantData.annotations,
+              metadata: assistantData.metadata
             }
           ]);
 
           // If the assistant message has annotations, update the PDF viewer
-          if (data.assistant_message?.annotations && data.assistant_message.annotations.length > 0) {
-            console.log('[Dashboard] Processing annotations:', data.assistant_message.annotations);
-            setCurrentAnnotations(data.assistant_message.annotations);
+          if (assistantData?.annotations && assistantData.annotations.length > 0) {
+            console.log('[Dashboard] Processing annotations:', assistantData.annotations);
+            setCurrentAnnotations(assistantData.annotations);
 
             // Auto-navigate to the first annotation's page
-            const firstAnnotation = data.assistant_message.annotations[0];
+            const firstAnnotation = assistantData.annotations[0];
             if (pdfViewerRef.current && firstAnnotation) {
               console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
               pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
@@ -453,6 +511,7 @@ function DashboardWithSearchParams () {
 
           setIsLoading(false);
           setError(null);
+          setShowWorkflow(false); // Hide workflow when done
         },
         // onError - handle errors
         (errorMessage: string) => {
@@ -463,6 +522,7 @@ function DashboardWithSearchParams () {
           ));
           setIsLoading(false);
           setError(errorMessage);
+          setShowWorkflow(false); // Hide workflow on error
         }
       );
     } catch (error) {
@@ -471,6 +531,7 @@ function DashboardWithSearchParams () {
         m.id !== tempUserMessageId && m.id !== tempAssistantMessageId
       ));
       setIsLoading(false);
+      setShowWorkflow(false); // Hide workflow on error
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
       console.error('Chat error: ', errorMessage);
       setError(errorMessage);
@@ -596,6 +657,8 @@ function DashboardWithSearchParams () {
             onVoiceRecord={handleVoiceRecord}
             isConversationSelected={!!conversationId}
             onAnnotationClick={handleAnnotationClick}
+            workflowSteps={workflowSteps}
+            showWorkflow={showWorkflow}
           />
         </div>
       </div>
