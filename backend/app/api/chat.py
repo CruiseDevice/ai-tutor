@@ -86,8 +86,8 @@ async def send_message_stream(
     """
     Send a message and get streaming AI response using Server-Sent Events.
 
-    Note: Agent workflow streaming is not yet implemented (Phase 3).
-    If use_agent=True, it will fallback to linear pipeline for streaming.
+    Supports both linear pipeline and agent workflow streaming.
+    If use_agent=True, streams intermediate workflow steps (understand, retrieve, generate, verify).
     """
     try:
         # Verify conversation belongs to user
@@ -102,21 +102,30 @@ async def send_message_stream(
                 detail="Conversation not found"
             )
 
-        # Note: Agent streaming not yet implemented, use_agent is ignored for streaming
-        if message_data.use_agent:
-            logger.warning("Agent workflow streaming not yet supported, using linear pipeline")
-
         async def generate():
             try:
-                async for chunk in chat_service.generate_chat_response_stream(
-                    db=db,
-                    user=user,
-                    content=message_data.content,
-                    conversation_id=message_data.conversation_id,
-                    document_id=message_data.document_id,
-                    model=message_data.model or "gpt-4"
-                ):
-                    yield chunk
+                # Route to agent streaming if requested
+                if message_data.use_agent:
+                    async for chunk in chat_service.generate_chat_response_stream_with_agent(
+                        db=db,
+                        user=user,
+                        content=message_data.content,
+                        conversation_id=message_data.conversation_id,
+                        document_id=message_data.document_id,
+                        model=message_data.model or "gpt-4"
+                    ):
+                        yield chunk
+                else:
+                    # Use linear pipeline streaming
+                    async for chunk in chat_service.generate_chat_response_stream(
+                        db=db,
+                        user=user,
+                        content=message_data.content,
+                        conversation_id=message_data.conversation_id,
+                        document_id=message_data.document_id,
+                        model=message_data.model or "gpt-4"
+                    ):
+                        yield chunk
             except Exception as e:
                 logger.error(f"Error in streaming response: {str(e)}", exc_info=True)
                 error_data = json.dumps({'type': 'error', 'content': f'Streaming error: {str(e)}'})

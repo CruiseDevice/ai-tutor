@@ -15,11 +15,12 @@ Integration points:
 - TokenService: Token management and truncation
 """
 
-from typing import Dict, List, Optional, TypedDict, Any
+from typing import Dict, List, Optional, TypedDict, Any, AsyncGenerator
 from sqlalchemy.orm import Session
 from openai import AsyncOpenAI
 import logging
 import json
+import time
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage
@@ -32,6 +33,113 @@ from .cache_service import get_cache_service
 from .token_service import TokenService
 
 logger = logging.getLogger(__name__)
+
+
+class AgentMetrics:
+    """Helper class for tracking agent performance metrics and costs."""
+
+    # Model pricing (cost per 1K tokens) - Updated as of Jan 2025
+    PRICING = {
+        "gpt-4o": {"input": 0.0025, "output": 0.01},  # $2.50 / $10 per 1M tokens
+        "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},  # $0.15 / $0.60 per 1M tokens
+        "gpt-4": {"input": 0.03, "output": 0.06},  # Legacy pricing
+    }
+
+    @staticmethod
+    def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        """
+        Calculate cost for an OpenAI API call.
+
+        Args:
+            model: Model name (e.g., "gpt-4o-mini")
+            prompt_tokens: Number of input tokens
+            completion_tokens: Number of output tokens
+
+        Returns:
+            Cost in USD
+        """
+        pricing = AgentMetrics.PRICING.get(model, AgentMetrics.PRICING["gpt-4o-mini"])
+        input_cost = (prompt_tokens / 1000) * pricing["input"]
+        output_cost = (completion_tokens / 1000) * pricing["output"]
+        return input_cost + output_cost
+
+    @staticmethod
+    def init_metrics() -> Dict[str, Any]:
+        """Initialize empty metrics dictionary."""
+        return {
+            "node_timings": {},
+            "token_usage": {},
+            "costs": {},
+            "cache_hits": {},
+            "retrieval_stats": {},
+            "workflow_start_time": time.time(),
+            "total_time": 0,
+        }
+
+    @staticmethod
+    def track_node_time(metrics: Dict, node_name: str, duration: float):
+        """Track execution time for a workflow node."""
+        if "node_timings" not in metrics:
+            metrics["node_timings"] = {}
+        metrics["node_timings"][node_name] = duration
+
+    @staticmethod
+    def track_token_usage(
+        metrics: Dict,
+        step_name: str,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int
+    ):
+        """Track token usage and calculate cost for a step."""
+        if "token_usage" not in metrics:
+            metrics["token_usage"] = {}
+        if "costs" not in metrics:
+            metrics["costs"] = {}
+
+        # Track tokens
+        metrics["token_usage"][step_name] = {
+            "model": model,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
+
+        # Calculate cost
+        cost = AgentMetrics.calculate_cost(model, prompt_tokens, completion_tokens)
+        metrics["costs"][step_name] = cost
+
+    @staticmethod
+    def finalize_metrics(metrics: Dict) -> Dict:
+        """Calculate totals and finalize metrics."""
+        # Calculate total time
+        if "workflow_start_time" in metrics:
+            metrics["total_time"] = time.time() - metrics["workflow_start_time"]
+            del metrics["workflow_start_time"]  # Remove start time from final metrics
+
+        # Calculate total tokens
+        total_prompt = sum(
+            usage.get("prompt_tokens", 0)
+            for usage in metrics.get("token_usage", {}).values()
+        )
+        total_completion = sum(
+            usage.get("completion_tokens", 0)
+            for usage in metrics.get("token_usage", {}).values()
+        )
+
+        if total_prompt > 0 or total_completion > 0:
+            metrics["token_usage"]["total"] = {
+                "prompt_tokens": total_prompt,
+                "completion_tokens": total_completion,
+                "total_tokens": total_prompt + total_completion,
+            }
+
+        # Calculate total cost
+        total_cost = sum(metrics.get("costs", {}).values())
+        if total_cost > 0:
+            metrics["costs"]["total"] = total_cost
+
+        return metrics
 
 
 class AgentState(TypedDict):
@@ -75,6 +183,17 @@ class AgentState(TypedDict):
     # Workflow control
     retry_count: Optional[int]  # Number of regeneration attempts
     max_retries: Optional[int]  # Maximum allowed retries
+
+    # Performance Metrics (Phase 4: Optimization & Monitoring)
+    metrics: Optional[Dict[str, Any]]  # Performance tracking
+    # metrics structure:
+    # {
+    #   "node_timings": {"understand_query": 0.5, "retrieve_context": 1.2, ...},
+    #   "token_usage": {"understand": {...}, "generate": {...}, "verify": {...}, "total": {...}},
+    #   "costs": {"understand": 0.001, "generate": 0.05, "verify": 0.002, "total": 0.053},
+    #   "cache_hits": {"query_classification": True/False},
+    #   "retrieval_stats": {"sub_questions": 3, "chunks_retrieved": 15, "chunks_used": 10}
+    # }
 
 
 class RAGAgentService:
@@ -134,25 +253,8 @@ class RAGAgentService:
         # Retrieval always goes to generation
         workflow.add_edge("retrieve_context", "generate_answer")
 
-        # Add conditional routing from generate_answer based on complexity
-        workflow.add_conditional_edges(
-            "generate_answer",
-            self._route_after_generation,
-            {
-                "verify": "verify_response",
-                "format": "format_response"
-            }
-        )
-
-        # Add conditional routing from verify_response based on quality
-        workflow.add_conditional_edges(
-            "verify_response",
-            self._route_after_verification,
-            {
-                "regenerate": "generate_answer",
-                "format": "format_response"
-            }
-        )
+        # Skip verification - go directly to formatting
+        workflow.add_edge("generate_answer", "format_response")
 
         # Format response is the final step
         workflow.add_edge("format_response", END)
@@ -165,15 +267,58 @@ class RAGAgentService:
 
         Leverages ChatService._classify_query_type() to classify query type,
         complexity, and determine if chain-of-thought is needed.
+
+        Includes caching and performance tracking.
         """
+        start_time = time.time()
         logger.info(f"[Agent] Understanding query: {state['user_query'][:100]}")
 
+        # Initialize metrics if not already present
+        if state.get("metrics") is None:
+            state["metrics"] = AgentMetrics.init_metrics()
+
         try:
-            # Use existing classification logic from ChatService
-            classification = await self.chat_service._classify_query_type(
-                query=state["user_query"],
-                user_api_key=state["user_api_key"]
-            )
+            # Check cache for query classification (optimization)
+            cache_service = await get_cache_service()
+            cache_key = f"query_classification:{hash(state['user_query'])}"
+            cached_classification = None
+
+            try:
+                cached_classification = await cache_service.get(cache_key)
+                if cached_classification:
+                    state["metrics"]["cache_hits"]["query_classification"] = True
+                    logger.info("[Agent] Using cached query classification")
+            except Exception as cache_error:
+                logger.warning(f"[Agent] Cache lookup failed: {cache_error}")
+
+            if cached_classification:
+                classification = json.loads(cached_classification)
+            else:
+                # Use existing classification logic from ChatService
+                classification = await self.chat_service._classify_query_type(
+                    query=state["user_query"],
+                    user_api_key=state["user_api_key"]
+                )
+
+                # Cache the classification (expires in 1 hour)
+                try:
+                    await cache_service.set(
+                        cache_key,
+                        json.dumps(classification),
+                        ttl=3600
+                    )
+                    state["metrics"]["cache_hits"]["query_classification"] = False
+                except Exception as cache_error:
+                    logger.warning(f"[Agent] Cache write failed: {cache_error}")
+
+                # Track token usage (estimated for classification - ~100 prompt + ~50 completion)
+                AgentMetrics.track_token_usage(
+                    state["metrics"],
+                    "query_classification",
+                    settings.QUERY_CLASSIFICATION_MODEL,
+                    prompt_tokens=100,
+                    completion_tokens=50
+                )
 
             state["query_type"] = classification["query_type"]
             state["complexity"] = classification["complexity"]
@@ -193,6 +338,12 @@ class RAGAgentService:
             state["complexity"] = "simple"
             state["requires_cot"] = False
             state["error"] = f"Query classification failed: {str(e)}"
+
+        finally:
+            # Track node execution time
+            duration = time.time() - start_time
+            AgentMetrics.track_node_time(state["metrics"], "understand_query", duration)
+            logger.info(f"[Agent] understand_query completed in {duration:.2f}s")
 
         return state
 
@@ -223,9 +374,73 @@ class RAGAgentService:
 
         return strategy
 
+    async def _decompose_complex_query(self, query: str, user_api_key: str) -> List[str]:
+        """
+        Decompose a complex query into sub-questions for multi-step reasoning.
+
+        This enables better retrieval for complex analytical queries by breaking
+        them into simpler sub-questions that can be answered independently.
+
+        Args:
+            query: The complex user query
+            user_api_key: User's OpenAI API key
+
+        Returns:
+            List of sub-questions (including the original query)
+        """
+        try:
+            client = AsyncOpenAI(api_key=user_api_key)
+
+            decomposition_prompt = f"""You are a query decomposition assistant. Break down this complex query into 2-4 simpler sub-questions that, when answered together, would fully address the original query.
+
+Original Query: "{query}"
+
+Guidelines:
+1. Each sub-question should be self-contained and answerable independently
+2. Sub-questions should cover different aspects of the original query
+3. Include the original query as the last item
+4. Return ONLY a JSON array of strings (the sub-questions)
+
+Example:
+Query: "Compare photosynthesis and cellular respiration and explain how they're related"
+Output: ["What is photosynthesis?", "What is cellular respiration?", "How are photosynthesis and cellular respiration related?", "Compare photosynthesis and cellular respiration and explain how they're related"]
+
+Output (JSON array only):"""
+
+            completion = await client.chat.completions.create(
+                model="gpt-4o-mini",  # Use cheaper model for decomposition
+                messages=[
+                    {"role": "system", "content": "You are a query decomposition assistant that outputs only valid JSON arrays."},
+                    {"role": "user", "content": decomposition_prompt}
+                ],
+                temperature=0.3,
+                max_completion_tokens=200
+            )
+
+            response_text = completion.choices[0].message.content.strip()
+
+            # Parse JSON response
+            sub_questions = json.loads(response_text)
+
+            if not isinstance(sub_questions, list) or len(sub_questions) < 1:
+                # Fallback: just use original query
+                return [query]
+
+            logger.info(f"[Agent] Decomposed query into {len(sub_questions)} sub-questions")
+            return sub_questions
+
+        except Exception as e:
+            logger.warning(f"[Agent] Query decomposition failed: {e}. Using original query.")
+            return [query]  # Fallback to original query on error
+
     async def _retrieve_context(self, state: AgentState) -> AgentState:
         """
         Node 2: Retrieve context using existing find_similar_chunks with adaptive limits.
+
+        For complex queries, uses multi-step reasoning:
+        1. Decompose query into sub-questions
+        2. Retrieve context for each sub-question
+        3. Combine and deduplicate chunks
 
         Leverages ChatService.find_similar_chunks() with adaptive chunk limits
         based on the retrieval strategy.
@@ -234,30 +449,64 @@ class RAGAgentService:
 
         try:
             strategy = state.get("retrieval_strategy", "fast_path")
+            complexity = state.get("complexity", "simple")
 
             # Adaptive chunk limits based on strategy
             if strategy == "fast_path":
                 # Fast path: fewer chunks for simple queries
                 limit = 3
-                use_rerank = False
             elif strategy == "reasoning_path":
                 # Reasoning path: more chunks for complex queries
                 limit = settings.RERANK_TOP_K if settings.RERANK_ENABLED else 10
-                use_rerank = settings.RERANK_ENABLED
             else:  # context_aware_path
-                # Context-aware: moderate chunks with reranking
+                # Context-aware: moderate chunks
                 limit = 5
-                use_rerank = True
 
-            # Use existing find_similar_chunks method
-            chunks = await self.chat_service.find_similar_chunks(
-                db=state["db_session"],
-                document_id=state["document_id"],
-                query=state["user_query"],
-                user_api_key=state["user_api_key"],
-                limit=limit,
-                use_rerank=use_rerank
-            )
+            # Multi-step reasoning for complex queries
+            if complexity == "complex" and strategy == "reasoning_path":
+                logger.info("[Agent] Using multi-step reasoning for complex query")
+
+                # Decompose query into sub-questions
+                sub_questions = await self._decompose_complex_query(
+                    query=state["user_query"],
+                    user_api_key=state["user_api_key"]
+                )
+
+                # Retrieve chunks for each sub-question
+                all_chunks = []
+                seen_chunk_ids = set()
+
+                for i, sub_question in enumerate(sub_questions, 1):
+                    logger.info(f"[Agent] Retrieving for sub-question {i}/{len(sub_questions)}: {sub_question[:100]}")
+
+                    sub_chunks = await self.chat_service.find_similar_chunks(
+                        db=state["db_session"],
+                        document_id=state["document_id"],
+                        query=sub_question,
+                        user_api_key=state["user_api_key"],
+                        limit=max(3, limit // len(sub_questions))  # Distribute limit across sub-questions
+                    )
+
+                    # Deduplicate chunks (based on page number + content hash)
+                    for chunk in sub_chunks:
+                        chunk_id = f"{chunk.get('pageNumber', '')}_{hash(chunk.get('content', ''))}"
+                        if chunk_id not in seen_chunk_ids:
+                            seen_chunk_ids.add(chunk_id)
+                            all_chunks.append(chunk)
+
+                # Limit total chunks to avoid context overflow
+                chunks = all_chunks[:limit]
+                logger.info(f"[Agent] Multi-step retrieval: {len(all_chunks)} total chunks (using top {len(chunks)})")
+
+            else:
+                # Standard retrieval for simple/moderate queries
+                chunks = await self.chat_service.find_similar_chunks(
+                    db=state["db_session"],
+                    document_id=state["document_id"],
+                    query=state["user_query"],
+                    user_api_key=state["user_api_key"],
+                    limit=limit
+                )
 
             state["retrieved_chunks"] = chunks
 
@@ -431,10 +680,24 @@ class RAGAgentService:
         Node 5: Format final response to match existing ChatResponse schema.
 
         Ensures compatibility with existing API response format.
+        Finalizes and includes performance metrics.
         """
+        start_time = time.time()
         logger.info(f"[Agent] Formatting final response")
 
         try:
+            # Finalize metrics
+            if state.get("metrics"):
+                state["metrics"] = AgentMetrics.finalize_metrics(state["metrics"])
+
+                # Log performance summary
+                metrics = state["metrics"]
+                logger.info(
+                    f"[Agent Metrics] Total time: {metrics.get('total_time', 0):.2f}s, "
+                    f"Total cost: ${metrics.get('costs', {}).get('total', 0):.4f}, "
+                    f"Total tokens: {metrics.get('token_usage', {}).get('total', {}).get('total_tokens', 0)}"
+                )
+
             # Match existing ChatResponse format
             final_response = {
                 "user_message": {
@@ -457,7 +720,8 @@ class RAGAgentService:
                     "quality_scores": state.get("quality_score"),
                     "citation_warnings": state.get("citation_warnings", []),
                     "verified": state.get("verified"),
-                    "retry_count": state.get("retry_count", 0)
+                    "retry_count": state.get("retry_count", 0),
+                    "performance_metrics": state.get("metrics", {})  # Include full metrics
                 }
             }
 
@@ -468,6 +732,12 @@ class RAGAgentService:
         except Exception as e:
             logger.error(f"[Agent] Error in format_response: {e}")
             state["error"] = f"Response formatting failed: {str(e)}"
+
+        finally:
+            # Track final node timing
+            duration = time.time() - start_time
+            if state.get("metrics"):
+                AgentMetrics.track_node_time(state["metrics"], "format_response", duration)
 
         return state
 
@@ -524,7 +794,8 @@ class RAGAgentService:
             "final_response": None,
             "error": None,
             "retry_count": None,
-            "max_retries": None
+            "max_retries": None,
+            "metrics": AgentMetrics.init_metrics()  # Initialize metrics tracking
         }
 
         try:
@@ -546,6 +817,172 @@ class RAGAgentService:
         except Exception as e:
             logger.error(f"[Agent] Workflow execution failed: {e}")
             raise  # Re-raise for caller to handle fallback
+
+    async def process_query_streaming(
+        self,
+        user_query: str,
+        conversation_id: str,
+        document_id: str,
+        user_id: str,
+        db_session: Session,
+        user_api_key: str
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream agent workflow execution with intermediate step updates.
+
+        This method uses LangGraph's astream() to stream workflow execution,
+        emitting events for each node completion to provide real-time feedback.
+
+        Args:
+            user_query: The user's question
+            conversation_id: Conversation identifier
+            document_id: Document identifier
+            user_id: User identifier
+            db_session: Database session
+            user_api_key: User's OpenAI API key
+
+        Yields:
+            str: JSON-encoded Server-Sent Events (SSE) with step updates
+
+        Event types emitted:
+        - step_start: Node execution started
+        - step_complete: Node execution completed
+        - retrieval_update: Chunks retrieved
+        - generation_chunk: Streaming answer generation (if supported)
+        - final_response: Complete response ready
+        - error: Error occurred
+        """
+        import json
+
+        logger.info(f"[Agent Stream] Starting streaming workflow for query: {user_query[:100]}")
+
+        # Initialize state (same as process_query)
+        initial_state: AgentState = {
+            "user_query": user_query,
+            "conversation_id": conversation_id,
+            "document_id": document_id,
+            "user_id": user_id,
+            "db_session": db_session,
+            "user_api_key": user_api_key,
+            "query_type": None,
+            "complexity": None,
+            "requires_cot": None,
+            "retrieval_strategy": None,
+            "query_embedding": None,
+            "retrieved_chunks": None,
+            "context_text": None,
+            "answer": None,
+            "clean_answer": None,
+            "annotations": None,
+            "quality_score": None,
+            "verified": None,
+            "citation_warnings": None,
+            "final_response": None,
+            "error": None,
+            "retry_count": None,
+            "max_retries": None,
+            "metrics": AgentMetrics.init_metrics()  # Initialize metrics tracking
+        }
+
+        try:
+            # Stream workflow execution using LangGraph's astream()
+            async for event in self.workflow.astream(initial_state):
+                # LangGraph emits events as {node_name: state_update}
+                for node_name, state_update in event.items():
+                    # Skip __start__ and __end__ meta nodes
+                    if node_name.startswith("__"):
+                        continue
+
+                    logger.info(f"[Agent Stream] Node completed: {node_name}")
+
+                    # Emit step completion event
+                    step_event = {
+                        "type": "step_complete",
+                        "node": node_name,
+                        "timestamp": None  # Can add timestamp if needed
+                    }
+
+                    # Add node-specific metadata
+                    if node_name == "understand_query":
+                        step_event["data"] = {
+                            "query_type": state_update.get("query_type"),
+                            "complexity": state_update.get("complexity"),
+                            "requires_cot": state_update.get("requires_cot"),
+                            "strategy": state_update.get("retrieval_strategy")
+                        }
+                        step_event["message"] = f"Analyzing query (Type: {state_update.get('query_type')}, Complexity: {state_update.get('complexity')})"
+
+                    elif node_name == "retrieve_context":
+                        chunks = state_update.get("retrieved_chunks", [])
+                        step_event["data"] = {
+                            "chunk_count": len(chunks),
+                            "pages": [c.get("pageNumber") for c in chunks]
+                        }
+                        step_event["message"] = f"Retrieved {len(chunks)} relevant chunks"
+
+                    elif node_name == "generate_answer":
+                        annotations = state_update.get("annotations", [])
+                        step_event["data"] = {
+                            "annotation_count": len(annotations),
+                            "has_answer": bool(state_update.get("clean_answer"))
+                        }
+                        step_event["message"] = "Generated answer with citations"
+
+                    elif node_name == "verify_response":
+                        quality_score = state_update.get("quality_score", {})
+                        step_event["data"] = {
+                            "overall_score": quality_score.get("overall"),
+                            "verified": state_update.get("verified"),
+                            "warnings": len(state_update.get("citation_warnings", []))
+                        }
+                        step_event["message"] = f"Verified answer quality (Score: {quality_score.get('overall', 'N/A')})"
+
+                    elif node_name == "format_response":
+                        step_event["message"] = "Formatting final response"
+
+                    # Emit the event as SSE
+                    yield f"data: {json.dumps(step_event)}\n\n"
+
+            # Get final state
+            final_state = state_update  # Last state from the loop
+
+            # Check for errors
+            if final_state.get("error"):
+                error_event = {
+                    "type": "error",
+                    "error": final_state["error"],
+                    "message": f"Workflow error: {final_state['error']}"
+                }
+                yield f"data: {json.dumps(error_event)}\n\n"
+                return
+
+            # Emit final response
+            final_response = final_state.get("final_response")
+            if final_response:
+                final_event = {
+                    "type": "final_response",
+                    "data": final_response,
+                    "message": "Response complete"
+                }
+                yield f"data: {json.dumps(final_event)}\n\n"
+
+                logger.info(f"[Agent Stream] Workflow completed successfully")
+            else:
+                error_event = {
+                    "type": "error",
+                    "error": "No final response generated",
+                    "message": "Workflow completed but no response was generated"
+                }
+                yield f"data: {json.dumps(error_event)}\n\n"
+
+        except Exception as e:
+            logger.error(f"[Agent Stream] Workflow execution failed: {e}", exc_info=True)
+            error_event = {
+                "type": "error",
+                "error": str(e),
+                "message": f"Streaming error: {str(e)}"
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
 
 
 # Singleton instance

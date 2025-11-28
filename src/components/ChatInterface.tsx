@@ -4,14 +4,24 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { userApi } from "@/lib/api-client";
-import type { AnnotationReference } from "@/types/annotations";
+import type { AnnotationReference, AgentMetadata } from "@/types/annotations";
+import AgentWorkflowProgress from "./AgentWorkflowProgress";
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   annotations?: AnnotationReference[];
+  metadata?: AgentMetadata;
+}
+
+interface WorkflowStep {
+  node: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  data?: any;
 }
 
 const AVAILABLE_MODELS = [
@@ -54,18 +64,47 @@ const AVAILABLE_MODELS = [
 
 interface ChatInterfaceProps {
   messages: ChatMessage[];
-  onSendMessage: (message: string, model: string) => Promise<void>;
+  onSendMessage: (message: string, model: string, useAgent: boolean) => Promise<void>;
   onVoiceRecord: () => void;
   isConversationSelected: boolean;
   onAnnotationClick?: (annotation: AnnotationReference) => void;
+  workflowSteps?: WorkflowStep[];
+  showWorkflow?: boolean;
 }
+
+// Helper function to convert LaTeX delimiters to markdown math format
+const preprocessMathContent = (content: string): string => {
+  // Convert [ ... ] to $$ ... $$ for display math
+  let processed = content.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$1$$');
+  // Convert ( ... ) to $ ... $ for inline math
+  processed = processed.replace(/\\\((.*?)\\\)/g, '$$$1$$');
+  // Also handle [ ... ] without backslashes (non-standard but sometimes used)
+  processed = processed.replace(/(?<!\$)\[([^\]]*?(?:\\[^\]]*?)*)\](?!\$)/g, (match, p1) => {
+    // Only replace if it contains LaTeX commands (backslash followed by letter)
+    if (/\\[a-zA-Z]/.test(p1)) {
+      return '$$' + p1 + '$$';
+    }
+    return match;
+  });
+  // Handle ( ... ) without backslashes for inline math
+  processed = processed.replace(/(?<!\$)\(([^)]*?(?:\\[^)]*?)*)\)(?!\$)/g, (match, p1) => {
+    // Only replace if it contains LaTeX commands
+    if (/\\[a-zA-Z]/.test(p1)) {
+      return '$' + p1 + '$';
+    }
+    return match;
+  });
+  return processed;
+};
 
 export default function ChatInterface({
   messages,
   onSendMessage,
   // onVoiceRecord,
   isConversationSelected,
-  onAnnotationClick
+  onAnnotationClick,
+  workflowSteps = [],
+  showWorkflow = false,
 }: ChatInterfaceProps) {
   const router = useRouter();
   // const [isRecording, setIsRecording] = useState(false);
@@ -78,6 +117,7 @@ export default function ChatInterface({
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [useAgent, setUseAgent] = useState(true);
 
   const messageEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -194,7 +234,7 @@ export default function ChatInterface({
     try {
       // onSendMessage now handles streaming and manages its own loading state
       // But we keep isLoading here for UI feedback during streaming
-      await onSendMessage(messageToSend, selectedModel);
+      await onSendMessage(messageToSend, selectedModel, useAgent);
       // Loading will be cleared by Dashboard when streaming completes
       // But we'll also clear it here as a fallback after a delay
       setTimeout(() => setIsLoading(false), 100);
@@ -302,17 +342,18 @@ export default function ChatInterface({
           </div>
         </div>
 
-        <div className="relative" ref={modelMenuRef}>
-          <button
-            onClick={toggleModelMenu}
-            className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors border border-slate-200"
-          >
-            <Sparkles size={12} className="text-indigo-500"/>
-            <span>{getSelectedModelName()}</span>
-            <ChevronDown size={12} className={`transition-transform duration-200 ${isModelMenuOpen ? 'rotate-180' : ''}`}/>
-          </button>
+        <div className="flex items-center gap-4">
+          <div className="relative" ref={modelMenuRef}>
+            <button
+              onClick={toggleModelMenu}
+              className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors border border-slate-200"
+            >
+              <Sparkles size={12} className="text-indigo-500"/>
+              <span>{getSelectedModelName()}</span>
+              <ChevronDown size={12} className={`transition-transform duration-200 ${isModelMenuOpen ? 'rotate-180' : ''}`}/>
+            </button>
 
-          {isModelMenuOpen && (
+            {isModelMenuOpen && (
             <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-20 animate-in fade-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[600px]">
               <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Model</h3>
@@ -354,12 +395,48 @@ export default function ChatInterface({
                 )}
               </div>
             </div>
-          )}
+            )}
+          </div>
+
+          {/* Agent Mode Toggle */}
+          <div className="flex items-center gap-2">
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useAgent}
+                onChange={(e) => setUseAgent(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+            <div className="flex flex-col">
+              <span className="text-xs font-medium text-gray-700">
+                Agent Mode
+              </span>
+              {useAgent && (
+                <span className="text-[10px] text-blue-600">Advanced reasoning</span>
+              )}
+            </div>
+          </div>
+
+          {/* Info Tooltip */}
+          <div className="relative group">
+            <svg className="w-4 h-4 text-gray-400 cursor-help" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 w-64">
+              Agent mode uses multi-step reasoning for better quality answers
+              <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Chat Messages Area */}
       <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+        {/* Workflow Progress */}
+        <AgentWorkflowProgress steps={workflowSteps} visible={showWorkflow} />
+
         {messages.length === 0 && !isConversationSelected && (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mb-6 shadow-sm transform rotate-3">
@@ -424,7 +501,21 @@ export default function ChatInterface({
               ) : (
                 <>
                   <div className="p-4 markdown-content prose prose-sm max-w-none prose-headings:text-slate-800 prose-p:text-slate-700 prose-a:text-blue-600 hover:prose-a:underline prose-strong:text-slate-900 prose-code:text-pink-600 prose-code:bg-pink-50 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-pre:bg-slate-900 prose-pre:text-slate-50">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                    <ReactMarkdown
+                      remarkPlugins={[
+                        remarkGfm,
+                        [remarkMath, { singleDollarTextMath: true }]
+                      ]}
+                      rehypePlugins={[
+                        [rehypeKatex, {
+                          strict: false,
+                          trust: true,
+                          fleqn: false
+                        }]
+                      ]}
+                    >
+                      {preprocessMathContent(message.content)}
+                    </ReactMarkdown>
                   </div>
 
                   {/* Annotation References */}
