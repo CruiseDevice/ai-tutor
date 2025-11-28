@@ -108,28 +108,11 @@ const preprocessMathContent = (content: string): string => {
     let processed = part.content;
 
     // Convert \[ ... \] to $$ ... $$ for display math
-    processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$1$$');
+    // Use a function replacer to avoid `$1` substitution quirks
+    processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_match, inner) => `$$${inner}$$`);
 
     // Convert \( ... \) to $ ... $ for inline math
-    processed = processed.replace(/\\\((.*?)\\\)/g, '$$$1$$');
-
-    // Handle [ ... ] without backslashes (non-standard but sometimes used)
-    processed = processed.replace(/(?<!\$)\[([^\]]*?(?:\\[^\]]*?)*)\](?!\$)/g, (match, p1) => {
-      // Only replace if it contains LaTeX commands (backslash followed by letter)
-      if (/\\[a-zA-Z]/.test(p1)) {
-        return '$$' + p1 + '$$';
-      }
-      return match;
-    });
-
-    // Handle ( ... ) without backslashes for inline math
-    processed = processed.replace(/(?<!\$)\(([^)]*?(?:\\[^)]*?)*)\)(?!\$)/g, (match, p1) => {
-      // Only replace if it contains LaTeX commands
-      if (/\\[a-zA-Z]/.test(p1)) {
-        return '$' + p1 + '$';
-      }
-      return match;
-    });
+    processed = processed.replace(/\\\((.*?)\\\)/g, (_match, inner) => `$${inner}$`);
 
     return processed;
   }).join('');
@@ -221,7 +204,6 @@ const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
         <SyntaxHighlighter
           style={vscDarkPlus}
           language={language || 'text'}
-          PreTag="div"
           customStyle={{
             margin: 0,
             borderRadius: '0.5rem',

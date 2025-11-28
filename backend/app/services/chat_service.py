@@ -100,8 +100,10 @@ Title:"""
         annotations = []
         cleaned_response = response_text
 
-        # Look for annotations block
-        annotation_pattern = r'```annotations\s*([\s\S]*?)\s*```'
+        # Look for annotations block. The model is instructed to use
+        # ```annotations, but in practice it may sometimes emit ```json.
+        # Support both to make parsing more robust.
+        annotation_pattern = r'```(?:annotations|json)\s*([\s\S]*?)\s*```'
         match = re.search(annotation_pattern, response_text)
 
         if match:
@@ -2676,4 +2678,3 @@ say you don't have enough information from the document and suggest looking at o
             logger.error(f"Error in generate_chat_response_stream: {str(e)}", exc_info=True)
             db.rollback()
             yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
-
