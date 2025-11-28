@@ -29,11 +29,50 @@ export interface AnnotationReference {
   explanation?: string;     // Brief explanation of why this is relevant
 }
 
+export interface TokenUsage {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface AgentMetadata {
+  query_classification?: {
+    query_type: string;
+    complexity: 'simple' | 'moderate' | 'complex';
+    requires_cot: boolean;
+  };
+  retrieval_strategy?: string;
+  quality_scores?: {
+    accuracy: number;
+    completeness: number;
+    clarity: number;
+    citation_quality: number;
+    overall: number;
+  };
+  citation_warnings?: string[];
+  verified?: boolean;
+  retry_count?: number;
+  performance_metrics?: {
+    total_time: number;
+    node_timings: Record<string, number>;
+    token_usage: Record<string, TokenUsage>;
+    costs: Record<string, number>;
+    cache_hits: Record<string, boolean>;
+    retrieval_stats?: {
+      sub_questions?: number;
+      chunks_retrieved?: number;
+      chunks_used?: number;
+    };
+  };
+}
+
 export interface ChatMessageWithAnnotations {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   annotations?: AnnotationReference[];
+  metadata?: AgentMetadata;
 }
 
 // Command from chat to PDF viewer

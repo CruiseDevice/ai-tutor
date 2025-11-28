@@ -363,3 +363,47 @@ nav {
 .animate-page-jump {
   animation: page-jump 0.5s ease-out;
 }
+
+/* KaTeX Math Rendering Styles */
+.markdown-content .katex {
+  font-size: 1.1em;
+}
+
+.markdown-content .katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.markdown-content .katex-display > .katex {
+  text-align: left;
+  padding: 0.5em 0;
+}
+
+/* Ensure inline math doesn't break layout */
+.markdown-content .katex-html {
+  display: inline-block;
+}
+
+/* Better scrolling for long equations */
+.markdown-content .katex-display {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.markdown-content .katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.markdown-content .katex-display::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.markdown-content .katex-display::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.markdown-content .katex-display::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

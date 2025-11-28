@@ -2052,6 +2052,189 @@ say you don't have enough information from the document and suggest looking at o
                 model=model
             )
 
+    async def generate_chat_response_stream_with_agent(
+        self,
+        db: Session,
+        user: User,
+        content: str,
+        conversation_id: str,
+        document_id: str,
+        model: str = "gpt-4"
+    ) -> AsyncGenerator:
+        """
+        Generate a streaming chat response using the LangGraph agent workflow.
+
+        This method streams the agent workflow execution, emitting events for each
+        workflow step (understand, retrieve, generate, verify, format) along with
+        the final response data.
+
+        Args:
+            db: Database session
+            user: User object
+            content: User's message/query
+            conversation_id: Conversation identifier
+            document_id: Document identifier
+            model: OpenAI model to use (default: gpt-4)
+
+        Yields:
+            str: Server-Sent Events (SSE) formatted JSON strings
+        """
+        from ..config import settings
+        from .agent_service import get_agent_service
+
+        # Check if agents are enabled
+        if not settings.AGENT_ENABLED:
+            logger.info("[Agent Stream] Agent workflow disabled, falling back to linear pipeline streaming")
+            async for chunk in self.generate_chat_response_stream(
+                db=db,
+                user=user,
+                content=content,
+                conversation_id=conversation_id,
+                document_id=document_id,
+                model=model
+            ):
+                yield chunk
+            return
+
+        try:
+            # Get decrypted API key
+            api_key = user.get_decrypted_api_key()
+            if not api_key:
+                logger.error(f"User {user.id} has no OpenAI API key configured")
+                error_data = json.dumps({
+                    'type': 'error',
+                    'content': 'User has no OpenAI API key configured. Please configure your API key in settings.'
+                })
+                yield f"data: {error_data}\n\n"
+                return
+
+            logger.info(f"[Agent Stream] Starting agent workflow streaming for user {user.id}")
+
+            # Initialize agent service
+            agent_service = get_agent_service()
+
+            # Variables to collect final response data
+            final_response_data = None
+
+            # Stream workflow execution
+            async for event_data in agent_service.process_query_streaming(
+                user_query=content,
+                conversation_id=conversation_id,
+                document_id=document_id,
+                user_id=str(user.id),
+                db_session=db,
+                user_api_key=api_key
+            ):
+                # Forward agent events to client
+                yield event_data
+
+                # Parse the event to capture final response
+                try:
+                    # Extract JSON from SSE format ("data: {...}\n\n")
+                    if event_data.startswith("data: "):
+                        json_str = event_data[6:].strip()
+                        event_obj = json.loads(json_str)
+
+                        if event_obj.get("type") == "final_response":
+                            final_response_data = event_obj.get("data")
+                except json.JSONDecodeError:
+                    pass  # Ignore malformed events
+
+            # Save messages to database if we got a final response
+            if final_response_data:
+                try:
+                    assistant_content = final_response_data["assistant_message"]["content"]
+                    annotations = final_response_data["assistant_message"]["annotations"]
+                    relevant_chunks = final_response_data["assistant_message"]["context"]
+                    metadata = final_response_data.get("metadata", {})
+
+                    # Check if this is the first message
+                    existing_message_count = db.query(Message).filter(
+                        Message.conversation_id == conversation_id
+                    ).count()
+
+                    is_first_message = existing_message_count == 0
+
+                    # Save user message
+                    user_message = Message(
+                        content=content,
+                        role="user",
+                        conversation_id=conversation_id
+                    )
+                    db.add(user_message)
+                    db.flush()
+
+                    # Save assistant message with agent metadata
+                    message_context = {
+                        "chunks": relevant_chunks,
+                        "annotations": annotations,
+                        "agent_metadata": {
+                            "used_agent": True,
+                            "streaming": True,
+                            "query_classification": metadata.get("query_classification"),
+                            "retrieval_strategy": metadata.get("retrieval_strategy"),
+                            "quality_scores": metadata.get("quality_scores"),
+                            "citation_warnings": metadata.get("citation_warnings", []),
+                            "verified": metadata.get("verified"),
+                            "retry_count": metadata.get("retry_count", 0)
+                        }
+                    }
+
+                    assistant_message = Message(
+                        content=assistant_content,
+                        role="assistant",
+                        conversation_id=conversation_id,
+                        context=message_context
+                    )
+                    db.add(assistant_message)
+
+                    # Generate and update conversation title if first message
+                    if is_first_message:
+                        try:
+                            conversation = db.query(Conversation).filter(
+                                Conversation.id == conversation_id
+                            ).first()
+
+                            if conversation and not conversation.title:
+                                title = await self._generate_conversation_title(content, api_key)
+                                conversation.title = title
+                                logger.info(f"Set conversation title to: {title}")
+                        except Exception as e:
+                            logger.warning(f"Failed to generate conversation title: {e}")
+
+                    db.commit()
+                    logger.info("[Agent Stream] Messages saved successfully")
+
+                except Exception as e:
+                    logger.error(f"[Agent Stream] Error saving messages: {e}", exc_info=True)
+                    db.rollback()
+                    error_data = json.dumps({
+                        'type': 'error',
+                        'content': f'Error saving messages: {str(e)}'
+                    })
+                    yield f"data: {error_data}\n\n"
+
+        except Exception as e:
+            logger.error(
+                f"[Agent Stream] Error in agent workflow streaming: {str(e)}. "
+                f"Falling back to linear pipeline streaming.",
+                exc_info=True
+            )
+            # Rollback any partial changes
+            db.rollback()
+
+            # Fallback to linear pipeline streaming
+            logger.info("[Agent Stream] Using linear pipeline streaming as fallback")
+            async for chunk in self.generate_chat_response_stream(
+                db=db,
+                user=user,
+                content=content,
+                conversation_id=conversation_id,
+                document_id=document_id,
+                model=model
+            ):
+                yield chunk
+
     async def generate_chat_response_stream(
         self,
         db: Session,

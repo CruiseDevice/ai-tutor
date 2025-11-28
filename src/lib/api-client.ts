@@ -97,14 +97,15 @@ export const documentApi = {
 
 // Chat API calls
 export const chatApi = {
-  async sendMessage(conversationId: string, documentId: string, content: string, model?: string) {
+  async sendMessage(conversationId: string, documentId: string, content: string, model?: string, useAgent?: boolean) {
     return apiRequest('/api/chat', {
       method: 'POST',
       body: JSON.stringify({
         conversation_id: conversationId,
         document_id: documentId,
         content,
-        model: model || 'gpt-4'
+        model: model || 'gpt-4',
+        use_agent: useAgent ?? true
       }),
     });
   },
@@ -114,7 +115,9 @@ export const chatApi = {
     documentId: string,
     content: string,
     model: string,
+    useAgent: boolean,
     onChunk: (chunk: string) => void,
+    onStep: (step: { node: string; data: any }) => void,
     onDone: (data: any) => void,
     onError: (error: string) => void
   ) {
@@ -131,7 +134,8 @@ export const chatApi = {
           conversation_id: conversationId,
           document_id: documentId,
           content,
-          model: model || 'gpt-4'
+          model: model || 'gpt-4',
+          use_agent: useAgent
         }),
       });
 
@@ -164,13 +168,16 @@ export const chatApi = {
             try {
               const data = JSON.parse(line.slice(6));
 
-              if (data.type === 'chunk') {
+              if (data.type === 'step_complete') {
+                onStep({ node: data.node, data: data.data });
+              } else if (data.type === 'chunk') {
                 onChunk(data.content);
-              } else if (data.type === 'done') {
+              } else if (data.type === 'done' || data.type === 'final_response') {
+                console.log('[API Client] Received done/final_response event:', data.type, data);
                 onDone(data);
                 return;
               } else if (data.type === 'error') {
-                onError(data.content);
+                onError(data.message || data.content || data.error || 'Unknown error occurred');
                 return;
               }
             } catch (e) {
@@ -181,6 +188,7 @@ export const chatApi = {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Streaming error occurred';
+      console.error('Stream error details:', error);
       onError(errorMessage);
     }
   },
