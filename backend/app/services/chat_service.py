@@ -1463,9 +1463,36 @@ Respond with ONLY a JSON object in this exact format:
         content: str,
         conversation_id: str,
         document_id: str,
-        model: str = "gpt-4"
+        model: str = "gpt-4",
+        use_agent: bool = False
     ) -> Dict:
-        """Generate a chat response using OpenAI with RAG."""
+        """
+        Generate a chat response using OpenAI with RAG.
+
+        Args:
+            db: Database session
+            user: User object
+            content: User's message/query
+            conversation_id: Conversation identifier
+            document_id: Document identifier
+            model: OpenAI model to use (default: gpt-4)
+            use_agent: Whether to use agent workflow (default: False)
+
+        Returns:
+            Dict with user_message and assistant_message
+        """
+        # Route to agent workflow if requested
+        if use_agent:
+            return await self.generate_chat_response_with_agent(
+                db=db,
+                user=user,
+                content=content,
+                conversation_id=conversation_id,
+                document_id=document_id,
+                model=model
+            )
+
+        # Linear pipeline (existing implementation)
         try:
             # Get decrypted API key
             api_key = user.get_decrypted_api_key()
@@ -1846,6 +1873,184 @@ say you don't have enough information from the document and suggest looking at o
             # Rollback any pending transaction
             db.rollback()
             raise
+
+    async def generate_chat_response_with_agent(
+        self,
+        db: Session,
+        user: User,
+        content: str,
+        conversation_id: str,
+        document_id: str,
+        model: str = "gpt-4"
+    ) -> Dict:
+        """
+        Generate a chat response using the LangGraph agent workflow.
+
+        This method routes queries through the agent-based reasoning system
+        with adaptive complexity handling and quality verification.
+        Falls back to linear pipeline on errors.
+
+        Args:
+            db: Database session
+            user: User object
+            content: User's message/query
+            conversation_id: Conversation identifier
+            document_id: Document identifier
+            model: OpenAI model to use (default: gpt-4)
+
+        Returns:
+            Dict matching the same format as generate_chat_response
+        """
+        from ..config import settings
+        from .agent_service import get_agent_service
+
+        # Check if agents are enabled
+        if not settings.AGENT_ENABLED:
+            logger.info("Agent workflow disabled, using linear pipeline")
+            return await self.generate_chat_response(
+                db=db,
+                user=user,
+                content=content,
+                conversation_id=conversation_id,
+                document_id=document_id,
+                model=model
+            )
+
+        try:
+            # Get decrypted API key
+            api_key = user.get_decrypted_api_key()
+            if not api_key:
+                logger.error(f"User {user.id} has no OpenAI API key configured")
+                raise ValueError("User has no OpenAI API key configured. Please configure your API key in settings.")
+
+            logger.info(f"[Agent] Processing query with agent workflow for user {user.id}")
+
+            # Initialize agent service
+            agent_service = get_agent_service()
+
+            # Process query through agent workflow
+            agent_response = await agent_service.process_query(
+                user_query=content,
+                conversation_id=conversation_id,
+                document_id=document_id,
+                user_id=str(user.id),
+                db_session=db,
+                user_api_key=api_key
+            )
+
+            # Extract data from agent response
+            assistant_content = agent_response["assistant_message"]["content"]
+            annotations = agent_response["assistant_message"]["annotations"]
+            relevant_chunks = agent_response["assistant_message"]["context"]
+            metadata = agent_response.get("metadata", {})
+
+            logger.info(
+                f"[Agent] Response generated successfully: "
+                f"type={metadata.get('query_classification', {}).get('query_type')}, "
+                f"strategy={metadata.get('retrieval_strategy')}, "
+                f"chunks={len(relevant_chunks)}, "
+                f"annotations={len(annotations)}"
+            )
+
+            # Check if this is the first message in the conversation
+            existing_message_count = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).count()
+
+            is_first_message = existing_message_count == 0
+
+            # Save user message
+            user_message = Message(
+                content=content,
+                role="user",
+                conversation_id=conversation_id
+            )
+            db.add(user_message)
+            db.flush()
+
+            # Save assistant message with context (include agent metadata)
+            message_context = {
+                "chunks": relevant_chunks,
+                "annotations": annotations,
+                "agent_metadata": {
+                    "used_agent": True,
+                    "query_classification": metadata.get("query_classification"),
+                    "retrieval_strategy": metadata.get("retrieval_strategy"),
+                    "quality_scores": metadata.get("quality_scores"),
+                    "citation_warnings": metadata.get("citation_warnings", []),
+                    "verified": metadata.get("verified"),
+                    "retry_count": metadata.get("retry_count", 0)
+                }
+            }
+
+            assistant_message = Message(
+                content=assistant_content,
+                role="assistant",
+                conversation_id=conversation_id,
+                context=message_context
+            )
+            db.add(assistant_message)
+
+            # Generate and update conversation title if this is the first message
+            if is_first_message:
+                try:
+                    conversation = db.query(Conversation).filter(
+                        Conversation.id == conversation_id
+                    ).first()
+
+                    if conversation and not conversation.title:
+                        title = await self._generate_conversation_title(content, api_key)
+                        conversation.title = title
+                        logger.info(f"Set conversation title to: {title}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate conversation title: {e}")
+                    # Don't fail the whole request if title generation fails
+
+            db.commit()
+            db.refresh(user_message)
+            db.refresh(assistant_message)
+
+            logger.info("[Agent] Messages saved successfully")
+
+            # Return in the same format as generate_chat_response
+            return {
+                "user_message": {
+                    "id": user_message.id,
+                    "role": user_message.role,
+                    "content": user_message.content,
+                    "created_at": user_message.created_at,
+                    "context": None,
+                    "annotations": None
+                },
+                "assistant_message": {
+                    "id": assistant_message.id,
+                    "role": assistant_message.role,
+                    "content": assistant_message.content,
+                    "created_at": assistant_message.created_at,
+                    "context": relevant_chunks,
+                    "annotations": annotations
+                }
+            }
+
+        except Exception as e:
+            logger.error(
+                f"[Agent] Error in agent workflow: {str(e)}. "
+                f"Falling back to linear pipeline.",
+                exc_info=True
+            )
+            # Rollback any partial database changes
+            db.rollback()
+
+            # Fallback to linear pipeline
+            logger.info("[Agent] Using linear pipeline as fallback")
+            return await self.generate_chat_response(
+                db=db,
+                user=user,
+                content=content,
+                conversation_id=conversation_id,
+                document_id=document_id,
+                model=model
+            )
 
     async def generate_chat_response_stream(
         self,

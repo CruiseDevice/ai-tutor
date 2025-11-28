@@ -1,0 +1,44 @@
+# Python artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+test_*.py
+
+# Environment
+.env
+.venv
+venv/
+ENV/
+env/
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+README*
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Development files
+.cursor/
+*.swp
+*.swo
+*~
