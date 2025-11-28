@@ -45,8 +45,21 @@ async def startup_event():
 
     try:
         logger.info("Initializing database...")
-        # Create database tables
         from .database import engine, Base
+        from sqlalchemy import text
+
+        # Step 1: Create pgvector extension if it doesn't exist
+        # This is required for the Vector type in DocumentChunk model
+        logger.info("Ensuring pgvector extension exists...")
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            logger.info("pgvector extension is ready")
+        except Exception as ext_error:
+            logger.error(f"Failed to create pgvector extension: {ext_error}", exc_info=True)
+            raise
+
+        # Step 2: Create database tables
         # Import models to register them with SQLAlchemy Base
         from .models import user, document, conversation  # noqa: F401
         Base.metadata.create_all(bind=engine)
