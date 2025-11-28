@@ -407,3 +407,44 @@ nav {
 .markdown-content .katex-display::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Code block styling */
+.markdown-content pre {
+  overflow-x: auto !important;
+  max-width: 100% !important;
+}
+
+.markdown-content pre > div {
+  overflow-x: auto !important;
+  width: 100% !important;
+}
+
+/* Syntax highlighter specific */
+.markdown-content pre code {
+  background: transparent !important;
+  padding: 0 !important;
+  color: inherit !important;
+  font-size: 0.875rem !important;
+  white-space: pre !important;
+  word-wrap: normal !important;
+  display: block !important;
+}
+
+/* Ensure code blocks scroll horizontally when needed */
+.markdown-content pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+.markdown-content pre::-webkit-scrollbar-track {
+  background: #1e293b;
+  border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.markdown-content pre::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+.markdown-content pre::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
