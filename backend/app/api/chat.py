@@ -46,7 +46,8 @@ async def send_message(
             content=message_data.content,
             conversation_id=message_data.conversation_id,
             document_id=message_data.document_id,
-            model=message_data.model or "gpt-4"
+            model=message_data.model or "gpt-4",
+            use_agent=message_data.use_agent or False
         )
 
         return ChatResponse(**result)
@@ -82,7 +83,12 @@ async def send_message_stream(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Send a message and get streaming AI response using Server-Sent Events."""
+    """
+    Send a message and get streaming AI response using Server-Sent Events.
+
+    Note: Agent workflow streaming is not yet implemented (Phase 3).
+    If use_agent=True, it will fallback to linear pipeline for streaming.
+    """
     try:
         # Verify conversation belongs to user
         conversation = db.query(Conversation).filter(
@@ -95,6 +101,10 @@ async def send_message_stream(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Conversation not found"
             )
+
+        # Note: Agent streaming not yet implemented, use_agent is ignored for streaming
+        if message_data.use_agent:
+            logger.warning("Agent workflow streaming not yet supported, using linear pipeline")
 
         async def generate():
             try:

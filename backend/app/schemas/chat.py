@@ -11,6 +11,7 @@ class MessageCreate(MessageBase):
     conversation_id: str
     document_id: str
     model: Optional[str] = "gpt-4"
+    use_agent: Optional[bool] = False  # Enable LangGraph agent workflow (default: False)
 
 
 class AnnotationBounds(BaseModel):

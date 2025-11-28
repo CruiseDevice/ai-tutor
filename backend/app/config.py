@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Rate limiting
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 60
-    RATE_LIMIT_AUTH_PER_MINUTE: int = 5  # Stricter for auth endpoints
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 20  # More lenient for development (can be overridden via env var)
 
     # Redis Cache (optimized for performance)
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -51,6 +51,20 @@ class Settings(BaseSettings):
 
     # Document Processing Optimizations (Phase 3)
     USE_STREAMING_PROCESSING: bool = True  # Enable streaming PDF processing for progressive availability
+
+    # Semantic Chunking Configuration
+    # Advanced chunking strategy that preserves document structure and adapts to content types
+    CHUNK_SIZE_MIN: int = 500  # Minimum chunk size in characters
+    CHUNK_SIZE_MAX: int = 2000  # Maximum chunk size in characters
+    CHUNK_SIZE_DEFAULT: int = 1000  # Default chunk size in characters
+    CHUNK_OVERLAP_MIN: int = 50  # Minimum overlap in characters
+    CHUNK_OVERLAP_MAX: int = 400  # Maximum overlap in characters
+    CHUNK_OVERLAP_DEFAULT: int = 200  # Default overlap in characters
+    CHUNK_OVERLAP_PERCENTAGE: float = 0.15  # Adaptive overlap as percentage of chunk size (15%)
+    USE_SEMANTIC_CHUNKING: bool = True  # Enable semantic boundary detection using embeddings
+    SEMANTIC_CHUNKING_BREAKPOINT_THRESHOLD: float = 0.5  # Threshold for detecting semantic boundaries (0.0-1.0)
+    CHUNK_BY_CONTENT_TYPE: bool = True  # Enable content-type-based adaptive chunking (headers, tables, lists, etc.)
+    PRESERVE_METADATA: bool = True  # Enable extraction and storage of structural metadata (headers, sections, content types)
 
     # Hybrid Search Configuration
     # Controls the weighting between semantic and keyword search
@@ -89,6 +103,13 @@ class Settings(BaseSettings):
     ENABLE_ANSWER_QUALITY_SCORING: bool = True  # Enable LLM-based answer quality evaluation
     QUERY_CLASSIFICATION_MODEL: str = "gpt-4o-mini"  # Model for query classification (cost-efficient)
     QUALITY_SCORING_MODEL: str = "gpt-4o-mini"  # Model for quality scoring (cost-efficient)
+
+    # Agent Configuration (LangGraph Integration)
+    # Multi-step reasoning system with adaptive routing and quality verification
+    AGENT_ENABLED: bool = True  # Feature flag for gradual rollout (default: disabled)
+    AGENT_DEFAULT_MODEL: str = "gpt-4o-mini"  # Default model for agent nodes (cost-efficient)
+    AGENT_COMPLEXITY_THRESHOLD: str = "medium"  # Use agents for queries with "medium" or "complex" complexity
+    AGENT_STREAMING_ENABLED: bool = True  # Enable streaming support for agent workflow execution
 
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [

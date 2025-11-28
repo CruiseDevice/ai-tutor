@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
+import logging
 from ..database import get_db
 from ..schemas.auth import (
     UserCreate,
@@ -15,6 +16,7 @@ from ..core.rate_limit_dep import check_rate_limit
 from ..models.user import User
 from ..config import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -30,6 +32,7 @@ async def register(
     await check_rate_limit(request, settings.RATE_LIMIT_AUTH_PER_MINUTE)
 
     try:
+        logger.info(f"Registration attempt for email: {user_data.email}")
         user = AuthService.create_user(db, user_data)
 
         # Create session
@@ -45,16 +48,19 @@ async def register(
             max_age=7 * 24 * 60 * 60  # 7 days
         )
 
+        logger.info(f"Registration successful for user: {user.id}")
         return TokenResponse(
             message="Registration successful",
             user=UserResponse.model_validate(user)
         )
     except ValueError as e:
+        logger.warning(f"Registration validation error for {user_data.email}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        logger.error(f"Registration error for {user_data.email}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Registration failed: {str(e)}"
