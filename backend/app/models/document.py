@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from ..database import Base
 from datetime import datetime, timezone
+from typing import Optional
 import uuid
 
 
@@ -28,6 +29,10 @@ class Document(Base):
     error_message = Column(Text, nullable=True)  # Store error details if processing fails
     job_id = Column(String, nullable=True)  # Arq job ID for tracking background processing
 
+    # Processing time tracking (Phase 2)
+    processing_started_at = Column(DateTime(timezone=True), nullable=True)
+    processing_completed_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now(), onupdate=func.now())
 
@@ -35,6 +40,19 @@ class Document(Base):
     user = relationship("User", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
     conversations = relationship("Conversation", back_populates="document", uselist=True, cascade="all, delete-orphan")
+
+    @property
+    def processing_duration(self) -> Optional[float]:
+        """
+        Calculate processing duration in seconds.
+
+        Returns:
+            Processing duration in seconds, or None if processing hasn't completed
+        """
+        if self.processing_started_at and self.processing_completed_at:
+            delta = self.processing_completed_at - self.processing_started_at
+            return delta.total_seconds()
+        return None
 
 
 class DocumentChunk(Base):

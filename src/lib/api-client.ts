@@ -259,6 +259,61 @@ export const configApi = {
   },
 };
 
+// Admin API calls
+export const adminApi = {
+  /**
+   * Get queue statistics
+   */
+  async getQueueStats() {
+    return apiRequest('/api/admin/queue/stats');
+  },
+
+  /**
+   * List jobs with optional filter
+   */
+  async listJobs(statusFilter?: string, limit: number = 100) {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('status_filter', statusFilter);
+    params.set('limit', limit.toString());
+
+    return apiRequest(`/api/admin/queue/jobs?${params.toString()}`);
+  },
+
+  /**
+   * Get job details
+   */
+  async getJobDetails(jobId: string) {
+    return apiRequest(`/api/admin/queue/jobs/${jobId}`);
+  },
+
+  /**
+   * Retry a failed job
+   */
+  async retryJob(documentId: string) {
+    return apiRequest(`/api/admin/queue/jobs/${documentId}/retry`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Cancel a job
+   */
+  async cancelJob(jobId: string) {
+    return apiRequest(`/api/admin/queue/jobs/${jobId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Stream queue stats via SSE
+   */
+  createQueueStatsStream(): EventSource {
+    return new EventSource(`${BACKEND_URL}/api/admin/queue/stream`, {
+      withCredentials: true,
+    });
+  },
+};
+
 // Helper function to get JSON from response
 export async function getJson<T = any>(response: Response): Promise<T> {
   if (!response.ok) {

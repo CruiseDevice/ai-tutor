@@ -36,11 +36,16 @@ StudyFetch AI Tutor is a web application that helps students understand PDF docu
 - **AWS S3** - PDF file storage
 - **JWT** - Token-based authentication
 
+The backend is split into two Python services (see `MICROSERVICES_ARCHITECTURE.md` for details):
+- **Main Backend** (`backend`, port 8001) – FastAPI app with business logic and database access (no heavy ML dependencies)
+- **Embedding Service** (`embedding-service`, port 8002) – FastAPI microservice that hosts PyTorch/sentence-transformers models for embeddings and reranking
+
 ### AI Integration
 - **OpenAI GPT-4/GPT-4o-mini** - Chat completions with streaming support
-- **sentence-transformers** - Embedding generation (all-mpnet-base-v2, 768 dimensions)
-- **LangChain** - Document processing and RAG pipeline
+- **sentence-transformers** - Embedding generation (all-mpnet-base-v2, 768 dimensions) running inside the embedding service
+- **LangChain** - Document processing and core RAG utilities
 - **Cross-Encoder Re-ranking** - ms-marco-MiniLM-L-6-v2 for improved retrieval quality
+- **LangGraph-based Agent Workflow** - Optional multi-step RAG agent pipeline
 
 ## Architecture
 
@@ -62,10 +67,13 @@ The application follows an advanced Retrieval Augmented Generation (RAG) approac
 
 ### Service Components
 - **Frontend**: Next.js app (UI only, no API routes)
-- **Backend API**: FastAPI server on port 8001 (all business logic)
+- **Main Backend API**: FastAPI server on port 8001 (business logic, authentication, RAG orchestration)
+- **Embedding Service**: Separate FastAPI microservice on port 8002 for embeddings and reranking
 - **Background Workers**: ARQ workers for async document processing
 - **PostgreSQL Database**: Stores user data, documents, conversations, and vector embeddings
 - **Redis**: Caching layer and rate limiting
+
+The LangGraph-based agent workflow (via `RAGAgentService`) runs inside the main backend and can be toggled per request using the `use_agent` flag in chat requests.
 
 ## Prerequisites
 
@@ -90,7 +98,7 @@ cd ai-tutor
 npm install
 ```
 
-### 3. Install backend dependencies
+### 3. (Optional) Install backend dependencies for local (non-Docker) development
 
 ```bash
 cd backend
@@ -98,10 +106,14 @@ pip install -r requirements.txt
 cd ..
 ```
 
-### 4. Start services with Docker Compose
+### 4. Start backend services with Docker Compose
 
 ```bash
-# Start PostgreSQL, Redis, Backend API, and Workers
+# First-time build (builds backend + embedding service)
+docker-compose down -v  # optional cleanup
+DOCKER_BUILDKIT=1 docker-compose up --build
+
+# Subsequent runs (reuses cached embedding service image)
 docker-compose up -d
 
 # Verify services are running
@@ -110,10 +122,11 @@ curl http://localhost:5432         # PostgreSQL (should fail, but confirms port 
 ```
 
 The Docker Compose setup includes:
-- **PostgreSQL** (port 5432) - Database with pgvector extension
-- **Redis** (port 6379) - Caching and rate limiting
-- **Backend API** (port 8001) - FastAPI server
-- **Worker** - ARQ background worker for document processing
+- **PostgreSQL** (`db`, port 5432) - Database with pgvector extension
+- **Redis** (`redis`, port 6379) - Caching and rate limiting
+- **Embedding Service** (`embedding-service`, port 8002) - ML microservice for embeddings and reranking
+- **Main Backend API** (`backend`, port 8001) - FastAPI server
+- **Worker** (`worker`) - ARQ background worker for document processing
 
 ### 5. Set up environment variables
 
@@ -143,6 +156,8 @@ NEXT_PUBLIC_BACKEND_URL="http://localhost:8001"
 NODE_ENV="development"
 ```
 
+Docker Compose will automatically pick up `JWT_SECRET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_PDFBUCKET_NAME`, and `NODE_ENV` from this `.env` file when bringing up the backend and worker containers.
+
 ### 6. Initialize the database
 
 The database tables are automatically created on backend startup. The backend includes automatic migrations for:
@@ -167,9 +182,27 @@ docker exec -it study-fetch-tutor-db-1 psql -U postgres -d studyfetch
 
 ## Running the Application
 
-### Development Mode
+### Development Mode (recommended: Docker for backend + local frontend)
 
-1. **Start the backend** (if not using Docker):
+1. **Start backend stack with Docker** (from repo root):
+   ```bash
+   DOCKER_BUILDKIT=1 docker-compose up --build
+   ```
+   This starts PostgreSQL, Redis, embedding service, backend API, and worker.
+
+2. **Start the frontend locally**:
+   ```bash
+   npm run dev
+   ```
+
+3. Visit the app at:
+   - **Frontend**: [http://localhost:3000](http://localhost:3000)
+   - **Backend API** (in Docker): [http://localhost:8001](http://localhost:8001)
+   - **Embedding Service** (in Docker): [http://localhost:8002/health](http://localhost:8002/health)
+
+### Development Mode (backend without Docker)
+
+1. **Start the backend directly**:
    ```bash
    cd backend
    uvicorn app.main:app --reload --port 8001
