@@ -322,3 +322,147 @@ def add_fulltext_search_index(engine):
         logger.warning("Backend will continue to start, but keyword search may not work optimally")
         logger.warning("Hybrid search will fall back to semantic-only search if needed")
 
+
+def add_user_role_column(engine):
+    """
+    Add role column to the 'users' table for role-based access control (RBAC).
+
+    Adds:
+    - role: User role (user, admin, super_admin) with default 'user'
+
+    This enables admin features like queue monitoring and user management.
+    """
+    try:
+        inspector = inspect(engine)
+
+        # Check if users table exists
+        table_names = inspector.get_table_names()
+        if 'users' not in table_names:
+            logger.info("users table does not exist, will be created by create_all()")
+            return
+
+        # Check existing columns
+        existing_columns = {col['name'] for col in inspector.get_columns('users')}
+
+        with engine.begin() as conn:
+            # Add role column (default: user)
+            if 'role' not in existing_columns:
+                logger.info("Adding 'role' column to 'users' table...")
+                conn.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN role VARCHAR(20) DEFAULT 'user' NOT NULL
+                """))
+                logger.info("Successfully added 'role' column to 'users' table")
+            else:
+                logger.debug("'role' column already exists in 'users' table")
+
+        logger.info("User role column migration completed successfully")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_user_role_column: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but admin features may not work")
+
+
+def add_processing_time_columns(engine):
+    """
+    Add processing time tracking columns to the 'documents' table.
+
+    Adds:
+    - processing_started_at: Timestamp when document processing began
+    - processing_completed_at: Timestamp when document processing finished
+
+    These fields enable accurate calculation of average processing times
+    for queue monitoring and performance analytics.
+    """
+    try:
+        inspector = inspect(engine)
+
+        # Check if documents table exists
+        table_names = inspector.get_table_names()
+        if 'documents' not in table_names:
+            logger.info("documents table does not exist, will be created by create_all()")
+            return
+
+        # Check existing columns
+        existing_columns = {col['name'] for col in inspector.get_columns('documents')}
+
+        with engine.begin() as conn:
+            # Add processing_started_at column
+            if 'processing_started_at' not in existing_columns:
+                logger.info("Adding 'processing_started_at' column to 'documents' table...")
+                conn.execute(text("""
+                    ALTER TABLE documents
+                    ADD COLUMN processing_started_at TIMESTAMP WITH TIME ZONE
+                """))
+                logger.info("Successfully added 'processing_started_at' column")
+            else:
+                logger.debug("'processing_started_at' column already exists")
+
+            # Add processing_completed_at column
+            if 'processing_completed_at' not in existing_columns:
+                logger.info("Adding 'processing_completed_at' column to 'documents' table...")
+                conn.execute(text("""
+                    ALTER TABLE documents
+                    ADD COLUMN processing_completed_at TIMESTAMP WITH TIME ZONE
+                """))
+                logger.info("Successfully added 'processing_completed_at' column")
+            else:
+                logger.debug("'processing_completed_at' column already exists")
+
+        logger.info("Processing time tracking columns migration completed successfully")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_processing_time_columns: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but processing time tracking may not work")
+
+
+def add_audit_logs_table(engine):
+    """
+    Create audit_logs table for tracking admin actions.
+
+    This table stores a complete audit trail of administrative actions
+    for compliance, security, and debugging purposes.
+    """
+    try:
+        inspector = inspect(engine)
+        table_names = inspector.get_table_names()
+
+        if 'audit_logs' not in table_names:
+            logger.info("Creating 'audit_logs' table...")
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE audit_logs (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR NOT NULL,
+                        action VARCHAR NOT NULL,
+                        resource_type VARCHAR,
+                        resource_id VARCHAR,
+                        details TEXT,
+                        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+
+                # Create indexes for efficient querying
+                conn.execute(text("""
+                    CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id)
+                """))
+                conn.execute(text("""
+                    CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp)
+                """))
+                conn.execute(text("""
+                    CREATE INDEX idx_audit_logs_action ON audit_logs(action)
+                """))
+
+                logger.info("Successfully created 'audit_logs' table with indexes")
+        else:
+            logger.debug("'audit_logs' table already exists")
+
+        logger.info("Audit logs table migration completed successfully")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_audit_logs_table: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but audit logging may not work")
+
