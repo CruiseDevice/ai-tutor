@@ -4,6 +4,7 @@ Background jobs for document processing.
 import logging
 from typing import Dict, Any
 from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 
 from app.database import SessionLocal
 from app.services.document_service import DocumentService
@@ -57,10 +58,11 @@ async def process_document_job(
                 "chunks_failed": 0
             }
 
-        # Update status to processing
+        # Update status to processing and mark start time
         document.status = "processing"
+        document.processing_started_at = datetime.now(timezone.utc)
         db.commit()
-        logger.info(f"Updated document {document_id} status to 'processing'")
+        logger.info(f"Updated document {document_id} status to 'processing' at {document.processing_started_at}")
 
         # Initialize document service
         document_service = DocumentService()
@@ -75,12 +77,16 @@ async def process_document_job(
             logger.info(f"Using standard processing for document {document_id}")
             result = await document_service.process_document(db, document_id)
 
+        # Mark completion time
+        document.processing_completed_at = datetime.now(timezone.utc)
+
         # Update document status based on result
         if result.get("success", False):
             document.status = "completed"
             document.error_message = None
+            duration = document.processing_duration
             logger.info(
-                f"Successfully processed document {document_id}: "
+                f"Successfully processed document {document_id} in {duration:.2f}s: "
                 f"{result.get('chunks_processed', 0)} chunks processed, "
                 f"{result.get('chunks_failed', 0)} chunks failed"
             )
@@ -99,12 +105,13 @@ async def process_document_job(
         error_msg = f"Error processing document {document_id}: {str(e)}"
         logger.error(error_msg, exc_info=True)
 
-        # Update document status to failed
+        # Update document status to failed and mark completion time
         try:
             document = db.query(Document).filter(Document.id == document_id).first()
             if document:
                 document.status = "failed"
                 document.error_message = str(e)
+                document.processing_completed_at = datetime.now(timezone.utc)
                 db.commit()
         except Exception as update_error:
             logger.error(f"Failed to update document status: {update_error}")

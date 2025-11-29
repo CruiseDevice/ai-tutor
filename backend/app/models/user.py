@@ -1,12 +1,20 @@
-from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
 import uuid
+import enum
 
 
 def generate_uuid():
     return str(uuid.uuid4())
+
+
+class UserRole(str, enum.Enum):
+    """User role enumeration for role-based access control."""
+    USER = "user"
+    ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"
 
 
 class User(Base):
@@ -16,6 +24,12 @@ class User(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password = Column(String, nullable=False)
     api_key = Column(String, nullable=True)  # Stored encrypted if encryption is enabled
+    role = Column(
+        Enum(UserRole),
+        default=UserRole.USER,
+        nullable=False,
+        server_default=UserRole.USER.value
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

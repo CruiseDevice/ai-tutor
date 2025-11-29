@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status, Cookie
 from sqlalchemy.orm import Session
 from typing import Optional
 from ..database import get_db
-from ..models.user import User, Session as DBSession
+from ..models.user import User, Session as DBSession, UserRole
 from .security import decode_access_token
 from datetime import datetime, timezone
 
@@ -56,4 +56,34 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_admin_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """
+    Verify current user has admin privileges.
+    Raises 403 if user is not admin or super_admin.
+    """
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    return current_user
+
+
+async def get_super_admin_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """
+    Verify current user has super admin privileges.
+    For destructive operations like force-canceling jobs.
+    """
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin privileges required"
+        )
+    return current_user
 

@@ -119,7 +119,7 @@ async def get_current_user_info(user: User = Depends(get_current_user)):
 @router.get("/user")
 async def get_user(user: User = Depends(get_current_user)):
     """Get current user (compatibility endpoint)."""
-    return {"id": user.id, "email": user.email}
+    return {"id": user.id, "email": user.email, "role": user.role.value}
 
 
 @router.get("/verify-session")

@@ -17,8 +17,9 @@ class UserLogin(UserBase):
 
 class UserResponse(UserBase):
     id: str
+    role: str
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
