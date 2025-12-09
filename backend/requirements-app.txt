@@ -1,0 +1,51 @@
+# Application dependencies (NO ML packages)
+# Using latest compatible versions for simplicity
+
+# Core framework
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+
+# Database
+sqlalchemy
+psycopg2-binary
+pgvector
+alembic
+
+# Auth & Security
+email-validator
+python-jose[cryptography]
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+cryptography
+
+# HTTP & Utilities
+python-multipart
+httpx
+requests
+slowapi
+tenacity
+
+# AWS
+boto3
+
+# Document Processing
+pypdf
+pymupdf
+nltk
+
+# Redis & Async
+redis
+arq
+
+# OpenAI & Tokenization
+openai
+tiktoken
+
+# LangChain - Using latest compatible versions
+langchain-core
+langchain
+langchain-community
+langchain-openai
+langgraph
