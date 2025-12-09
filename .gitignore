@@ -43,7 +43,6 @@ next-env.d.ts
 
 # temp files
 *.pdf
-*.txt
 *.json
 *.csv
 *.jsonl
