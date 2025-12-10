@@ -8,6 +8,13 @@ RUN apt-get update && apt-get install -y \
     g++ \
     postgresql-client \
     curl \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip for faster dependency resolution
