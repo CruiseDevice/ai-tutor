@@ -111,6 +111,16 @@ class Settings(BaseSettings):
     AGENT_COMPLEXITY_THRESHOLD: str = "medium"  # Use agents for queries with "medium" or "complex" complexity
     AGENT_STREAMING_ENABLED: bool = True  # Enable streaming support for agent workflow execution
 
+    # Image Processing with Docling (Multimodal support)
+    # Controls image extraction, captioning, and embedding generation
+    ENABLE_IMAGE_EXTRACTION: bool = True    # Feature flag to enable/disable image processing
+    VISION_MODEL: str = "gpt-4o-mini"   # Model for image captioning (gpt-4o-mini for cost, gpt-4o for quality)
+    MAX_IMAGES_PER_DOCUMENT: int = 200  # Maximum number of images to process per document
+    IMAGE_CAPTION_BATCH_SIZE: int = 5   # Number of images to caption in parallel (controls rate limits)
+    S3_ASSETS_FOLDER_SUFFIX: str = "_assets"    # Suffic for S3 folder containing extracted images
+    IMAGE_COMPRESSION_QUALITY: int = 85     # JPEG compression quality (1-100, higher = better quality)
+    DOCLING_FALLBACK_TO_PYPDF: bool = True  # Fallback to PyPDF if Docling fails
+
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",

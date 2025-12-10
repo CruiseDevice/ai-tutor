@@ -53,6 +53,12 @@ services:
     restart: always
     ports:
       - "8001:8001"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/studyfetch
       - REDIS_URL=redis://redis:6379/0
@@ -85,6 +91,12 @@ services:
       dockerfile: Dockerfile
     restart: always
     command: arq app.workers.arq_config.WorkerSettings
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/studyfetch
       - REDIS_URL=redis://redis:6379/0
