@@ -466,3 +466,54 @@ def add_audit_logs_table(engine):
         logger.error(f"Migration error (non-fatal) - add_audit_logs_table: {e}", exc_info=True)
         logger.warning("Backend will continue to start, but audit logging may not work")
 
+def add_chunk_type_column(engine):
+    """
+    Add chunk_type column to the 'document_chunks' table for multimodal support.
+
+    Adds:
+        - chunk_type: Tyoe of chunk (text, image, table, figure) with default 'text'
+
+        This enable storing and differentiating between text chunks and image chunks
+        for multimodal document processing with Docling.
+    """
+    try:
+        inspector = inspect(engine)
+
+        # check if document_chunks table exists
+        table_names = inspector.get_table_names()
+        if 'document_chunks' not in table_names:
+            logger.info("document_chunks table does not exist, will be created by create_all()")
+            return
+
+        # check existing columns
+        existing_columns = {
+            col['name']
+            for col in inspector.get_columns('document_chunks')
+        }
+
+        with engine.begin() as conn:
+            # add chunk_type column (default: text)
+            if 'chunk_type' not in existing_columns:
+                logger.info("Adding 'chunk_type' column to 'document_chunks' table...")
+                conn.execute(text("""
+                    ALTER TABLE document_chunks
+                    ADD COLUMN chunk_type VARCHAR(50) DEFAULT 'text'
+                """))
+
+                # Backfill existing rows with 'text
+                conn.execute(text("""
+                    UPDATE document_chunks
+                    SET chunk_type='text'
+                    WHERE chunk_type is NULL
+                """))
+
+                logger.info("Successfully added 'chunk_type' column")
+            else:
+                logger.debug("'chunk_type' column already exists in 'document_chunks' table")
+
+        logger.info("Chunk type column migration completed successfully")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_chunk_type_column: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but image chunk support may not work")

@@ -61,6 +61,7 @@ class DocumentChunk(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     content = Column(Text, nullable=False)
     page_number = Column(Integer, nullable=False)
+    chunk_type = Column(String, nullable=True, default='text', index=True)
     embedding = Column(Vector(768))  # pgvector type for 768-dimensional embeddings
     document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     position_data = Column(JSONB, nullable=True)
