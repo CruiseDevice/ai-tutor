@@ -57,6 +57,7 @@ class ChunkResponse(BaseModel):
     id: str
     content: str
     page_number: int
+    chunk_type: Optional[str] = 'text'
     document_id: str
 
     class Config:
