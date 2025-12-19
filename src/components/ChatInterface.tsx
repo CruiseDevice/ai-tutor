@@ -671,6 +671,16 @@ export default function ChatInterface({
                             onClick={() => onAnnotationClick?.(annotation)}
                             className="group flex items-center gap-2 px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-xs text-slate-700 hover:bg-amber-100 hover:border-amber-300 hover:text-amber-800 transition-all shadow-sm hover:shadow"
                           >
+                            {annotation.sourceImageUrl && (
+                              <span className="h-6 w-6 rounded border border-amber-200 overflow-hidden bg-white flex-shrink-0">
+                                <img
+                                  src={annotation.sourceImageUrl}
+                                  alt="Annotation preview"
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              </span>
+                            )}
                             <span className="font-semibold text-amber-600">
                               Page {annotation.pageNumber}
                             </span>

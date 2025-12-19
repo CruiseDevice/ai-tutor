@@ -99,6 +99,7 @@ Title:"""
         """
         annotations = []
         cleaned_response = response_text
+        raw_annotations = []
 
         # Look for annotations block. The model is instructed to use
         # ```annotations, but in practice it may sometimes emit ```json.
@@ -113,37 +114,100 @@ Title:"""
             try:
                 annotation_data = json.loads(match.group(1))
 
-                if isinstance(annotation_data, list):
-                    for item in annotation_data:
-                        page_num = item.get('pageNumber', 1)
-                        text_to_highlight = item.get('textToHighlight', '')
-                        annotation_type = item.get('type', 'highlight')
-                        explanation = item.get('explanation', '')
+                if isinstance(annotation_data, dict) and "annotations" in annotation_data:
+                    annotation_items = annotation_data.get("annotations", [])
+                elif isinstance(annotation_data, list):
+                    annotation_items = annotation_data
+                else:
+                    annotation_items = [annotation_data]
 
-                        # Create annotation with estimated bounds
-                        # These are rough estimates - the frontend will refine them
-                        annotation = {
-                            'id': str(uuid.uuid4()),
-                            'type': annotation_type,
-                            'pageNumber': page_num,
-                            'bounds': {
-                                'x': 10,      # Default left margin
-                                'y': 30,      # Start from upper portion
-                                'width': 80,  # Most of page width
-                                'height': 5   # Rough text line height
-                            },
-                            'textContent': text_to_highlight,
-                            'color': self._get_annotation_color(annotation_type),
-                            'label': None
-                        }
+                for item in annotation_items:
+                    if not isinstance(item, dict):
+                        continue
 
-                        annotation_ref = {
-                            'pageNumber': page_num,
-                            'annotations': [annotation],
-                            'sourceText': text_to_highlight,
-                            'explanation': explanation
-                        }
-                        annotations.append(annotation_ref)
+                    page_num = item.get("pageNumber", 1)
+                    try:
+                        page_num = int(page_num)
+                    except (TypeError, ValueError):
+                        logger.warning(f"Invalid pageNumber in annotation: {page_num}")
+                        page_num = item.get("pageNumber", 1)
+                    annotation_type = item.get("type", "highlight")
+                    explanation = item.get("explanation", "")
+
+                    annotation = None
+                    source_text = None
+                    source_image_url = None
+
+                    if annotation_type == "circle" and "bbox" in item and "imageChunkId" in item:
+                        annotation = self._parse_image_annotation(
+                            item=item,
+                            relevant_chunks=relevant_chunks,
+                            page_number=page_num,
+                            explanation=explanation
+                        )
+                        if annotation:
+                            source_image_url = annotation.get("imageS3Url")
+                    elif "textToHighlight" in item:
+                        annotation = self._parse_text_annotation(
+                            item=item,
+                            relevant_chunks=relevant_chunks,
+                            page_number=page_num,
+                            annotation_type=annotation_type,
+                            explanation=explanation
+                        )
+                        if annotation:
+                            source_text = annotation.get("textContent")
+                    else:
+                        logger.warning(f"Invalid annotation format: {item}")
+
+                    if annotation:
+                        if explanation and not annotation.get("label"):
+                            annotation["label"] = explanation
+                        raw_annotations.append({
+                            "pageNumber": page_num,
+                            "annotation": annotation,
+                            "sourceText": source_text,
+                            "sourceImageUrl": source_image_url,
+                            "explanation": explanation
+                        })
+
+                annotations_by_page = {}
+                for entry in raw_annotations:
+                    page = entry["pageNumber"]
+                    annotations_by_page.setdefault(page, {
+                        "annotations": [],
+                        "sourceText": None,
+                        "sourceImageUrl": None,
+                        "explanation": None
+                    })
+                    annotations_by_page[page]["annotations"].append(entry["annotation"])
+                    if entry.get("sourceText") and not annotations_by_page[page]["sourceText"]:
+                        annotations_by_page[page]["sourceText"] = entry["sourceText"]
+                    if entry.get("sourceImageUrl") and not annotations_by_page[page]["sourceImageUrl"]:
+                        annotations_by_page[page]["sourceImageUrl"] = entry["sourceImageUrl"]
+                    if entry.get("explanation") and not annotations_by_page[page]["explanation"]:
+                        annotations_by_page[page]["explanation"] = entry["explanation"]
+
+                for page, data in annotations_by_page.items():
+                    has_image = any(
+                        annotation.get("imageChunkId") for annotation in data["annotations"]
+                    )
+                    source_text = data["sourceText"]
+                    source_image_url = data["sourceImageUrl"]
+
+                    if not source_text and not has_image:
+                        for chunk in relevant_chunks:
+                            if chunk.get("pageNumber") == page:
+                                source_text = chunk.get("content", "")[:200]
+                                break
+
+                    annotations.append({
+                        "pageNumber": page,
+                        "annotations": data["annotations"],
+                        "sourceText": source_text,
+                        "sourceImageUrl": source_image_url,
+                        "explanation": data["explanation"]
+                    })
 
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse annotations JSON: {e}")
@@ -151,6 +215,129 @@ Title:"""
                 logger.warning(f"Error processing annotations: {e}")
 
         return cleaned_response, annotations
+
+    def _parse_image_annotation(
+        self,
+        item: Dict,
+        relevant_chunks: List[Dict],
+        page_number: int,
+        explanation: str
+    ) -> Optional[Dict]:
+        """Parse an image annotation with bbox coordinates."""
+        try:
+            bbox = item.get("bbox")
+            image_chunk_id = item.get("imageChunkId")
+
+            if not bbox or not image_chunk_id:
+                logger.warning("Image annotation missing bbox or imageChunkId")
+                return None
+            if not isinstance(bbox, list) or len(bbox) < 4:
+                logger.warning(f"Invalid bbox format for image annotation: {bbox}")
+                return None
+
+            image_chunk = next(
+                (chunk for chunk in relevant_chunks if chunk.get("id") == image_chunk_id),
+                None
+            )
+
+            if not image_chunk:
+                logger.warning(f"Image chunk {image_chunk_id} not found in relevant chunks")
+                return None
+
+            bounds = self._pdf_coords_to_percentage_bounds(
+                bbox=bbox,
+                page_number=page_number,
+                document_id=image_chunk.get("documentId")
+            )
+
+            position_data = image_chunk.get("positionData") or {}
+            image_s3_url = position_data.get("image_s3_url")
+
+            return {
+                "id": str(uuid.uuid4()),
+                "type": "circle",
+                "pageNumber": page_number,
+                "bounds": bounds,
+                "textContent": None,
+                "imageChunkId": image_chunk_id,
+                "imageS3Url": image_s3_url,
+                "color": self._get_annotation_color("circle"),
+                "label": None
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to parse image annotation: {e}", exc_info=True)
+            return None
+
+    def _parse_text_annotation(
+        self,
+        item: Dict,
+        relevant_chunks: List[Dict],
+        page_number: int,
+        annotation_type: str,
+        explanation: str
+    ) -> Optional[Dict]:
+        """Parse a text-based annotation."""
+        text_to_highlight = item.get("textToHighlight", "")
+
+        matching_chunk = None
+        for chunk in relevant_chunks:
+            if chunk.get("pageNumber") == page_number:
+                if text_to_highlight.lower() in chunk.get("content", "").lower():
+                    matching_chunk = chunk
+                    break
+
+        if not matching_chunk:
+            logger.warning(f"Could not find matching chunk for: {text_to_highlight}")
+            return None
+
+        bounds = {
+            "x": 10,
+            "y": 30,
+            "width": 80,
+            "height": 5
+        }
+
+        return {
+            "id": str(uuid.uuid4()),
+            "type": annotation_type,
+            "pageNumber": page_number,
+            "bounds": bounds,
+            "textContent": text_to_highlight,
+            "imageChunkId": None,
+            "imageS3Url": None,
+            "color": self._get_annotation_color(annotation_type),
+            "label": None
+        }
+
+    def _pdf_coords_to_percentage_bounds(
+        self,
+        bbox: List[float],
+        page_number: int,
+        document_id: Optional[str]
+    ) -> Dict[str, float]:
+        """Convert PDF coordinates to percentage-based bounds."""
+        try:
+            page_width = 612.0
+            page_height = 792.0
+
+            x0, y0, x1, y1 = [float(value) for value in bbox[:4]]
+
+            x_percent = (x0 / page_width) * 100
+            y_percent = (y0 / page_height) * 100
+            width_percent = ((x1 - x0) / page_width) * 100
+            height_percent = ((y1 - y0) / page_height) * 100
+
+            return {
+                "x": round(x_percent, 2),
+                "y": round(y_percent, 2),
+                "width": round(width_percent, 2),
+                "height": round(height_percent, 2)
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to convert PDF coords to percentage: {e}")
+            return {"x": 10, "y": 10, "width": 30, "height": 30}
 
     def _get_annotation_color(self, annotation_type: str) -> str:
         """Get color for annotation type."""
@@ -190,6 +377,7 @@ Title:"""
                     page_number,
                     document_id,
                     position_data,
+                    chunk_type,
                     ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :query)) as rank
                 FROM document_chunks
                 WHERE document_id = :document_id
@@ -234,6 +422,7 @@ Title:"""
                     "pageNumber": row.page_number,
                     "documentId": row.document_id,
                     "positionData": row.position_data,
+                    "chunk_type": row.chunk_type,
                     "similarity": float(normalized_score)  # Normalized keyword relevance score
                 })
 
@@ -248,6 +437,31 @@ Title:"""
             logger.warning(f"Error in keyword search: {str(e)}")
             # Return empty list to allow fallback to semantic-only search
             return []
+
+    def _format_chunk_for_context(self, chunk: Dict) -> str:
+        """Format a chunk for inclusion in the LLM context."""
+        page_num = chunk.get("pageNumber", chunk.get("page_number", "?"))
+        content = chunk.get("content", "")
+        chunk_type = chunk.get("chunk_type", "text")
+        position_data = chunk.get("positionData") or chunk.get("position_data") or {}
+
+        if chunk_type == "image" and position_data:
+            bbox = position_data.get("bbox") or [0, 0, 0, 0]
+            image_id = chunk.get("id", "")
+
+            try:
+                x0, y0, x1, y1 = [float(value) for value in bbox[:4]]
+            except (TypeError, ValueError):
+                x0, y0, x1, y1 = 0.0, 0.0, 0.0, 0.0
+
+            header = (
+                f"[Page {page_num} - Image at bbox ({x0:.1f}, {y0:.1f}, {x1:.1f}, {y1:.1f})]"
+            )
+            metadata_line = f"Image ID: {image_id}"
+
+            return f"{header}:\n{metadata_line}\n{content}"
+
+        return f"[Page {page_num}]: {content}"
 
     def _combine_results_with_rrf(
         self,
@@ -413,6 +627,7 @@ Title:"""
                                 page_number,
                                 document_id,
                                 position_data,
+                                chunk_type,
                                 1 - (embedding <=> CAST(:embedding AS vector)) as similarity
                             FROM document_chunks
                             WHERE document_id = :document_id
@@ -438,6 +653,7 @@ Title:"""
                                 "pageNumber": row.page_number,
                                 "documentId": row.document_id,
                                 "positionData": row.position_data,
+                                "chunk_type": row.chunk_type,
                                 "similarity": float(row.similarity)
                             })
 
@@ -476,6 +692,7 @@ Title:"""
                             "pageNumber": chunk["pageNumber"],
                             "documentId": chunk["documentId"],
                             "positionData": chunk["positionData"],
+                            "chunk_type": chunk.get("chunk_type"),
                             "semantic_score": chunk["similarity"]  # RRF score
                         }
 
@@ -538,6 +755,7 @@ Title:"""
                         page_number,
                         document_id,
                         position_data,
+                        chunk_type,
                         1 - (embedding <=> CAST(:embedding AS vector)) as similarity
                     FROM document_chunks
                     WHERE document_id = :document_id
@@ -568,6 +786,7 @@ Title:"""
                         "pageNumber": row.page_number,
                         "documentId": row.document_id,
                         "positionData": row.position_data,
+                        "chunk_type": row.chunk_type,
                         "semantic_score": float(row.similarity)
                     }
 
@@ -590,6 +809,7 @@ Title:"""
                             "pageNumber": chunk["pageNumber"],
                             "documentId": chunk["documentId"],
                             "positionData": chunk["positionData"],
+                            "chunk_type": chunk.get("chunk_type"),
                             "keyword_score": chunk["similarity"]
                         }
                     logger.debug(f"Found {len(keyword_chunks)} keyword matches")
@@ -628,6 +848,7 @@ Title:"""
                     "pageNumber": chunk_data["pageNumber"],
                     "documentId": chunk_data["documentId"],
                     "positionData": chunk_data["positionData"],
+                    "chunk_type": chunk_data.get("chunk_type"),
                     "similarity": float(fused_score),  # Final fused score
                     "_semantic_score": semantic_score,  # Debug info
                     "_keyword_score": keyword_score     # Debug info
@@ -688,6 +909,7 @@ Title:"""
                     "pageNumber": chunk["pageNumber"],
                     "documentId": chunk["documentId"],
                     "positionData": chunk["positionData"],
+                    "chunk_type": chunk.get("chunk_type"),
                     "similarity": chunk["similarity"]
                 }
                 # Optionally include rerank score for debugging
@@ -788,7 +1010,7 @@ Title:"""
             page_number = chunk.get("pageNumber", "Unknown")
 
             # Format chunk as it would appear in context (with page number)
-            formatted_chunk = f"[Page {page_number}]: {chunk_content}"
+            formatted_chunk = self._format_chunk_for_context(chunk)
 
             # Count tokens in formatted chunk
             chunk_tokens = TokenService.count_tokens(formatted_chunk, model)
@@ -827,7 +1049,7 @@ Title:"""
                     truncated_count += 1
 
                     # Count actual tokens in truncated formatted chunk
-                    truncated_formatted = f"[Page {page_number}]: {truncated_content}"
+                    truncated_formatted = self._format_chunk_for_context(truncated_chunk)
                     actual_tokens = TokenService.count_tokens(truncated_formatted, model)
                     tokens_used += actual_tokens
 
@@ -1244,14 +1466,28 @@ At the END of your response, ALWAYS include an ANNOTATIONS section with the foll
 ]
 ```
 
+IMAGE ANNOTATION FORMAT:
+```annotations
+[
+  {
+    "pageNumber": <page number from context above>,
+    "type": "circle",
+    "imageChunkId": "<Image ID from context>",
+    "bbox": [x0, y0, x1, y1],
+    "explanation": "<why this image answers the question>"
+  }
+]
+```
+
 ANNOTATION RULES - FOLLOW STRICTLY:
 1. ALWAYS include at least 1 annotation when you reference document content
 2. The "pageNumber" MUST match a page number from the [Page X] citations above
-3. The "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
-4. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
-5. Copy the exact words from the document - do not paraphrase or modify them
-6. Include 1-3 annotations per response, focusing on the most important points
-7. Each annotation's "explanation" should clearly connect the highlighted text to the user's question
+3. For TEXT: "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
+4. For IMAGES: Copy the bbox coordinates and imageChunkId exactly from the context above
+5. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
+6. Copy the exact words from the document - do not paraphrase or modify them
+7. Include 1-3 annotations per response, focusing on the most important points
+8. Each annotation's "explanation" should clearly connect the highlighted text to the user's question
 
 CITATION VERIFICATION:
 - Double-check that all [Page X] citations in your response match the page numbers in the context above
@@ -1639,13 +1875,27 @@ At the END of your response, ALWAYS include an ANNOTATIONS section with the foll
 ]
 ```
 
+IMAGE ANNOTATION FORMAT:
+```annotations
+[
+  {{
+    "pageNumber": <page number from context above>,
+    "type": "circle",
+    "imageChunkId": "<Image ID from context>",
+    "bbox": [x0, y0, x1, y1],
+    "explanation": "<why this image answers the question>"
+  }}
+]
+```
+
 ANNOTATION RULES - FOLLOW STRICTLY:
 1. ALWAYS include at least 1 annotation when you reference document content
 2. The "pageNumber" MUST match a page number from the [Page X] citations above
-3. The "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
-4. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
-5. Copy the exact words from the document - do not paraphrase
-6. Include 1-2 annotations per response
+3. For TEXT: "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
+4. For IMAGES: Copy the bbox coordinates and imageChunkId exactly from the context above
+5. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
+6. Copy the exact words from the document - do not paraphrase
+7. Include 1-3 annotations per response
 
 Make your responses helpful, clear, and educational. If the context doesn't contain the answer,
 say you don't have enough information from the document and suggest looking at other pages."""
@@ -1682,10 +1932,10 @@ say you don't have enough information from the document and suggest looking at o
 
             # Format context from chunks
             if relevant_chunks:
-                context_text = "\n\n".join([
-                    f"[Page {chunk['pageNumber']}]: {chunk['content']}"
+                context_text = "\n\n".join(
+                    self._format_chunk_for_context(chunk)
                     for chunk in relevant_chunks
-                ])
+                )
             else:
                 context_text = "No relevant document sections found."
 
@@ -2406,13 +2656,27 @@ At the END of your response, ALWAYS include an ANNOTATIONS section with the foll
 ]
 ```
 
+IMAGE ANNOTATION FORMAT:
+```annotations
+[
+  {{
+    "pageNumber": <page number from context above>,
+    "type": "circle",
+    "imageChunkId": "<Image ID from context>",
+    "bbox": [x0, y0, x1, y1],
+    "explanation": "<why this image answers the question>"
+  }}
+]
+```
+
 ANNOTATION RULES - FOLLOW STRICTLY:
 1. ALWAYS include at least 1 annotation when you reference document content
 2. The "pageNumber" MUST match a page number from the [Page X] citations above
-3. The "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
-4. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
-5. Copy the exact words from the document - do not paraphrase
-6. Include 1-2 annotations per response
+3. For TEXT: "textToHighlight" MUST be a short phrase (3-10 words) that appears EXACTLY in the document chunks above
+4. For IMAGES: Copy the bbox coordinates and imageChunkId exactly from the context above
+5. Use type "highlight" for text (most common), "circle" for images/diagrams, "box" for tables
+6. Copy the exact words from the document - do not paraphrase
+7. Include 1-3 annotations per response
 
 Make your responses helpful, clear, and educational. If the context doesn't contain the answer,
 say you don't have enough information from the document and suggest looking at other pages."""
@@ -2449,10 +2713,10 @@ say you don't have enough information from the document and suggest looking at o
 
             # Format context from chunks
             if relevant_chunks:
-                context_text = "\n\n".join([
-                    f"[Page {chunk['pageNumber']}]: {chunk['content']}"
+                context_text = "\n\n".join(
+                    self._format_chunk_for_context(chunk)
                     for chunk in relevant_chunks
-                ])
+                )
             else:
                 context_text = "No relevant document sections found."
 

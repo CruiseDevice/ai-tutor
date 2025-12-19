@@ -253,11 +253,19 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   // Effect to find text when annotations change
   useEffect(() => {
     if (currentPageAnnotations.length > 0 && showAnnotations) {
-      // Find text for each annotation on the current page
+      const textTargets = new Set<string>();
       currentPageAnnotations.forEach(annotationRef => {
+        annotationRef.annotations.forEach(annotation => {
+          if (annotation.textContent) {
+            textTargets.add(annotation.textContent);
+          }
+        });
         if (annotationRef.sourceText) {
-          setTimeout(() => findTextOnPage(annotationRef.sourceText), 300);
+          textTargets.add(annotationRef.sourceText);
         }
+      });
+      textTargets.forEach(text => {
+        setTimeout(() => findTextOnPage(text), 300);
       });
     } else {
       setHighlightedTextRects([]);
@@ -269,10 +277,19 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
     console.log('[PDF Annotation] Page rendered successfully');
     // Re-trigger text search for current annotations after page renders
     if (currentPageAnnotations.length > 0 && showAnnotations) {
+      const textTargets = new Set<string>();
       currentPageAnnotations.forEach(annotationRef => {
+        annotationRef.annotations.forEach(annotation => {
+          if (annotation.textContent) {
+            textTargets.add(annotation.textContent);
+          }
+        });
         if (annotationRef.sourceText) {
-          setTimeout(() => findTextOnPage(annotationRef.sourceText), 500);
+          textTargets.add(annotationRef.sourceText);
         }
+      });
+      textTargets.forEach(text => {
+        setTimeout(() => findTextOnPage(text), 500);
       });
     }
   }, [currentPageAnnotations, showAnnotations, findTextOnPage]);
@@ -570,7 +587,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                   <div className="absolute top-2 right-2 z-20">
                     <div className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded-full shadow-md flex items-center gap-1 animate-bounce">
                       <Eye size={12} />
-                      {currentPageAnnotations.length} highlight{currentPageAnnotations.length > 1 ? 's' : ''}
+                      {currentPageAnnotations.length} annotation{currentPageAnnotations.length > 1 ? 's' : ''}
                     </div>
                   </div>
                 )}

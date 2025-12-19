@@ -143,11 +143,15 @@ class DocumentService:
                     # Extract metadata if available (for semantic chunking)
                     metadata = chunk_data.get('metadata', None)
 
+                    # Get chunk_type (default to 'text' if not specified)
+                    chunk_type = chunk_data.get('chunk_type', 'text')
+
                     chunk = DocumentChunk(
                         content=chunk_data['content'],
                         page_number=chunk_data['page_number'],
                         embedding=chunk_data['embedding'],
                         document_id=document_id,
+                        chunk_type=chunk_type,  # Set chunk type (text or image)
                         position_data=metadata  # Store metadata in position_data JSONB field
                     )
                     session.add(chunk)
@@ -1009,6 +1013,20 @@ class DocumentService:
             temp_file_path = temp_file.name
 
         try:
+            # Extract images with Docling (if enabled)
+            extracted_images = []
+            if settings.ENABLE_IMAGE_EXTRACTION:
+                try:
+                    extracted_images = await self._extract_images_with_docling(
+                        temp_file_path,
+                        document_id,
+                        document.user_id
+                    )
+                    logger.info(f"Extracted {len(extracted_images)} images from document")
+                except Exception as e:
+                    logger.error(f"Image extraction failed, continuing with text-only processing: {e}")
+                    extracted_images = []
+
             # Load PDF using LangChain
             loader = PyPDFLoader(temp_file_path)
             pages = loader.load()
@@ -1024,11 +1042,25 @@ class DocumentService:
                 f"content_type_aware={settings.CHUNK_BY_CONTENT_TYPE}, "
                 f"preserve_metadata={settings.PRESERVE_METADATA})"
             )
-            chunk_data = self._chunk_with_semantic_boundaries(pages, document_structure)
+            text_chunk_data = self._chunk_with_semantic_boundaries(pages, document_structure)
+
+            # Create image chunks from extracted images
+            image_chunk_data = []
+            if extracted_images:
+                logger.info(f"Creating image chunks from {len(extracted_images)} extracted images")
+                image_chunk_data = self._create_image_chunks(extracted_images)
+                logger.info(f"Created {len(image_chunk_data)} image chunks")
+
+            # Combine text and image chunks
+            all_chunk_data = text_chunk_data + image_chunk_data
+            logger.info(
+                f"Total chunks: {len(all_chunk_data)} "
+                f"(text: {len(text_chunk_data)}, images: {len(image_chunk_data)})"
+            )
 
             # Generate all embeddings in parallel batches (async, non-blocking)
-            logger.info(f"Generating embeddings for {len(chunk_data)} chunks using parallel processing")
-            texts = [data['content'] for data in chunk_data]
+            logger.info(f"Generating embeddings for {len(all_chunk_data)} chunks using parallel processing")
+            texts = [data['content'] for data in all_chunk_data]
             embeddings = await self._generate_embeddings_parallel(
                 texts,
                 batch_size=50,
@@ -1037,17 +1069,20 @@ class DocumentService:
             logger.info(f"Generated {len(embeddings)} embeddings in parallel")
 
             # Prepare chunk data with embeddings and metadata for parallel saving
-            logger.info(f"Preparing {len(chunk_data)} chunks with metadata for parallel database writes")
+            logger.info(f"Preparing {len(all_chunk_data)} chunks with metadata for parallel database writes")
             chunks_with_embeddings = []
-            for i, data in enumerate(chunk_data):
+            for i, data in enumerate(all_chunk_data):
                 chunk_dict = {
                     'content': data['content'],
                     'page_number': data['page_number'],
                     'embedding': embeddings[i]
                 }
-                # Include metadata if available (from semantic chunking)
+                # Include metadata if available (from semantic chunking or image chunks)
                 if 'metadata' in data and settings.PRESERVE_METADATA:
                     chunk_dict['metadata'] = data['metadata']
+                # Include chunk_type if available (for image chunks)
+                if 'chunk_type' in data:
+                    chunk_dict['chunk_type'] = data['chunk_type']
                 chunks_with_embeddings.append(chunk_dict)
 
             # Save chunks to database in parallel
@@ -1079,11 +1114,31 @@ class DocumentService:
                 logger.warning(f"Failed to invalidate cache for document {document_id}: {e}")
                 # Don't fail the request if cache invalidation fails
 
+            # Calculate statistics
+            text_chunks_count = len(text_chunk_data)
+            image_chunks_count = len(image_chunk_data)
+            images_captioned_count = sum(1 for img in extracted_images if img.get('caption'))
+
+            logger.info(
+                f"Document processing complete: "
+                f"text_chunks={text_chunks_count}, "
+                f"image_chunks={image_chunks_count}, "
+                f"total_chunks={successful_chunks}, "
+                f"images_extracted={len(extracted_images)}, "
+                f"images_captioned={images_captioned_count}"
+            )
+
             return {
                 "success": True,
                 "message": "Document processed successfully",
                 "chunks_processed": successful_chunks,
-                "chunks_failed": failed_chunks
+                "chunks_failed": failed_chunks,
+                "text_chunks": text_chunks_count,
+                "image_chunks": image_chunks_count,
+                "total_chunks": text_chunks_count + image_chunks_count,
+                "images_extracted": len(extracted_images),
+                "images_uploaded": sum(1 for img in extracted_images if img.get('s3_url')),
+                "images_captioned": images_captioned_count
             }
 
         finally:
@@ -1129,4 +1184,271 @@ class DocumentService:
         db.commit()
 
         return True
+
+    async def _generate_image_captions(self, images: List) -> List:
+        """
+        Generate captions for extracted images using GPT-4o Vision.
+
+        Args:
+            images: List of ExtractedImage objects
+
+        Returns:
+            List of ImageCaption objects (or None for failed captions)
+        """
+        from .vision_service import VisionService
+
+        try:
+            vision_service = VisionService()
+
+            # Prepare images for caption generation
+            image_data_list = [
+                {
+                    'image_data': img.image_data,
+                    'page_number': img.page_number
+                }
+                for img in images
+            ]
+
+            # Generate captions in parallel batches
+            captions = await vision_service.batch_generate_captions(image_data_list)
+
+            return captions
+
+        except Exception as e:
+            logger.error(f"Failed to generate image captions: {e}", exc_info=True)
+            # Return list of Nones if caption generation fails
+            return [None] * len(images)
+
+    def _caption_to_dict(self, caption) -> Dict:
+        """
+        Convert ImageCaption object to dictionary for storage.
+
+        Args:
+            caption: ImageCaption object
+
+        Returns:
+            Dictionary representation
+        """
+        if caption is None:
+            return None
+
+        return {
+            'short_caption': caption.short_caption,
+            'detailed_description': caption.detailed_description,
+            'ocr_text': caption.ocr_text,
+            'tags': caption.tags
+        }
+
+    async def _upload_image_to_s3(
+        self,
+        image_data: bytes,
+        document_id: str,
+        user_id: str,
+        page_number: int,
+        image_index: int
+    ) -> tuple[str, str]:
+        """
+        Upload an extracted image to S3.
+
+        Args:
+            image_data: Image bytes
+            document_id: Document UUID
+            user_id: User ID
+            page_number: Page number
+            image_index: Image index on the page
+
+        Returns:
+            Tuple of (s3_url, s3_key)
+        """
+        from .docling_service import DoclingService
+
+        docling_service = DoclingService()
+        return docling_service.save_image_to_s3(
+            image_data,
+            document_id,
+            user_id,
+            page_number,
+            image_index
+        )
+
+    def _build_image_chunk_text(self, caption: Dict, page_number: int) -> str:
+        """
+        Build searchable text content for an image chunk using its caption.
+
+        Args:
+            caption: Caption dictionary with short_caption, detailed_description, ocr_text, tags
+            page_number: Page number where image appears
+
+        Returns:
+            Formatted text string for embedding generation
+        """
+        if not caption:
+            return f"Image on page {page_number}: No description available"
+
+        parts = [f"Image on page {page_number}: {caption.get('short_caption', 'No caption')}"]
+
+        # Add detailed description
+        if caption.get('detailed_description'):
+            parts.append(f"\nDetails: {caption['detailed_description']}")
+
+        # Add OCR text if available
+        if caption.get('ocr_text'):
+            parts.append(f"\nText in image: {caption['ocr_text']}")
+
+        # Add tags
+        if caption.get('tags'):
+            tags_str = ', '.join(caption['tags'])
+            parts.append(f"\nTags: {tags_str}")
+
+        return '\n'.join(parts)
+
+    def _create_image_chunks(self, uploaded_images: List[Dict]) -> List[Dict]:
+        """
+        Create image chunk representations from uploaded images with captions.
+
+        Args:
+            uploaded_images: List of image metadata dicts with caption, s3_key, page_number, etc.
+
+        Returns:
+            List of chunk dicts with 'content', 'page_number', 'metadata' for embedding generation
+        """
+        image_chunks = []
+
+        for img_data in uploaded_images:
+            caption = img_data.get('caption')
+            page_number = img_data.get('page_number', 1)
+
+            # Build text content for embedding
+            chunk_text = self._build_image_chunk_text(caption, page_number)
+
+            # Prepare metadata for position_data JSONB field
+            metadata = {
+                'bbox': img_data.get('bbox', (0, 0, 0, 0)),
+                'image_s3_key': img_data.get('s3_key'),
+                'image_s3_url': img_data.get('s3_url'),
+                'image_format': img_data.get('image_format', 'png'),
+                'image_index': img_data.get('image_index', 0),
+                'content_type': 'image',
+            }
+
+            # Add caption details to metadata
+            if caption:
+                metadata.update({
+                    'short_caption': caption.get('short_caption'),
+                    'detailed_description': caption.get('detailed_description'),
+                    'ocr_text': caption.get('ocr_text'),
+                    'tags': caption.get('tags', [])
+                })
+
+            image_chunk = {
+                'content': chunk_text,
+                'page_number': page_number,
+                'metadata': metadata,
+                'chunk_type': 'image'  # Mark as image chunk
+            }
+
+            image_chunks.append(image_chunk)
+
+        logger.info(f"Created {len(image_chunks)} image chunks for embedding")
+        return image_chunks
+
+    async def _extract_images_with_docling(self, pdf_path: str, document_id: str, user_id: str) -> List[Dict]:
+        """
+        Extract images from PDF using Docling and upload to S3.
+
+        Args:
+            pdf_path: Path to the PDF file
+            document_id: Document UUID
+            user_id: User ID
+
+        Returns:
+            List of dicts with image metadata and S3 URLs
+        """
+        from .docling_service import DoclingService
+
+        if not settings.ENABLE_IMAGE_EXTRACTION:
+            logger.info("Image extraction disabled via settings")
+            return []
+
+        try:
+            logger.info(f"Starting image extraction with Docling for document {document_id}")
+            docling_service = DoclingService()
+
+            # Extract document content
+            doc = docling_service.extract_document_content(pdf_path)
+
+            # Extract images
+            images = docling_service.extract_images(doc, pdf_path)
+
+            if not images:
+                logger.info("No images found in document")
+                return []
+
+            # Limit number of images to process
+            if len(images) > settings.MAX_IMAGES_PER_DOCUMENT:
+                logger.warning(
+                    f"Document has {len(images)} images, limiting to {settings.MAX_IMAGES_PER_DOCUMENT}"
+                )
+                images = images[:settings.MAX_IMAGES_PER_DOCUMENT]
+
+            # Generate captions for images using GPT-4o Vision
+            logger.info(f"Generating captions for {len(images)} images")
+            captions = await self._generate_image_captions(images)
+
+            # Upload images to S3 and collect metadata with captions
+            uploaded_images = []
+            for idx, img in enumerate(images):
+                try:
+                    # Upload to S3
+                    s3_url, s3_key = await self._upload_image_to_s3(
+                        img.image_data,
+                        document_id,
+                        user_id,
+                        img.page_number,
+                        idx
+                    )
+
+                    # Get caption for this image
+                    caption = captions[idx] if idx < len(captions) else None
+
+                    # Create image metadata with caption
+                    image_metadata = {
+                        'page_number': img.page_number,
+                        'bbox': img.bbox,
+                        's3_key': s3_key,
+                        's3_url': s3_url,
+                        'image_format': img.image_format,
+                        'image_index': idx,
+                        'caption': self._caption_to_dict(caption) if caption else None
+                    }
+
+                    uploaded_images.append(image_metadata)
+                    logger.debug(f"Uploaded image {idx} from page {img.page_number} with caption")
+
+                except Exception as e:
+                    logger.error(f"Failed to upload image {idx}: {e}", exc_info=True)
+                    # Continue with other images
+                    continue
+
+            # Count successful captions
+            captioned_count = sum(1 for img in uploaded_images if img.get('caption'))
+
+            logger.info(
+                f"Successfully extracted and uploaded {len(uploaded_images)} images "
+                f"out of {len(images)} total images ({captioned_count} with captions)"
+            )
+
+            return uploaded_images
+
+        except Exception as e:
+            logger.error(f"Image extraction failed: {e}", exc_info=True)
+
+            # Graceful degradation - don't fail entire document processing
+            if settings.DOCLING_FALLBACK_TO_PYPDF:
+                logger.info("Falling back to text-only processing due to image extraction failure")
+                return []
+            else:
+                raise
+
+
 

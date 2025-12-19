@@ -10,8 +10,12 @@ from ..models.user import User
 from ..models.conversation import Conversation, Message
 from ..models.document import Document
 from ..schemas.chat import ConversationResponse, ConversationWithMessages, MessageResponse
+from ..services.document_service import DocumentService
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
+
+# Initialize document service for signed URLs
+document_service = DocumentService()
 
 
 class ConversationCreate(BaseModel):
@@ -87,11 +91,12 @@ async def list_conversations(
             if doc_id not in document_map:
                 # Get document info
                 document = db.query(Document).filter(Document.id == doc_id).first()
+                signed_url = document_service.get_signed_url(document.blob_path) if document else None
                 document_map[doc_id] = {
                     "document": {
                         "id": document.id,
                         "title": document.title,
-                        "url": document.url
+                        "url": signed_url
                     } if document else None,
                     "conversations": []
                 }
@@ -120,6 +125,7 @@ async def list_conversations(
         for conv in conversations:
             # Get document info
             document = db.query(Document).filter(Document.id == conv.document_id).first()
+            signed_url = document_service.get_signed_url(document.blob_path) if document else None
 
             result.append({
                 "id": conv.id,
@@ -131,7 +137,7 @@ async def list_conversations(
                 "document": {
                     "id": document.id,
                     "title": document.title,
-                    "url": document.url
+                    "url": signed_url
                 } if document else None
             })
 
@@ -163,6 +169,7 @@ async def get_conversation(
 
     # Get document
     document = db.query(Document).filter(Document.id == conversation.document_id).first()
+    signed_url = document_service.get_signed_url(document.blob_path) if document else None
 
     # Build messages with annotations extracted from context
     message_list = []
@@ -188,7 +195,7 @@ async def get_conversation(
             "document": {
                 "id": document.id,
                 "title": document.title,
-                "url": document.url
+                "url": signed_url
             } if document else None
         },
         "messages": message_list
@@ -225,4 +232,3 @@ async def delete_conversation(
         "success": True,
         "message": "Conversation deleted successfully"
     }
-

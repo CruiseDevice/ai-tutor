@@ -27,6 +27,8 @@ class PDFAnnotation(BaseModel):
     pageNumber: int
     bounds: AnnotationBounds
     textContent: Optional[str] = None
+    imageChunkId: Optional[str] = None
+    imageS3Url: Optional[str] = None
     color: Optional[str] = None
     label: Optional[str] = None
 
@@ -34,7 +36,8 @@ class PDFAnnotation(BaseModel):
 class AnnotationReference(BaseModel):
     pageNumber: int
     annotations: List[PDFAnnotation]
-    sourceText: str
+    sourceText: Optional[str] = None
+    sourceImageUrl: Optional[str] = None
     explanation: Optional[str] = None
 
 
@@ -73,4 +76,3 @@ class ConversationResponse(ConversationBase):
 class ConversationWithMessages(ConversationResponse):
     messages: List[MessageResponse]
     document: Optional[Any] = None
-
