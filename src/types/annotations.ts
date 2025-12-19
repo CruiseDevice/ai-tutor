@@ -16,6 +16,8 @@ export interface PDFAnnotation {
   };
   // The text content that should be highlighted (for search/match)
   textContent?: string;
+  imageChunkId?: string;
+  imageS3Url?: string;
   // Color for the annotation
   color?: string;
   // Optional label to display
@@ -25,7 +27,8 @@ export interface PDFAnnotation {
 export interface AnnotationReference {
   pageNumber: number;
   annotations: PDFAnnotation[];
-  sourceText: string;       // The relevant text from the document
+  sourceText?: string;      // The relevant text from the document
+  sourceImageUrl?: string;
   explanation?: string;     // Brief explanation of why this is relevant
 }
 
@@ -81,4 +84,3 @@ export interface PDFNavigationCommand {
   pageNumber?: number;
   annotations?: PDFAnnotation[];
 }
-

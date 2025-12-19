@@ -482,11 +482,14 @@ function DashboardWithSearchParams () {
             if (pdfViewerRef.current && firstAnnotation) {
               console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
               pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
-              if (firstAnnotation.sourceText) {
-                console.log('[Dashboard] Highlighting text:', firstAnnotation.sourceText);
+              const firstTextMatch = firstAnnotation.annotations?.find(
+                annotation => annotation.textContent
+              )?.textContent || firstAnnotation.sourceText;
+              if (firstTextMatch) {
+                console.log('[Dashboard] Highlighting text:', firstTextMatch);
                 // Small delay to allow page to render
                 setTimeout(() => {
-                  pdfViewerRef.current?.highlightText(firstAnnotation.pageNumber, firstAnnotation.sourceText);
+                  pdfViewerRef.current?.highlightText(firstAnnotation.pageNumber, firstTextMatch);
                 }, 500);
               }
             }
@@ -548,8 +551,11 @@ function DashboardWithSearchParams () {
       setCurrentAnnotations([annotation]);
 
       // If there's text to highlight, use the highlight function
-      if (annotation.sourceText) {
-        pdfViewerRef.current.highlightText(annotation.pageNumber, annotation.sourceText);
+      const textMatch = annotation.annotations?.find(
+        entry => entry.textContent
+      )?.textContent || annotation.sourceText;
+      if (textMatch) {
+        pdfViewerRef.current.highlightText(annotation.pageNumber, textMatch);
       }
     }
   }, []);
