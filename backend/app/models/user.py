@@ -25,7 +25,11 @@ class User(Base):
     password = Column(String, nullable=False)
     api_key = Column(String, nullable=True)  # Stored encrypted if encryption is enabled
     role = Column(
-        Enum(UserRole),
+        Enum(
+            UserRole,
+            name="userrole",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls]
+        ),
         default=UserRole.USER,
         nullable=False,
         server_default=UserRole.USER.value
@@ -79,4 +83,3 @@ class PasswordResetToken(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
