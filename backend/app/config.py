@@ -76,8 +76,8 @@ class Settings(BaseSettings):
     # Cross-encoder re-ranking improves retrieval quality by re-ranking top candidates
     RERANK_ENABLED: bool = True  # Enable/disable cross-encoder re-ranking
     RERANK_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Cross-encoder model for re-ranking
-    RERANK_TOP_K: int = 20  # Number of candidates to retrieve before re-ranking
-    RERANK_FINAL_K: int = 5  # Final number of chunks to return after re-ranking
+    RERANK_TOP_K: int = 40  # Number of candidates to retrieve before re-ranking (increased for better coverage)
+    RERANK_FINAL_K: int = 15  # Final number of chunks to return after re-ranking (increased for better detail capture)
 
     # Query Expansion Configuration
     # Multi-query retrieval generates query variations to improve retrieval accuracy for ambiguous/complex queries
