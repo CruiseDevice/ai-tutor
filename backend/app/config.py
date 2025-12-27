@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     SEMANTIC_SEARCH_WEIGHT: float = 0.7  # Weight for pgvector semantic search (default: 70%)
     KEYWORD_SEARCH_WEIGHT: float = 0.3   # Weight for PostgreSQL full-text keyword search (default: 30%)
 
+    # Adaptive Hybrid Search (Phase 1B)
+    # Dynamically adjust weights based on query characteristics for better retrieval
+    ENABLE_ADAPTIVE_HYBRID_WEIGHTS: bool = True  # Enable query-adaptive weighting
+    HYBRID_WEIGHT_KEYWORD_BOOST: float = 0.6     # Keyword weight for keyword-focused queries (definitions, facts)
+    HYBRID_WEIGHT_SEMANTIC_BOOST: float = 0.85   # Semantic weight for semantic queries (explanations, concepts)
+
     # Re-Ranking Configuration
     # Cross-encoder re-ranking improves retrieval quality by re-ranking top candidates
     RERANK_ENABLED: bool = True  # Enable/disable cross-encoder re-ranking
