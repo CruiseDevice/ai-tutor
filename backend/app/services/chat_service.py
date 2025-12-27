@@ -463,6 +463,54 @@ Title:"""
 
         return f"[Page {page_num}]: {content}"
 
+    def _calculate_adaptive_weights(self, query: str) -> tuple[float, float]:
+        """
+        Dynamically adjust semantic vs keyword weights based on query characteristics.
+
+        Returns:
+            Tuple of (semantic_weight, keyword_weight)
+        """
+        import re
+        from ..config import settings
+
+        # Don't use adaptive weights if disabled
+        if not getattr(settings, 'ENABLE_ADAPTIVE_HYBRID_WEIGHTS', False):
+            return settings.SEMANTIC_SEARCH_WEIGHT, settings.KEYWORD_SEARCH_WEIGHT
+
+        # Detect keyword-focused queries
+        keyword_indicators = [
+            bool(re.search(r'"[\w\s]+"', query)),  # Quoted phrases
+            bool(re.search(r'\d+', query)),  # Contains numbers
+            bool(re.search(r'\b(definition|specific|exact|what is|code|name|id)\b', query.lower())),
+            len(query.split()) < 5  # Short queries
+        ]
+
+        # Detect semantic-focused queries
+        semantic_indicators = [
+            bool(re.search(r'\b(explain|why|how|describe|compare|relationship|discuss)\b', query.lower())),
+            len(query.split()) > 10,  # Long queries
+            '?' in query
+        ]
+
+        keyword_score = sum(keyword_indicators) / len(keyword_indicators)
+        semantic_score = sum(semantic_indicators) / len(semantic_indicators)
+
+        # Decide weighting strategy
+        if keyword_score > semantic_score + 0.3:
+            # Keyword-focused query (e.g., "What is the definition of X?")
+            weights = (0.4, settings.HYBRID_WEIGHT_KEYWORD_BOOST)
+            logger.debug(f"Query classified as keyword-focused: {query[:50]}...")
+        elif semantic_score > keyword_score + 0.3:
+            # Semantic-focused query (e.g., "Explain how X relates to Y")
+            weights = (settings.HYBRID_WEIGHT_SEMANTIC_BOOST, 0.15)
+            logger.debug(f"Query classified as semantic-focused: {query[:50]}...")
+        else:
+            # Balanced query - use defaults
+            weights = (settings.SEMANTIC_SEARCH_WEIGHT, settings.KEYWORD_SEARCH_WEIGHT)
+            logger.debug(f"Query classified as balanced: {query[:50]}...")
+
+        return weights
+
     def _combine_results_with_rrf(
         self,
         result_sets: List[List[Dict]],
@@ -562,9 +610,14 @@ Title:"""
         try:
             from ..config import settings
 
-            # Get search weights and query expansion settings from config
-            semantic_weight = getattr(settings, 'SEMANTIC_SEARCH_WEIGHT', 0.7)
-            keyword_weight = getattr(settings, 'KEYWORD_SEARCH_WEIGHT', 0.3)
+            # Calculate adaptive weights based on query characteristics (Phase 1B)
+            semantic_weight, keyword_weight = self._calculate_adaptive_weights(query)
+
+            logger.info(
+                f"Using adaptive weights: semantic={semantic_weight:.2f}, keyword={keyword_weight:.2f}"
+            )
+
+            # Get query expansion and reranking settings from config
             rerank_enabled = getattr(settings, 'RERANK_ENABLED', False)
             query_expansion_enabled = getattr(settings, 'QUERY_EXPANSION_ENABLED', False)
             rrf_k = getattr(settings, 'RRF_K', 60)
