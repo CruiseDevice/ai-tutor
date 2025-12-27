@@ -103,24 +103,52 @@ class QueryExpansionService:
         """
         client = AsyncOpenAI(api_key=user_api_key)
 
-        # Craft prompt to generate diverse query variations
-        system_prompt = """You are a query expansion expert. Your task is to generate diverse variations of user queries to improve information retrieval.
+        # Craft enhanced prompt to generate diverse query variations (Phase 2 - Task 2.1)
+        # This improved prompt generates more targeted variations across different semantic angles
+        system_prompt = """You are an expert at reformulating user queries to improve information retrieval.
+Your task is to generate diverse variations that capture different semantic angles of the original query.
 
-Generate variations that:
-1. Rephrase the query using different wording
-2. Use synonyms and related terminology
-3. Change the question structure (e.g., what/how/why)
-4. Expand abbreviations and technical terms
-5. Consider different perspectives or aspects of the question
+Each variation should:
+- Target a different aspect of the original query
+- Preserve the core intent
+- Use diverse vocabulary
+- Be concise (max 20 words)
 
-Each variation should be semantically similar but lexically different from the original query.
 Return ONLY a JSON array of query strings, nothing else."""
+
+        # Generate variations with specific purposes for better coverage
+        if num_variations >= 4:
+            variation_instructions = """
+1. **Conceptual variation**: Rephrase using synonyms and related concepts
+2. **Specific variation**: Make the query more specific and detailed
+3. **Broad variation**: Make the query more general to catch related information
+4. **Technical variation**: Use domain-specific or technical terminology"""
+        elif num_variations == 3:
+            variation_instructions = """
+1. **Conceptual variation**: Rephrase using synonyms and related concepts
+2. **Specific variation**: Make the query more specific and detailed
+3. **Broad variation**: Make the query more general to catch related information"""
+        elif num_variations == 2:
+            variation_instructions = """
+1. **Conceptual variation**: Rephrase using synonyms and related concepts
+2. **Specific variation**: Make the query more specific and detailed"""
+        else:
+            variation_instructions = """
+1. **Conceptual variation**: Rephrase using synonyms and related concepts"""
 
         user_prompt = f"""Original query: "{query}"
 
-Generate {num_variations} diverse variations of this query. Each variation should seek the same information but use different wording, structure, or perspective.
+Generate {num_variations} alternative phrasings that capture different semantic angles:
+{variation_instructions}
 
-Return format: ["variation 1", "variation 2", ...]"""
+Requirements:
+- Each variation should target different aspects of the original query
+- Preserve the core intent
+- Use diverse vocabulary
+- Keep each variation concise (max 20 words)
+
+Return ONLY a JSON array of {num_variations} strings, no explanation.
+Format: ["variation 1", "variation 2", ...]"""
 
         try:
             response = await client.chat.completions.create(
