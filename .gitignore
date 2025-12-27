@@ -56,3 +56,6 @@ __pycache__/
 *.pyd
 *.pyw
 *.pyz
+
+# Personal documentation (not for GitHub)
+/docs/
