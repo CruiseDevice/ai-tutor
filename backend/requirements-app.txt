@@ -49,3 +49,8 @@ langchain
 langchain-community
 langchain-openai
 langgraph
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
