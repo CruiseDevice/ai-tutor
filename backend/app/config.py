@@ -98,6 +98,14 @@ class Settings(BaseSettings):
     ENABLE_QUERY_DECOMPOSITION: bool = True  # Enable/disable query decomposition
     QUERY_DECOMPOSITION_MAX_SUBQUERIES: int = 5  # Maximum number of sub-queries to generate
 
+    # Hierarchical Chunking Configuration
+    # Two-level chunking: large parent chunks for context, small child chunks for precision
+    ENABLE_HIERARCHICAL_CHUNKING: bool = False  # Enable/disable hierarchical chunking (start disabled for testing)
+    HIERARCHICAL_PARENT_CHUNK_SIZE: int = 1500  # Parent chunk size in characters (provides context to LLM)
+    HIERARCHICAL_PARENT_OVERLAP: int = 200  # Overlap between parent chunks
+    HIERARCHICAL_CHILD_CHUNK_SIZE: int = 300  # Child chunk size in characters (for precise retrieval)
+    HIERARCHICAL_CHILD_OVERLAP: int = 50  # Overlap between child chunks
+
     # Token Management and Context Window Configuration
     # Dynamic chunk selection based on token limits instead of fixed chunk count
     MAX_CONTEXT_TOKENS: int = 100000  # Maximum context window limit (GPT-4 supports up to 128k)

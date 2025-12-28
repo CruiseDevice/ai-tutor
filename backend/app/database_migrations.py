@@ -517,3 +517,119 @@ def add_chunk_type_column(engine):
         # Log error but don't crash the backend
         logger.error(f"Migration error (non-fatal) - add_chunk_type_column: {e}", exc_info=True)
         logger.warning("Backend will continue to start, but image chunk support may not work")
+
+
+def add_hierarchical_chunking_schema(engine):
+    """
+    Add hierarchical chunking support with parent-child chunk relationships.
+
+    Phase 3: Hierarchical Parent-Child Chunking
+
+    Adds:
+        - chunk_level: Column to document_chunks to track chunk hierarchy (flat, parent, child)
+        - parent_child_relationships: New table to track parent-child chunk relationships
+        - Indexes for efficient parent-child lookups
+
+    This enables precision retrieval (search child chunks) with context preservation
+    (return parent chunks) for improved detail capture.
+    """
+    try:
+        inspector = inspect(engine)
+
+        # Check if document_chunks table exists
+        table_names = inspector.get_table_names()
+        if 'document_chunks' not in table_names:
+            logger.info("document_chunks table does not exist, will be created by create_all()")
+            return
+
+        # Part 1: Add chunk_level column to document_chunks
+        existing_columns = {col['name'] for col in inspector.get_columns('document_chunks')}
+
+        with engine.begin() as conn:
+            if 'chunk_level' not in existing_columns:
+                logger.info("Adding 'chunk_level' column to 'document_chunks' table...")
+                conn.execute(text("""
+                    ALTER TABLE document_chunks
+                    ADD COLUMN chunk_level VARCHAR(20) DEFAULT 'flat'
+                """))
+
+                # Backfill existing rows with 'flat' (default for non-hierarchical chunks)
+                conn.execute(text("""
+                    UPDATE document_chunks
+                    SET chunk_level = 'flat'
+                    WHERE chunk_level IS NULL
+                """))
+
+                logger.info("Successfully added 'chunk_level' column")
+            else:
+                logger.debug("'chunk_level' column already exists in 'document_chunks' table")
+
+        # Part 2: Add index on chunk_level for filtering
+        with engine.begin() as conn:
+            existing_indexes = {idx['name'] for idx in inspector.get_indexes('document_chunks')}
+            idx_name = 'idx_document_chunks_level'
+
+            if idx_name not in existing_indexes:
+                logger.info(f"Creating index '{idx_name}' on document_chunks.chunk_level...")
+                conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_document_chunks_level
+                    ON document_chunks(chunk_level)
+                """))
+                logger.info(f"Successfully created index '{idx_name}'")
+            else:
+                logger.debug(f"Index '{idx_name}' already exists")
+
+        # Part 3: Create parent_child_relationships table
+        if 'parent_child_relationships' not in table_names:
+            logger.info("Creating 'parent_child_relationships' table...")
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TABLE parent_child_relationships (
+                        id VARCHAR PRIMARY KEY,
+                        parent_chunk_id VARCHAR NOT NULL,
+                        child_chunk_id VARCHAR NOT NULL,
+                        child_index INTEGER NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(parent_chunk_id, child_chunk_id),
+                        FOREIGN KEY (parent_chunk_id) REFERENCES document_chunks(id) ON DELETE CASCADE,
+                        FOREIGN KEY (child_chunk_id) REFERENCES document_chunks(id) ON DELETE CASCADE
+                    )
+                """))
+                logger.info("Successfully created 'parent_child_relationships' table")
+        else:
+            logger.debug("'parent_child_relationships' table already exists")
+
+        # Part 4: Create indexes on parent_child_relationships table
+        with engine.begin() as conn:
+            existing_indexes = {idx['name'] for idx in inspector.get_indexes('parent_child_relationships')}
+
+            # Index on parent_chunk_id (lookup children by parent)
+            idx_parent = 'idx_parent_child_parent'
+            if idx_parent not in existing_indexes:
+                logger.info(f"Creating index '{idx_parent}' on parent_child_relationships.parent_chunk_id...")
+                conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_parent_child_parent
+                    ON parent_child_relationships(parent_chunk_id)
+                """))
+                logger.info(f"Successfully created index '{idx_parent}'")
+            else:
+                logger.debug(f"Index '{idx_parent}' already exists")
+
+            # Index on child_chunk_id (lookup parent by child)
+            idx_child = 'idx_parent_child_child'
+            if idx_child not in existing_indexes:
+                logger.info(f"Creating index '{idx_child}' on parent_child_relationships.child_chunk_id...")
+                conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_parent_child_child
+                    ON parent_child_relationships(child_chunk_id)
+                """))
+                logger.info(f"Successfully created index '{idx_child}'")
+            else:
+                logger.debug(f"Index '{idx_child}' already exists")
+
+        logger.info("Hierarchical chunking schema migration completed successfully")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_hierarchical_chunking_schema: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but hierarchical chunking may not work")
