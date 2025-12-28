@@ -100,7 +100,7 @@ class Settings(BaseSettings):
 
     # Hierarchical Chunking Configuration
     # Two-level chunking: large parent chunks for context, small child chunks for precision
-    ENABLE_HIERARCHICAL_CHUNKING: bool = False  # Enable/disable hierarchical chunking (start disabled for testing)
+    ENABLE_HIERARCHICAL_CHUNKING: bool = True  # Enable/disable hierarchical chunking (start disabled for testing)
     HIERARCHICAL_PARENT_CHUNK_SIZE: int = 1500  # Parent chunk size in characters (provides context to LLM)
     HIERARCHICAL_PARENT_OVERLAP: int = 200  # Overlap between parent chunks
     HIERARCHICAL_CHILD_CHUNK_SIZE: int = 300  # Child chunk size in characters (for precise retrieval)
