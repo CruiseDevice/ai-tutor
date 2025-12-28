@@ -189,6 +189,98 @@ class DocumentService:
             "errors": total_errors,
         }
 
+    async def _extract_and_save_sentences(
+        self,
+        db: Session,
+        document_id: str,
+        pages: List,
+        course_id: str = None
+    ) -> Dict[str, int]:
+        """
+        Extract critical sentences from document pages and save them as sentence-level chunks.
+
+        Args:
+            db: Database session
+            document_id: ID of the document
+            pages: List of LangChain Document objects from PyPDFLoader
+            course_id: Optional course ID
+
+        Returns:
+            Dict with statistics: sentences_extracted, sentences_saved, sentences_failed
+        """
+        if not settings.ENABLE_SENTENCE_RETRIEVAL:
+            logger.info("Sentence retrieval disabled, skipping sentence extraction")
+            return {"sentences_extracted": 0, "sentences_saved": 0, "sentences_failed": 0}
+
+        try:
+            from .sentence_retrieval_service import SentenceRetrievalService
+
+            logger.info(f"Extracting critical sentences from {len(pages)} pages")
+
+            # Initialize sentence retrieval service
+            sentence_service = SentenceRetrievalService()
+
+            # Extract critical sentences
+            sentences = sentence_service.extract_critical_sentences(
+                pages=pages,
+                min_sentence_length=settings.SENTENCE_MIN_LENGTH,
+                max_sentence_length=settings.SENTENCE_MAX_LENGTH,
+                include_short_sentences=settings.SENTENCE_INCLUDE_SHORT
+            )
+
+            if not sentences:
+                logger.info("No critical sentences extracted")
+                return {"sentences_extracted": 0, "sentences_saved": 0, "sentences_failed": 0}
+
+            # Deduplicate sentences
+            sentences = sentence_service.deduplicate_sentences(sentences)
+
+            logger.info(f"Extracted {len(sentences)} critical sentences (after deduplication)")
+
+            # Generate embeddings for sentences
+            sentence_texts = [s['content'] for s in sentences]
+            sentence_embeddings = await self._generate_embeddings_parallel(
+                sentence_texts,
+                batch_size=50,
+                max_concurrent=4
+            )
+
+            # Prepare sentence chunks for storage
+            sentence_chunks = []
+            for i, sentence in enumerate(sentences):
+                chunk_data = {
+                    'content': sentence['content'],
+                    'page_number': sentence['page_number'],
+                    'embedding': sentence_embeddings[i],
+                    'chunk_type': 'sentence',
+                    'chunk_level': 'sentence',
+                    'metadata': sentence.get('metadata', {})
+                }
+                sentence_chunks.append(chunk_data)
+
+            # Save sentence chunks to database
+            result = await self._save_chunks_parallel(
+                db,
+                document_id,
+                sentence_chunks,
+                batch_size=50
+            )
+
+            logger.info(
+                f"Sentence extraction complete: extracted={len(sentences)}, "
+                f"saved={result['success']}, failed={result['errors']}"
+            )
+
+            return {
+                "sentences_extracted": len(sentences),
+                "sentences_saved": result['success'],
+                "sentences_failed": result['errors']
+            }
+
+        except Exception as e:
+            logger.error(f"Error extracting and saving sentences: {e}", exc_info=True)
+            return {"sentences_extracted": 0, "sentences_saved": 0, "sentences_failed": 0}
+
     def _detect_document_structure(self, pages: List) -> Dict:
         """
         Analyze document pages to detect structural elements like headers, sections, tables, and lists.
@@ -1147,6 +1239,14 @@ class DocumentService:
                 logger.warning(f"Failed to invalidate cache for document {document_id}: {e}")
                 # Don't fail the request if cache invalidation fails
 
+            # Extract and save critical sentences
+            sentence_stats = await self._extract_and_save_sentences(
+                db,
+                document_id,
+                pages,
+                course_id=document.course_id
+            )
+
             # Calculate statistics
             text_chunks_count = len(text_chunk_data)
             image_chunks_count = len(image_chunk_data)
@@ -1157,6 +1257,7 @@ class DocumentService:
                 f"text_chunks={text_chunks_count}, "
                 f"image_chunks={image_chunks_count}, "
                 f"total_chunks={successful_chunks}, "
+                f"sentences={sentence_stats['sentences_saved']}, "
                 f"images_extracted={len(extracted_images)}, "
                 f"images_captioned={images_captioned_count}"
             )
@@ -1171,7 +1272,10 @@ class DocumentService:
                 "total_chunks": text_chunks_count + image_chunks_count,
                 "images_extracted": len(extracted_images),
                 "images_uploaded": sum(1 for img in extracted_images if img.get('s3_url')),
-                "images_captioned": images_captioned_count
+                "images_captioned": images_captioned_count,
+                "sentences_extracted": sentence_stats['sentences_extracted'],
+                "sentences_saved": sentence_stats['sentences_saved'],
+                "chunking_mode": "flat"
             }
 
         finally:
@@ -1591,6 +1695,16 @@ class DocumentService:
             relationships
         )
 
+        # Extract and save critical sentences
+        # Get document to access course_id
+        document = db.query(Document).filter(Document.id == document_id).first()
+        sentence_stats = await self._extract_and_save_sentences(
+            db,
+            document_id,
+            pages,
+            course_id=document.course_id if document else None
+        )
+
         # Calculate statistics
         total_chunks_saved = parent_result['success'] + child_result['success']
         total_chunks_failed = parent_result['errors'] + child_result['errors']
@@ -1600,6 +1714,7 @@ class DocumentService:
             f"parents={parent_result['success']}, "
             f"children={child_result['success']}, "
             f"relationships={saved_relationships}, "
+            f"sentences={sentence_stats['sentences_saved']}, "
             f"total_saved={total_chunks_saved}, "
             f"failed={total_chunks_failed}"
         )
@@ -1610,7 +1725,9 @@ class DocumentService:
             'child_chunks': child_result['success'],
             'relationships': saved_relationships,
             'total_chunks': total_chunks_saved,
-            'failed_chunks': total_chunks_failed
+            'failed_chunks': total_chunks_failed,
+            'sentences_extracted': sentence_stats['sentences_extracted'],
+            'sentences_saved': sentence_stats['sentences_saved']
         }
 
     async def _save_parent_child_relationships(
