@@ -589,6 +589,134 @@ Title:"""
 
         return combined_results
 
+    async def _retrieve_critical_sentences(
+        self,
+        db: Session,
+        query: str,
+        query_embedding: List[float],
+        document_id: str,
+        limit: int = 10
+    ) -> List[Dict]:
+        """
+        Retrieve critical sentences from the document for detail-focused queries.
+
+        This method finds sentences that match the query using semantic search
+        and filters for sentence-type chunks.
+
+        Args:
+            db: Database session
+            query: User query
+            query_embedding: Query embedding vector
+            document_id: Document ID to search within
+            limit: Maximum number of sentences to retrieve
+
+        Returns:
+            List of sentence chunks with similarity scores
+        """
+        try:
+            logger.debug(f"Retrieving up to {limit} critical sentences for query: {query[:50]}...")
+
+            # Query for sentence-level chunks using vector similarity
+            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+
+            query_sql = text("""
+                SELECT
+                    id,
+                    content,
+                    page_number,
+                    document_id,
+                    position_data,
+                    chunk_type,
+                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                FROM document_chunks
+                WHERE document_id = :document_id
+                  AND chunk_type = 'sentence'
+                ORDER BY embedding <=> CAST(:embedding AS vector)
+                LIMIT :limit
+            """)
+
+            result = db.execute(
+                query_sql,
+                {
+                    "embedding": embedding_str,
+                    "document_id": document_id,
+                    "limit": limit
+                }
+            )
+
+            # Convert to list of dicts
+            sentences = []
+            for row in result:
+                sentences.append({
+                    "id": row.id,
+                    "content": row.content,
+                    "pageNumber": row.page_number,
+                    "documentId": row.document_id,
+                    "positionData": row.position_data,
+                    "chunk_type": row.chunk_type,
+                    "similarity": float(row.similarity),
+                    "is_sentence": True  # Mark as sentence for deduplication
+                })
+
+            logger.info(f"Retrieved {len(sentences)} critical sentences")
+            return sentences
+
+        except Exception as e:
+            logger.error(f"Error retrieving critical sentences: {e}", exc_info=True)
+            return []
+
+    def _merge_chunks_and_sentences(
+        self,
+        chunks: List[Dict],
+        sentences: List[Dict],
+        boost_factor: float = 1.2
+    ) -> List[Dict]:
+        """
+        Merge chunk and sentence results, applying boost to sentence scores.
+
+        Args:
+            chunks: List of regular chunk results
+            sentences: List of sentence results
+            boost_factor: Boost factor for sentence similarity scores
+
+        Returns:
+            Merged and deduplicated list sorted by similarity
+        """
+        # Apply boost to sentence scores
+        for sent in sentences:
+            sent['similarity'] *= boost_factor
+            sent['boosted'] = True
+
+        # Combine chunks and sentences
+        combined = chunks + sentences
+
+        # Deduplicate by content (sentences might overlap with chunks)
+        seen_contents = {}
+        deduplicated = []
+
+        for item in combined:
+            content_key = item['content'].strip().lower()[:100]  # Use first 100 chars as key
+
+            # If we haven't seen this content, or if this has higher similarity, keep it
+            if content_key not in seen_contents:
+                seen_contents[content_key] = item
+                deduplicated.append(item)
+            elif item['similarity'] > seen_contents[content_key]['similarity']:
+                # Replace with higher-scoring version
+                idx = deduplicated.index(seen_contents[content_key])
+                deduplicated[idx] = item
+                seen_contents[content_key] = item
+
+        # Sort by similarity
+        deduplicated.sort(key=lambda x: x['similarity'], reverse=True)
+
+        logger.info(
+            f"Merged {len(chunks)} chunks and {len(sentences)} sentences into {len(deduplicated)} results "
+            f"(removed {len(combined) - len(deduplicated)} duplicates)"
+        )
+
+        return deduplicated
+
     async def find_similar_chunks(
         self,
         db: Session,
@@ -638,6 +766,42 @@ Title:"""
                 )
 
                 logger.info(f"Hierarchical retrieval returned {len(hierarchical_results)} parent chunks")
+
+                # SENTENCE-LEVEL RETRIEVAL: Add sentence retrieval for hierarchical mode too
+                if settings.ENABLE_SENTENCE_RETRIEVAL:
+                    from .sentence_retrieval_service import SentenceRetrievalService
+                    sentence_service = SentenceRetrievalService()
+
+                    # Check if this is a detail-focused query
+                    is_detail_query = sentence_service.is_detail_query(query)
+
+                    if is_detail_query:
+                        logger.info("Detail query detected - retrieving critical sentences (hierarchical mode)")
+
+                        # Retrieve critical sentences
+                        sentences = await self._retrieve_critical_sentences(
+                            db=db,
+                            query=query,
+                            query_embedding=query_embedding,
+                            document_id=document_id,
+                            limit=settings.SENTENCE_RETRIEVAL_TOP_K
+                        )
+
+                        if sentences:
+                            # Merge sentences with hierarchical chunks
+                            hierarchical_results = self._merge_chunks_and_sentences(
+                                chunks=hierarchical_results,
+                                sentences=sentences,
+                                boost_factor=settings.SENTENCE_BOOST_FACTOR
+                            )
+
+                            # Limit to requested number after merging
+                            hierarchical_results = hierarchical_results[:limit]
+
+                            logger.info(
+                                f"Merged sentence retrieval (hierarchical): final result has {len(hierarchical_results)} items"
+                            )
+
                 return hierarchical_results
 
             # FLAT CHUNKING (existing behavior)
@@ -1111,6 +1275,42 @@ Title:"""
             search_type = "hybrid" if keyword_search_success else "semantic-only"
             rerank_status = "with re-ranking" if rerank_enabled else "without re-ranking"
             logger.info(f"Hybrid search ({search_type}, {rerank_status}) returned {len(final_chunks)} chunks")
+
+            # SENTENCE-LEVEL RETRIEVAL (Phase 5): Retrieve critical sentences for detail queries
+            if settings.ENABLE_SENTENCE_RETRIEVAL:
+                from .sentence_retrieval_service import SentenceRetrievalService
+                sentence_service = SentenceRetrievalService()
+
+                # Check if this is a detail-focused query
+                is_detail_query = sentence_service.is_detail_query(query)
+
+                if is_detail_query:
+                    logger.info("Detail query detected - retrieving critical sentences")
+
+                    # Retrieve critical sentences
+                    sentences = await self._retrieve_critical_sentences(
+                        db=db,
+                        query=query,
+                        query_embedding=query_embedding,
+                        document_id=document_id,
+                        limit=settings.SENTENCE_RETRIEVAL_TOP_K
+                    )
+
+                    if sentences:
+                        # Merge sentences with chunks
+                        final_chunks = self._merge_chunks_and_sentences(
+                            chunks=final_chunks,
+                            sentences=sentences,
+                            boost_factor=settings.SENTENCE_BOOST_FACTOR
+                        )
+
+                        # Limit to requested number after merging
+                        final_chunks = final_chunks[:limit]
+
+                        logger.info(
+                            f"Merged sentence retrieval: final result has {len(final_chunks)} items "
+                            f"(chunks + sentences)"
+                        )
 
             # Cache the final results (cache key includes re-ranking status)
             await cache_service.set_chunks(
