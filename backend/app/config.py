@@ -106,6 +106,19 @@ class Settings(BaseSettings):
     HIERARCHICAL_CHILD_CHUNK_SIZE: int = 300  # Child chunk size in characters (for precise retrieval)
     HIERARCHICAL_CHILD_OVERLAP: int = 50  # Overlap between child chunks
 
+    # Adaptive Chunk Sizing Configuration
+    # Dynamically adjust chunk sizes based on content density
+    ENABLE_ADAPTIVE_CHUNKING: bool = True  # Enable/disable adaptive chunk sizing (start disabled for testing)
+    ADAPTIVE_DENSITY_HIGH_THRESHOLD: float = 0.6  # Density threshold for "high density" content (tables, code)
+    ADAPTIVE_DENSITY_LOW_THRESHOLD: float = 0.4  # Density threshold for "low density" content (narrative)
+    # Density metrics weights (sum to 1.0)
+    DENSITY_WEIGHT_SPECIAL_CHAR: float = 0.30  # Weight for special characters (code, math symbols)
+    DENSITY_WEIGHT_NUMERIC: float = 0.25  # Weight for numeric content (tables, data)
+    DENSITY_WEIGHT_LINE_BREAK: float = 0.20  # Weight for line breaks (structured content)
+    DENSITY_WEIGHT_PUNCTUATION: float = 0.10  # Weight for punctuation
+    DENSITY_WEIGHT_TOKEN: float = 0.10  # Weight for token density
+    DENSITY_WEIGHT_WHITESPACE: float = 0.05  # Weight for whitespace (inverted)
+
     # Token Management and Context Window Configuration
     # Dynamic chunk selection based on token limits instead of fixed chunk count
     MAX_CONTEXT_TOKENS: int = 100000  # Maximum context window limit (GPT-4 supports up to 128k)
