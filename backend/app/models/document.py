@@ -29,7 +29,7 @@ class Document(Base):
     error_message = Column(Text, nullable=True)  # Store error details if processing fails
     job_id = Column(String, nullable=True)  # Arq job ID for tracking background processing
 
-    # Processing time tracking (Phase 2)
+    # Processing time tracking
     processing_started_at = Column(DateTime(timezone=True), nullable=True)
     processing_completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -62,6 +62,7 @@ class DocumentChunk(Base):
     content = Column(Text, nullable=False)
     page_number = Column(Integer, nullable=False)
     chunk_type = Column(String, nullable=True, default='text', index=True)
+    chunk_level = Column(String, nullable=True, default='flat', index=True)  # flat, parent, or child
     embedding = Column(Vector(768))  # pgvector type for 768-dimensional embeddings
     document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     position_data = Column(JSONB, nullable=True)
@@ -71,4 +72,49 @@ class DocumentChunk(Base):
 
     # Relationships
     document = relationship("Document", back_populates="chunks")
+    # Parent-child relationships for hierarchical chunking (Phase 3)
+    parent_relationships = relationship(
+        "ParentChildRelationship",
+        foreign_keys="ParentChildRelationship.parent_chunk_id",
+        back_populates="parent_chunk",
+        cascade="all, delete-orphan"
+    )
+    child_relationships = relationship(
+        "ParentChildRelationship",
+        foreign_keys="ParentChildRelationship.child_chunk_id",
+        back_populates="child_chunk",
+        cascade="all, delete-orphan"
+    )
+
+
+class ParentChildRelationship(Base):
+    """
+    Model for tracking hierarchical parent-child relationships between chunks.
+
+    Phase 3: Hierarchical Parent-Child Chunking
+
+    This table enables:
+    - Precision retrieval: Search against small child chunks for better keyword matching
+    - Context preservation: Return larger parent chunks to LLM with full context
+    - Flexible chunking: Different chunk sizes for indexing vs context delivery
+    """
+    __tablename__ = "parent_child_relationships"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    parent_chunk_id = Column(String, ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False, index=True)
+    child_chunk_id = Column(String, ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False, index=True)
+    child_index = Column(Integer, nullable=False)  # Order of child within parent (0, 1, 2, ...)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    parent_chunk = relationship(
+        "DocumentChunk",
+        foreign_keys=[parent_chunk_id],
+        back_populates="parent_relationships"
+    )
+    child_chunk = relationship(
+        "DocumentChunk",
+        foreign_keys=[child_chunk_id],
+        back_populates="child_relationships"
+    )
 
