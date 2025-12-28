@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     # File upload limits
     MAX_FILE_SIZE: int = 30 * 1024 * 1024  # 30MB in bytes
 
-    # Document Processing Optimizations (Phase 3)
+    # Document Processing Optimizations
     USE_STREAMING_PROCESSING: bool = True  # Enable streaming PDF processing for progressive availability
 
     # Semantic Chunking Configuration
@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     SEMANTIC_SEARCH_WEIGHT: float = 0.7  # Weight for pgvector semantic search (default: 70%)
     KEYWORD_SEARCH_WEIGHT: float = 0.3   # Weight for PostgreSQL full-text keyword search (default: 30%)
 
-    # Adaptive Hybrid Search (Phase 1B)
+    # Adaptive Hybrid Search
     # Dynamically adjust weights based on query characteristics for better retrieval
     ENABLE_ADAPTIVE_HYBRID_WEIGHTS: bool = True  # Enable query-adaptive weighting
     HYBRID_WEIGHT_KEYWORD_BOOST: float = 0.6     # Keyword weight for keyword-focused queries (definitions, facts)
@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     QUERY_EXPANSION_TEMPERATURE: float = 0.7  # Temperature for variation generation (0.7 for diverse variations)
     RRF_K: int = 60  # Reciprocal Rank Fusion constant (standard value, controls score normalization)
 
-    # Query Decomposition Configuration (Phase 2)
+    # Query Decomposition Configuration
     # Breaks down complex multi-part queries into simpler atomic sub-queries for better retrieval
     ENABLE_QUERY_DECOMPOSITION: bool = True  # Enable/disable query decomposition
     QUERY_DECOMPOSITION_MAX_SUBQUERIES: int = 5  # Maximum number of sub-queries to generate
