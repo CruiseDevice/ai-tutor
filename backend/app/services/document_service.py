@@ -1035,9 +1035,42 @@ class DocumentService:
             logger.info("Analyzing document structure (headers, tables, lists, sections)")
             document_structure = self._detect_document_structure(pages)
 
-            # Use advanced semantic chunking with metadata preservation
+            # Check if hierarchical chunking is enabled
+            if settings.ENABLE_HIERARCHICAL_CHUNKING:
+                logger.info("Hierarchical chunking enabled - processing with parent-child strategy")
+                hierarchical_result = await self._process_with_hierarchical_chunking(
+                    db,
+                    document_id,
+                    pages,
+                    document_structure
+                )
+
+                # Invalidate cache for this document since chunks have been updated
+                try:
+                    cache_service = await get_cache_service()
+                    await cache_service.invalidate_document_chunks(document_id)
+                    logger.info(f"Invalidated cache for document_id={document_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to invalidate cache for document {document_id}: {e}")
+
+                # Return hierarchical processing results
+                return {
+                    "success": True,
+                    "message": "Document processed successfully with hierarchical chunking",
+                    "chunks_processed": hierarchical_result['total_chunks'],
+                    "chunks_failed": hierarchical_result['failed_chunks'],
+                    "parent_chunks": hierarchical_result['parent_chunks'],
+                    "child_chunks": hierarchical_result['child_chunks'],
+                    "relationships": hierarchical_result['relationships'],
+                    "images_extracted": len(extracted_images),
+                    "images_uploaded": sum(1 for img in extracted_images if img.get('s3_url')),
+                    "images_captioned": sum(1 for img in extracted_images if img.get('caption')),
+                    "chunking_mode": "hierarchical"
+                }
+
+            # Use advanced semantic chunking with metadata preservation (flat chunking mode)
             logger.info(
-                f"Processing document with semantic chunking "
+                f"Processing document with flat semantic chunking "
                 f"(semantic={settings.USE_SEMANTIC_CHUNKING}, "
                 f"content_type_aware={settings.CHUNK_BY_CONTENT_TYPE}, "
                 f"preserve_metadata={settings.PRESERVE_METADATA})"
@@ -1449,6 +1482,175 @@ class DocumentService:
                 return []
             else:
                 raise
+
+    async def _process_with_hierarchical_chunking(
+        self,
+        db: Session,
+        document_id: str,
+        pages: List,
+        document_structure: Dict
+    ) -> Dict:
+        """
+        Process document using hierarchical chunking strategy.
+
+        This method:
+        1. Creates parent chunks (large, for context)
+        2. Creates child chunks from each parent (small, for precise retrieval)
+        3. Generates embeddings for both parent and child chunks
+        4. Saves all chunks and relationships to database
+
+        Args:
+            db: Database session
+            document_id: ID of document being processed
+            pages: List of LangChain Document objects from PyPDFLoader
+            document_structure: Document structure from _detect_document_structure()
+
+        Returns:
+            Dict with processing statistics
+        """
+        from .hierarchical_chunking_service import HierarchicalChunkingService, prepare_chunks_for_storage
+        from ..models.document import ParentChildRelationship
+
+        logger.info("Processing document with hierarchical chunking")
+
+        # Initialize hierarchical chunking service
+        hierarchical_service = HierarchicalChunkingService()
+
+        # Convert LangChain pages to simple dict format
+        page_data_list = []
+        for page in pages:
+            page_data = {
+                'content': page.page_content,
+                'page_number': page.metadata.get('page', 0) + 1,
+                'metadata': self._extract_metadata(
+                    page.page_content,
+                    page.metadata.get('page', 0) + 1,
+                    document_structure
+                )
+            }
+            page_data_list.append(page_data)
+
+        # Process document hierarchically
+        parent_chunks, child_chunks, relationships = hierarchical_service.process_document_hierarchically(
+            page_data_list
+        )
+
+        logger.info(
+            f"Hierarchical chunking complete: {len(parent_chunks)} parents, "
+            f"{len(child_chunks)} children, {len(relationships)} relationships"
+        )
+
+        # Generate embeddings for parent chunks
+        logger.info(f"Generating embeddings for {len(parent_chunks)} parent chunks")
+        parent_texts = [chunk['content'] for chunk in parent_chunks]
+        parent_embeddings = await self._generate_embeddings_parallel(
+            parent_texts,
+            batch_size=50,
+            max_concurrent=4
+        )
+
+        # Generate embeddings for child chunks
+        logger.info(f"Generating embeddings for {len(child_chunks)} child chunks")
+        child_texts = [chunk['content'] for chunk in child_chunks]
+        child_embeddings = await self._generate_embeddings_parallel(
+            child_texts,
+            batch_size=50,
+            max_concurrent=4
+        )
+
+        # Prepare chunks for storage (add embeddings)
+        prepared_parents, prepared_children = prepare_chunks_for_storage(
+            parent_chunks,
+            child_chunks,
+            parent_embeddings,
+            child_embeddings
+        )
+
+        # Save parent chunks to database
+        logger.info(f"Saving {len(prepared_parents)} parent chunks to database")
+        parent_result = await self._save_chunks_parallel(
+            db,
+            document_id,
+            prepared_parents,
+            batch_size=50
+        )
+
+        # Save child chunks to database
+        logger.info(f"Saving {len(prepared_children)} child chunks to database")
+        child_result = await self._save_chunks_parallel(
+            db,
+            document_id,
+            prepared_children,
+            batch_size=50
+        )
+
+        # Save parent-child relationships
+        logger.info(f"Saving {len(relationships)} parent-child relationships")
+        saved_relationships = await self._save_parent_child_relationships(
+            db,
+            relationships
+        )
+
+        # Calculate statistics
+        total_chunks_saved = parent_result['success'] + child_result['success']
+        total_chunks_failed = parent_result['errors'] + child_result['errors']
+
+        logger.info(
+            f"Hierarchical processing complete: "
+            f"parents={parent_result['success']}, "
+            f"children={child_result['success']}, "
+            f"relationships={saved_relationships}, "
+            f"total_saved={total_chunks_saved}, "
+            f"failed={total_chunks_failed}"
+        )
+
+        return {
+            'success': True,
+            'parent_chunks': parent_result['success'],
+            'child_chunks': child_result['success'],
+            'relationships': saved_relationships,
+            'total_chunks': total_chunks_saved,
+            'failed_chunks': total_chunks_failed
+        }
+
+    async def _save_parent_child_relationships(
+        self,
+        db: Session,
+        relationships: List[Dict]
+    ) -> int:
+        """
+        Save parent-child relationships to database.
+
+        Args:
+            db: Database session
+            relationships: List of relationship dicts with parent_chunk_id, child_chunk_id, child_index
+
+        Returns:
+            Number of relationships saved
+        """
+        from ..models.document import ParentChildRelationship
+
+        try:
+            saved_count = 0
+
+            for rel_data in relationships:
+                relationship = ParentChildRelationship(
+                    id=rel_data['id'],
+                    parent_chunk_id=rel_data['parent_chunk_id'],
+                    child_chunk_id=rel_data['child_chunk_id'],
+                    child_index=rel_data['child_index']
+                )
+                db.add(relationship)
+                saved_count += 1
+
+            db.commit()
+            logger.info(f"Successfully saved {saved_count} parent-child relationships")
+            return saved_count
+
+        except Exception as e:
+            logger.error(f"Failed to save parent-child relationships: {e}", exc_info=True)
+            db.rollback()
+            raise
 
 
 
