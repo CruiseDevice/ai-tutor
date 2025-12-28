@@ -472,14 +472,6 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
               >
                 <RotateCw size={18} />
               </button>
-              <div className="h-4 w-[1px] bg-slate-200 mx-1" />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-              >
-                <Upload size={14} />
-                Replace
-              </button>
             </div>
 
             {/* Error Toast */}
