@@ -106,6 +106,35 @@ class Settings(BaseSettings):
     HIERARCHICAL_CHILD_CHUNK_SIZE: int = 300  # Child chunk size in characters (for precise retrieval)
     HIERARCHICAL_CHILD_OVERLAP: int = 50  # Overlap between child chunks
 
+    # Adaptive Chunk Sizing Configuration
+    # Dynamically adjust chunk sizes based on content density
+    ENABLE_ADAPTIVE_CHUNKING: bool = True  # Enable/disable adaptive chunk sizing (start disabled for testing)
+    ADAPTIVE_DENSITY_HIGH_THRESHOLD: float = 0.6  # Density threshold for "high density" content (tables, code)
+    ADAPTIVE_DENSITY_LOW_THRESHOLD: float = 0.4  # Density threshold for "low density" content (narrative)
+    # Density metrics weights (sum to 1.0)
+    DENSITY_WEIGHT_SPECIAL_CHAR: float = 0.30  # Weight for special characters (code, math symbols)
+    DENSITY_WEIGHT_NUMERIC: float = 0.25  # Weight for numeric content (tables, data)
+    DENSITY_WEIGHT_LINE_BREAK: float = 0.20  # Weight for line breaks (structured content)
+    DENSITY_WEIGHT_PUNCTUATION: float = 0.10  # Weight for punctuation
+    DENSITY_WEIGHT_TOKEN: float = 0.10  # Weight for token density
+    DENSITY_WEIGHT_WHITESPACE: float = 0.05  # Weight for whitespace (inverted)
+
+    # Sentence-Level Retrieval Configuration
+    # Extract and index individual critical sentences for ultra-precise retrieval of specific details
+    ENABLE_SENTENCE_RETRIEVAL: bool = True  # Enable/disable sentence-level retrieval
+    SENTENCE_RETRIEVAL_TOP_K: int = 10  # Number of top critical sentences to retrieve per query
+    SENTENCE_BOOST_FACTOR: float = 1.2  # Boost factor for sentences when answering detail queries
+    SENTENCE_MIN_LENGTH: int = 10  # Minimum character length for a sentence to be considered
+    SENTENCE_MAX_LENGTH: int = 500  # Maximum character length for a sentence to be indexed
+    SENTENCE_INCLUDE_SHORT: bool = True  # Include short sentences (<150 chars) as potentially critical
+
+    # Contextual Compression Configuration
+    # Compress retrieved chunks by extracting only query-relevant sentences to reduce noise and fit more chunks
+    ENABLE_CONTEXTUAL_COMPRESSION: bool = True  # Enable/disable contextual compression
+    COMPRESSION_MIN_SENTENCES: int = 3  # Minimum sentences in chunk before applying compression
+    COMPRESSION_KEEP_PERCENTAGE: float = 0.4  # Keep top 40% most relevant sentences
+    COMPRESSION_MIN_CHUNKS: int = 10  # Apply compression only when retrieving this many chunks or more
+
     # Token Management and Context Window Configuration
     # Dynamic chunk selection based on token limits instead of fixed chunk count
     MAX_CONTEXT_TOKENS: int = 100000  # Maximum context window limit (GPT-4 supports up to 128k)

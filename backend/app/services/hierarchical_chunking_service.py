@@ -1,5 +1,5 @@
 """
-Hierarchical Chunking Service for Phase 3: Parent-Child Chunk Relationships
+Hierarchical Chunking Service for Parent-Child Chunk Relationships
 
 This service implements a two-level chunking strategy:
 1. Parent chunks: Larger chunks (1500 tokens) that provide context to the LLM
@@ -9,8 +9,14 @@ Strategy:
 - Search/retrieval operates on child chunks for better precision
 - LLM receives parent chunks for better context
 - Best of both worlds: precision + context
+
+Adaptive Chunk Sizing
+- Analyzes content density before chunking
+- Adjusts chunk sizes dynamically based on content type
+- Dense content (tables, code) → smaller chunks
+- Sparse content (narrative) → larger chunks
 """
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import logging
 import uuid
@@ -28,18 +34,40 @@ class HierarchicalChunkingService:
     - Precision retrieval: Search against small child chunks
     - Context preservation: Return large parent chunks to LLM
     - Flexible chunking: Different sizes for indexing vs delivery
+
+    Adaptive chunk sizing based on content density
     """
 
-    def __init__(self):
-        """Initialize the hierarchical chunking service."""
+    def __init__(self, enable_adaptive_chunking: bool = None):
+        """
+        Initialize the hierarchical chunking service.
+
+        Args:
+            enable_adaptive_chunking: Whether to enable adaptive chunk sizing.
+                                     If None, uses settings.ENABLE_ADAPTIVE_CHUNKING
+        """
         self.parent_chunk_size = settings.HIERARCHICAL_PARENT_CHUNK_SIZE
         self.parent_overlap = settings.HIERARCHICAL_PARENT_OVERLAP
         self.child_chunk_size = settings.HIERARCHICAL_CHILD_CHUNK_SIZE
         self.child_overlap = settings.HIERARCHICAL_CHILD_OVERLAP
 
+        # Adaptive chunking
+        self.enable_adaptive_chunking = (
+            enable_adaptive_chunking if enable_adaptive_chunking is not None
+            else settings.ENABLE_ADAPTIVE_CHUNKING
+        )
+
+        # Initialize density calculator if adaptive chunking enabled
+        self.density_calculator = None
+        if self.enable_adaptive_chunking:
+            from .density_calculator_service import get_density_calculator_service
+            self.density_calculator = get_density_calculator_service()
+            logger.info("Adaptive chunk sizing enabled - using density calculator")
+
         logger.info(
             f"HierarchicalChunkingService initialized: "
-            f"parent_size={self.parent_chunk_size}, child_size={self.child_chunk_size}"
+            f"parent_size={self.parent_chunk_size}, child_size={self.child_chunk_size}, "
+            f"adaptive_chunking={self.enable_adaptive_chunking}"
         )
 
     def chunk_text(
@@ -50,6 +78,8 @@ class HierarchicalChunkingService:
     ) -> List[Dict]:
         """
         Create parent chunks from text.
+
+        Uses adaptive chunk sizing based on content density if enabled.
 
         Args:
             text: The text content to chunk
@@ -63,15 +93,51 @@ class HierarchicalChunkingService:
                 - page_number: Page number
                 - metadata: Chunk metadata
                 - chunk_level: 'parent'
+                - density_metrics: Density analysis (if adaptive chunking enabled)
         """
         if not text or not text.strip():
             logger.warning(f"Empty text provided for page {page_number}, skipping chunking")
             return []
 
+        # Analyze content density for adaptive chunk sizing
+        density_metrics = None
+        parent_size = self.parent_chunk_size
+        parent_overlap = self.parent_overlap
+
+        if self.enable_adaptive_chunking and self.density_calculator:
+            try:
+                density_metrics = self.density_calculator.calculate_density(text)
+
+                # Use recommended parent chunk size (scale up from base recommendation)
+                # Base recommendation is for general chunking, parent chunks should be ~3x larger
+                base_size = density_metrics.recommended_chunk_size
+                parent_size = int(base_size * 1.5)  # 1.5x scaling for parent chunks
+
+                # Ensure within bounds
+                parent_size = max(
+                    settings.CHUNK_SIZE_MIN,
+                    min(settings.HIERARCHICAL_PARENT_CHUNK_SIZE * 2, parent_size)
+                )
+
+                # Scale overlap proportionally
+                parent_overlap = int(density_metrics.recommended_overlap * 1.5)
+
+                logger.debug(
+                    f"[Adaptive] Page {page_number}: density={density_metrics.overall_density:.2f}, "
+                    f"type={density_metrics.content_type}, "
+                    f"parent_size={parent_size} (base={base_size})"
+                )
+
+            except Exception as e:
+                logger.warning(f"Density calculation failed for page {page_number}, using default sizes: {e}")
+                # Fall back to default sizes
+                parent_size = self.parent_chunk_size
+                parent_overlap = self.parent_overlap
+
         # Create parent chunks using RecursiveCharacterTextSplitter
         parent_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.parent_chunk_size,
-            chunk_overlap=self.parent_overlap,
+            chunk_size=parent_size,
+            chunk_overlap=parent_overlap,
             length_function=len,
             separators=["\n\n", "\n", ". ", " ", ""],
             keep_separator=True
@@ -82,19 +148,35 @@ class HierarchicalChunkingService:
         parent_chunks = []
         for idx, parent_text in enumerate(parent_texts):
             chunk_id = str(uuid.uuid4())
+
+            # Build chunk metadata
+            chunk_metadata = metadata or {}
+            if density_metrics:
+                # Store density information in metadata
+                chunk_metadata['density'] = {
+                    'overall_density': density_metrics.overall_density,
+                    'content_type': density_metrics.content_type,
+                    'token_density': density_metrics.token_density,
+                    'special_char_density': density_metrics.special_char_density,
+                    'numeric_density': density_metrics.numeric_density,
+                    'adaptive_chunk_size': parent_size,
+                    'adaptive_overlap': parent_overlap
+                }
+
             parent_chunk = {
                 'id': chunk_id,
                 'content': parent_text,
                 'page_number': page_number,
-                'metadata': metadata or {},
+                'metadata': chunk_metadata,
                 'chunk_level': 'parent',
                 'parent_index': idx  # Track order of parent chunks
             }
             parent_chunks.append(parent_chunk)
 
+        avg_size = sum(len(c['content']) for c in parent_chunks) // len(parent_chunks) if parent_chunks else 0
         logger.debug(
             f"Created {len(parent_chunks)} parent chunks from page {page_number} "
-            f"(avg size: {sum(len(c['content']) for c in parent_chunks) // len(parent_chunks) if parent_chunks else 0} chars)"
+            f"(avg size: {avg_size} chars, target: {parent_size})"
         )
 
         return parent_chunks
@@ -105,6 +187,8 @@ class HierarchicalChunkingService:
     ) -> List[Dict]:
         """
         Create child chunks from a parent chunk.
+
+        Uses adaptive chunk sizing based on parent content density if enabled.
 
         Args:
             parent_chunk: Parent chunk dictionary with 'content', 'page_number', etc.
@@ -126,10 +210,42 @@ class HierarchicalChunkingService:
             logger.warning(f"Empty parent chunk {parent_id}, skipping child creation")
             return []
 
+        # Use adaptive child chunk sizing if enabled
+        child_size = self.child_chunk_size
+        child_overlap = self.child_overlap
+
+        # Check if parent already has density metrics in metadata
+        parent_metadata = parent_chunk.get('metadata', {})
+        if self.enable_adaptive_chunking and 'density' in parent_metadata:
+            # Reuse parent density metrics for child sizing
+            density_info = parent_metadata['density']
+            overall_density = density_info.get('overall_density', 0.5)
+            content_type = density_info.get('content_type', 'narrative')
+
+            # Calculate child size based on parent's density
+            # Child chunks should be ~20% of parent size
+            adaptive_parent_size = density_info.get('adaptive_chunk_size', self.parent_chunk_size)
+            child_size = int(adaptive_parent_size * 0.2)
+
+            # Ensure within bounds
+            child_size = max(
+                settings.CHUNK_SIZE_MIN // 2,  # Minimum child size is half of general minimum
+                min(settings.HIERARCHICAL_CHILD_CHUNK_SIZE * 2, child_size)
+            )
+
+            # Scale overlap proportionally
+            adaptive_parent_overlap = density_info.get('adaptive_overlap', self.parent_overlap)
+            child_overlap = int(adaptive_parent_overlap * 0.2)
+
+            logger.debug(
+                f"[Adaptive] Child sizing for parent {parent_id[:8]}: "
+                f"density={overall_density:.2f}, type={content_type}, child_size={child_size}"
+            )
+
         # Create child chunks using RecursiveCharacterTextSplitter
         child_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.child_chunk_size,
-            chunk_overlap=self.child_overlap,
+            chunk_size=child_size,
+            chunk_overlap=child_overlap,
             length_function=len,
             separators=["\n\n", "\n", ". ", " ", ""],
             keep_separator=True
@@ -144,16 +260,17 @@ class HierarchicalChunkingService:
                 'id': chunk_id,
                 'content': child_text,
                 'page_number': parent_chunk['page_number'],
-                'metadata': parent_chunk.get('metadata', {}),
+                'metadata': parent_metadata.copy(),  # Inherit parent's metadata (including density)
                 'chunk_level': 'child',
                 'parent_chunk_id': parent_id,
                 'child_index': child_idx  # Order within parent
             }
             child_chunks.append(child_chunk)
 
+        avg_size = sum(len(c['content']) for c in child_chunks) // len(child_chunks) if child_chunks else 0
         logger.debug(
             f"Created {len(child_chunks)} child chunks from parent {parent_id[:8]}... "
-            f"(avg size: {sum(len(c['content']) for c in child_chunks) // len(child_chunks) if child_chunks else 0} chars)"
+            f"(avg size: {avg_size} chars, target: {child_size})"
         )
 
         return child_chunks
