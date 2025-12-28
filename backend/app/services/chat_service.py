@@ -16,6 +16,7 @@ from .rerank_service import get_rerank_service
 from .retry_utils import retry_openai_call, async_retry_openai_call
 from .cache_service import get_cache_service
 from .query_expansion_service import get_query_expansion_service
+from .query_decomposition_service import get_query_decomposition_service
 from .token_service import TokenService
 
 logger = logging.getLogger(__name__)
@@ -610,16 +611,17 @@ Title:"""
         try:
             from ..config import settings
 
-            # Calculate adaptive weights based on query characteristics (Phase 1B)
+            # Calculate adaptive weights based on query characteristics
             semantic_weight, keyword_weight = self._calculate_adaptive_weights(query)
 
             logger.info(
                 f"Using adaptive weights: semantic={semantic_weight:.2f}, keyword={keyword_weight:.2f}"
             )
 
-            # Get query expansion and reranking settings from config
+            # Get query expansion, decomposition, and reranking settings from config
             rerank_enabled = getattr(settings, 'RERANK_ENABLED', False)
             query_expansion_enabled = getattr(settings, 'QUERY_EXPANSION_ENABLED', False)
+            query_decomposition_enabled = getattr(settings, 'ENABLE_QUERY_DECOMPOSITION', False)
             rrf_k = getattr(settings, 'RRF_K', 60)
 
             cache_service = await get_cache_service()
@@ -627,11 +629,114 @@ Title:"""
             # Retrieve more candidates for fusion (e.g., top 10-15)
             semantic_limit = max(limit * 2, 10)
 
-            # QUERY EXPANSION: Multi-query retrieval with RRF (if enabled)
+            # QUERY DECOMPOSITION: Break down complex queries into atomic sub-queries
+            # If a complex query is decomposed, we'll use the sub-queries instead of query expansion
+            query_was_decomposed = False
+            queries_to_search = [query]  # Default to original query
+
+            if query_decomposition_enabled and user_api_key:
+                logger.info("Query decomposition enabled - checking if query is complex")
+
+                try:
+                    query_decomposition_service = get_query_decomposition_service()
+                    sub_queries = await query_decomposition_service.decompose_query(
+                        query=query,
+                        user_api_key=user_api_key
+                    )
+
+                    # If decomposition produced multiple sub-queries, use them instead of expansion
+                    if len(sub_queries) > 1:
+                        queries_to_search = sub_queries
+                        query_was_decomposed = True
+                        logger.info(
+                            f"Complex query decomposed into {len(sub_queries)} sub-queries. "
+                            f"Skipping query expansion for decomposed queries."
+                        )
+                        logger.debug(f"Sub-queries: {sub_queries}")
+                    else:
+                        logger.info("Query not complex enough for decomposition, proceeding with normal flow")
+
+                except Exception as e:
+                    logger.error(f"Query decomposition failed, proceeding with normal flow: {e}")
+                    # Fall through to normal query expansion/search
+
+            # SEARCH DECOMPOSED QUERIES: If query was decomposed, search each sub-query
             semantic_chunks = {}
             query_embedding = None  # Initialize query_embedding early
 
-            if query_expansion_enabled and user_api_key:
+            if query_was_decomposed:
+                logger.info(f"Searching for {len(queries_to_search)} decomposed sub-queries")
+
+                try:
+                    import time
+                    decomp_start = time.time()
+
+                    async def search_single_subquery(subquery: str) -> List[Dict]:
+                        """Search for a single sub-query."""
+                        # Check cache for embedding
+                        cached_embedding = await cache_service.get_embedding(subquery)
+                        if cached_embedding:
+                            subquery_embedding = cached_embedding
+                            logger.debug(f"Using cached embedding for sub-query: {subquery[:40]}...")
+                        else:
+                            # Generate embedding
+                            subquery_embedding = await self.embedding_service.generate_embedding_async(subquery)
+                            await cache_service.set_embedding(subquery, subquery_embedding)
+                            logger.debug(f"Generated embedding for sub-query: {subquery[:40]}...")
+
+                        # Perform semantic search
+                        return await self._perform_semantic_search(
+                            db=db,
+                            query_embedding=subquery_embedding,
+                            document_id=document_id,
+                            limit=semantic_limit
+                        )
+
+                    # Execute all searches in parallel
+                    subquery_results = await asyncio.gather(
+                        *[search_single_subquery(sq) for sq in queries_to_search],
+                        return_exceptions=True
+                    )
+
+                    # Filter out any errors
+                    valid_results = []
+                    for i, result in enumerate(subquery_results):
+                        if isinstance(result, Exception):
+                            logger.warning(f"Error searching sub-query {i}: {result}")
+                        else:
+                            valid_results.append(result)
+
+                    if not valid_results:
+                        logger.error("All sub-query searches failed, falling back to single-query search")
+                        query_was_decomposed = False  # Trigger fallback
+                    else:
+                        decomp_time = (time.time() - decomp_start) * 1000
+                        logger.info(f"Decomposed query search completed in {decomp_time:.2f}ms ({len(valid_results)} sub-queries)")
+
+                        # Combine results using RRF
+                        combined_chunks = self._combine_results_with_rrf(valid_results, rrf_k=rrf_k)
+
+                        # Convert list to dict
+                        for chunk in combined_chunks:
+                            semantic_chunks[chunk["id"]] = {
+                                "id": chunk["id"],
+                                "content": chunk["content"],
+                                "pageNumber": chunk["pageNumber"],
+                                "documentId": chunk["documentId"],
+                                "positionData": chunk["positionData"],
+                                "chunk_type": chunk.get("chunk_type"),
+                                "semantic_score": chunk["similarity"]  # RRF score
+                            }
+
+                        logger.info(f"RRF combined decomposed query results: {len(semantic_chunks)} unique chunks")
+
+                except Exception as e:
+                    logger.error(f"Decomposed query search failed, falling back to single-query search: {e}")
+                    query_was_decomposed = False  # Trigger fallback
+
+            # QUERY EXPANSION: Multi-query retrieval with RRF (if enabled and query wasn't decomposed)
+            # Skip query expansion if query was already decomposed
+            if query_expansion_enabled and user_api_key and not query_was_decomposed:
                 logger.info("Query expansion enabled - performing multi-query retrieval")
 
                 try:
@@ -757,7 +862,8 @@ Title:"""
                     query_expansion_enabled = False  # Disable for this request
 
             # SINGLE-QUERY SEMANTIC SEARCH (original behavior or fallback)
-            if not query_expansion_enabled or not user_api_key:
+            # Only run if neither decomposition nor expansion was used
+            if (not query_expansion_enabled or not user_api_key) and not query_was_decomposed:
                 if not query_expansion_enabled:
                     logger.debug("Query expansion disabled - using single-query search")
                 else:

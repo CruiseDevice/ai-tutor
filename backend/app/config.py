@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     QUERY_EXPANSION_TEMPERATURE: float = 0.7  # Temperature for variation generation (0.7 for diverse variations)
     RRF_K: int = 60  # Reciprocal Rank Fusion constant (standard value, controls score normalization)
 
+    # Query Decomposition Configuration (Phase 2)
+    # Breaks down complex multi-part queries into simpler atomic sub-queries for better retrieval
+    ENABLE_QUERY_DECOMPOSITION: bool = True  # Enable/disable query decomposition
+    QUERY_DECOMPOSITION_MAX_SUBQUERIES: int = 5  # Maximum number of sub-queries to generate
+
     # Token Management and Context Window Configuration
     # Dynamic chunk selection based on token limits instead of fixed chunk count
     MAX_CONTEXT_TOKENS: int = 100000  # Maximum context window limit (GPT-4 supports up to 128k)
