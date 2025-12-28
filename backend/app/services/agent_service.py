@@ -184,7 +184,7 @@ class AgentState(TypedDict):
     retry_count: Optional[int]  # Number of regeneration attempts
     max_retries: Optional[int]  # Maximum allowed retries
 
-    # Performance Metrics (Phase 4: Optimization & Monitoring)
+    # Performance Metrics
     metrics: Optional[Dict[str, Any]]  # Performance tracking
     # metrics structure:
     # {

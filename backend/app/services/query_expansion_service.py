@@ -103,7 +103,7 @@ class QueryExpansionService:
         """
         client = AsyncOpenAI(api_key=user_api_key)
 
-        # Craft enhanced prompt to generate diverse query variations (Phase 2 - Task 2.1)
+        # Craft enhanced prompt to generate diverse query variations
         # This improved prompt generates more targeted variations across different semantic angles
         system_prompt = """You are an expert at reformulating user queries to improve information retrieval.
 Your task is to generate diverse variations that capture different semantic angles of the original query.

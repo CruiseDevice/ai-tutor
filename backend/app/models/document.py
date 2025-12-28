@@ -29,7 +29,7 @@ class Document(Base):
     error_message = Column(Text, nullable=True)  # Store error details if processing fails
     job_id = Column(String, nullable=True)  # Arq job ID for tracking background processing
 
-    # Processing time tracking (Phase 2)
+    # Processing time tracking
     processing_started_at = Column(DateTime(timezone=True), nullable=True)
     processing_completed_at = Column(DateTime(timezone=True), nullable=True)
 
