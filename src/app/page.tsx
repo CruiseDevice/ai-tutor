@@ -3,6 +3,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback, useRef } from "react";
+import { authApi } from "@/lib/api-client";
 
 // Animated Demo Component
 const DEMO_MESSAGES = [
@@ -107,7 +108,20 @@ function AnimatedDemo() {
           setCurrentPage(3);
 
           setTimeout(() => {
-            abstractRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Scroll within the document container, not the entire page
+            if (abstractRef.current && documentRef.current) {
+              const container = documentRef.current;
+              const element = abstractRef.current;
+              const containerRect = container.getBoundingClientRect();
+              const elementRect = element.getBoundingClientRect();
+              const relativeTop = elementRect.top - containerRect.top + container.scrollTop;
+              const scrollPosition = relativeTop - (container.clientHeight / 2) + (element.clientHeight / 2);
+
+              container.scrollTo({
+                top: scrollPosition,
+                behavior: 'smooth'
+              });
+            }
           }, 100);
 
           timer = setTimeout(() => {
@@ -343,7 +357,7 @@ export default function Home() {
     // check if user is authenticated
     const checkAuth = async () => {
       try {
-        const response = await fetch('/api/auth/verify-session');
+        const response = await authApi.verifySession();
 
         // if authenticated, redirect to dashboard
         if(response.ok) {
