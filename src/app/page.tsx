@@ -527,8 +527,33 @@ export default function Home() {
             <div className="feature-card group bg-white rounded-3xl p-8 border border-gray-100 shadow-lg hover:shadow-2xl">
               <div className="relative mb-6">
                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-2xl blur-lg opacity-0 group-hover:opacity-30 transition-opacity"></div>
-                <div className="relative w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
-                  <i className="fas fa-file-pdf text-white text-2xl"></i>
+                <div className="relative w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg overflow-visible">
+                  <svg
+                    className="w-10 h-10 text-white relative z-10"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    {/* PDF Document with lines */}
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                    {/* Upload Arrow - pointing up into document */}
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2.5}
+                      d="M12 6v6m0 0l-3-3m3 3l3-3"
+                      className="opacity-90"
+                    />
+                    {/* Processing indicator dots */}
+                    <circle cx="17.5" cy="5.5" r="1.2" fill="currentColor" className="opacity-80 animate-pulse" />
+                    <circle cx="15.5" cy="7" r="0.8" fill="currentColor" className="opacity-60" />
+                  </svg>
                 </div>
               </div>
               <h3 className="text-2xl font-bold text-gray-900 mb-4">PDF Upload & Processing</h3>
