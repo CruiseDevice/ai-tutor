@@ -611,6 +611,38 @@ Title:"""
         try:
             from ..config import settings
 
+            # Check if document uses hierarchical parent-child chunking
+            uses_hierarchical = self._check_hierarchical_chunking(db, document_id)
+
+            if uses_hierarchical:
+                logger.info(f"Document {document_id} uses hierarchical chunking - routing to parent-child retrieval")
+
+                # Generate query embedding for hierarchical search
+                cache_service = await get_cache_service()
+                cached_embedding = await cache_service.get_embedding(query)
+
+                if cached_embedding:
+                    query_embedding = cached_embedding
+                    logger.debug(f"Using cached embedding for hierarchical query: {query[:50]}...")
+                else:
+                    query_embedding = await self.embedding_service.generate_embedding_async(query)
+                    await cache_service.set_embedding(query, query_embedding)
+                    logger.debug(f"Generated embedding for hierarchical query: {query[:50]}...")
+
+                # Use hierarchical parent-child retrieval
+                hierarchical_results = await self._retrieve_with_parent_child(
+                    db=db,
+                    query_embedding=query_embedding,
+                    document_id=document_id,
+                    limit=limit
+                )
+
+                logger.info(f"Hierarchical retrieval returned {len(hierarchical_results)} parent chunks")
+                return hierarchical_results
+
+            # FLAT CHUNKING (existing behavior)
+            logger.debug(f"Document {document_id} uses flat chunking - using standard hybrid retrieval")
+
             # Calculate adaptive weights based on query characteristics
             semantic_weight, keyword_weight = self._calculate_adaptive_weights(query)
 
@@ -3101,3 +3133,177 @@ say you don't have enough information from the document and suggest looking at o
             logger.error(f"Error in generate_chat_response_stream: {str(e)}", exc_info=True)
             db.rollback()
             yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
+
+    def _check_hierarchical_chunking(self, db: Session, document_id: str) -> bool:
+        """
+        Check if a document uses hierarchical chunking.
+
+        Args:
+            db: Database session
+            document_id: ID of the document to check
+
+        Returns:
+            True if document has hierarchical chunks (parent/child), False otherwise
+        """
+        from ..models.document import DocumentChunk
+        from sqlalchemy import text
+
+        try:
+            # Check if any chunks for this document have chunk_level = 'parent' or 'child'
+            query = text("""
+                SELECT COUNT(*)
+                FROM document_chunks
+                WHERE document_id = :document_id
+                AND chunk_level IN ('parent', 'child')
+                LIMIT 1
+            """)
+
+            result = db.execute(query, {"document_id": document_id}).scalar()
+            has_hierarchical = result > 0
+
+            if has_hierarchical:
+                logger.debug(f"Document {document_id} uses hierarchical chunking")
+            else:
+                logger.debug(f"Document {document_id} uses flat chunking")
+
+            return has_hierarchical
+
+        except Exception as e:
+            logger.warning(f"Error checking hierarchical chunking, assuming flat: {e}")
+            return False
+
+    async def _retrieve_with_parent_child(
+        self,
+        db: Session,
+        query_embedding: List[float],
+        document_id: str,
+        limit: int
+    ) -> List[Dict]:
+        """
+        Retrieve chunks using hierarchical parent-child strategy.
+
+        Strategy:
+        1. Search child chunks for precision (small chunks match better)
+        2. Fetch corresponding parent chunks for context
+        3. Return parent chunks to LLM (large chunks provide better context)
+
+        Args:
+            db: Database session
+            query_embedding: Query embedding vector
+            document_id: ID of document to search
+            limit: Maximum number of parent chunks to return
+
+        Returns:
+            List of parent chunk dictionaries with metadata
+        """
+        from sqlalchemy import text
+        from ..models.document import ParentChildRelationship
+
+        try:
+            # Step 1: Search CHILD chunks for precise matching
+            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+
+            # Search child chunks only
+            child_search_query = text("""
+                SELECT
+                    id,
+                    content,
+                    page_number,
+                    document_id,
+                    position_data,
+                    chunk_type,
+                    chunk_level,
+                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                FROM document_chunks
+                WHERE document_id = :document_id
+                AND chunk_level = 'child'
+                ORDER BY embedding <=> CAST(:embedding AS vector)
+                LIMIT :limit
+            """)
+
+            logger.debug(f"Searching {limit} child chunks for document {document_id}")
+            import time
+            search_start = time.time()
+
+            child_results = db.execute(
+                child_search_query,
+                {"embedding": embedding_str, "document_id": document_id, "limit": limit * 2}  # Get more children
+            ).fetchall()
+
+            search_time = (time.time() - search_start) * 1000
+            logger.debug(f"Child chunk search completed in {search_time:.2f}ms, found {len(child_results)} children")
+
+            if not child_results:
+                logger.warning("No child chunks found, returning empty results")
+                return []
+
+            # Step 2: Get parent chunk IDs for the matched children
+            child_chunk_ids = [row[0] for row in child_results]
+
+            # Query parent-child relationships to find parents
+            parent_query = text("""
+                SELECT DISTINCT pcr.parent_chunk_id, c.id as child_id
+                FROM parent_child_relationships pcr
+                JOIN document_chunks c ON c.id = pcr.child_chunk_id
+                WHERE pcr.child_chunk_id = ANY(:child_ids)
+            """)
+
+            parent_results = db.execute(
+                parent_query,
+                {"child_ids": child_chunk_ids}
+            ).fetchall()
+
+            # Map children to parents (some parents may have multiple matched children)
+            parent_chunk_ids = list(set([row[0] for row in parent_results]))
+            logger.debug(f"Found {len(parent_chunk_ids)} unique parent chunks for {len(child_results)} children")
+
+            # Step 3: Fetch PARENT chunks to return to LLM
+            if not parent_chunk_ids:
+                logger.warning("No parent chunks found for matched children")
+                return []
+
+            # Fetch parent chunks (preserving child match order)
+            parent_fetch_query = text("""
+                SELECT
+                    id,
+                    content,
+                    page_number,
+                    document_id,
+                    position_data,
+                    chunk_type,
+                    chunk_level
+                FROM document_chunks
+                WHERE id = ANY(:parent_ids)
+            """)
+
+            parent_chunks = db.execute(
+                parent_fetch_query,
+                {"parent_ids": parent_chunk_ids[:limit]}  # Limit to requested number
+            ).fetchall()
+
+            # Format parent chunks for return
+            formatted_chunks = []
+            for chunk in parent_chunks:
+                formatted_chunk = {
+                    "id": chunk[0],
+                    "content": chunk[1],
+                    "pageNumber": chunk[2],
+                    "documentId": chunk[3],
+                    "positionData": chunk[4],
+                    "chunk_type": chunk[5],
+                    "chunk_level": chunk[6],
+                    "similarity": 0.0  # Parent doesn't have direct similarity score
+                }
+                formatted_chunks.append(formatted_chunk)
+
+            logger.info(
+                f"Hierarchical retrieval complete: {len(child_results)} children matched, "
+                f"returning {len(formatted_chunks)} parent chunks"
+            )
+
+            return formatted_chunks
+
+        except Exception as e:
+            logger.error(f"Hierarchical retrieval failed: {e}", exc_info=True)
+            # Fallback to empty results rather than crashing
+            return []
