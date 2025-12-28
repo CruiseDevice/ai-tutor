@@ -76,7 +76,8 @@ async def startup_event():
             add_user_role_column,
             add_processing_time_columns,
             add_audit_logs_table,
-            add_chunk_type_column
+            add_chunk_type_column,
+            add_hierarchical_chunking_schema
         )
         add_title_column_if_missing(engine)
         remove_unique_constraint_from_document_id(engine)
@@ -88,6 +89,7 @@ async def startup_event():
         add_processing_time_columns(engine)
         add_audit_logs_table(engine)
         add_chunk_type_column(engine)
+        add_hierarchical_chunking_schema(engine) # Hierarchical parent-child chunking
         logger.info("Database initialization complete")
     except Exception as e:
         logger.error(f"Database initialization error: {e}", exc_info=True)
