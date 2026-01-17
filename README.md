@@ -6,7 +6,7 @@ StudyFetch AI Tutor is a web application that helps students understand PDF docu
 
 ## Features
 
-- 🔐 **User Authentication**: Secure email/password signup and login with JWT-based session management
+- 🔐 **User Authentication**: Secure email/password signup and login with JWT-based session management, password reset flow
 - 📄 **PDF Upload & Viewing**: Upload, store, and navigate PDF documents with streaming processing
 - 💬 **AI Chat Interface**: Interact with the AI about document content via text with streaming responses
 - 🔍 **Advanced Document Search**:
@@ -17,6 +17,8 @@ StudyFetch AI Tutor is a web application that helps students understand PDF docu
 - 📝 **Persistent Conversations**: Chat history is saved and can be resumed later
 - 🔄 **Multi-Document Support**: Upload and manage multiple documents with separate conversation histories
 - ⚡ **Performance Optimizations**: Redis caching, background workers, rate limiting
+- 👁️ **Vision Support**: Multi-modal document understanding with image extraction and analysis
+- 🔧 **Admin Panel**: Administrative interface for system management
 
 ## Tech Stack
 
@@ -36,7 +38,7 @@ StudyFetch AI Tutor is a web application that helps students understand PDF docu
 - **AWS S3** - PDF file storage
 - **JWT** - Token-based authentication
 
-The backend is split into two Python services (see `MICROSERVICES_ARCHITECTURE.md` for details):
+The backend is split into two Python services:
 - **Main Backend** (`backend`, port 8001) – FastAPI app with business logic and database access (no heavy ML dependencies)
 - **Embedding Service** (`embedding-service`, port 8002) – FastAPI microservice that hosts PyTorch/sentence-transformers models for embeddings and reranking
 
@@ -274,7 +276,20 @@ Make sure to set appropriate environment variables in your `.env` file, especial
 │   │   │   ├── embedding_service.py # Embedding generation
 │   │   │   ├── rerank_service.py # Cross-encoder re-ranking
 │   │   │   ├── cache_service.py # Redis caching
-│   │   │   └── auth_service.py  # Authentication logic
+│   │   │   ├── auth_service.py  # Authentication logic
+│   │   │   ├── agent_service.py # LangGraph-based RAG agent workflow
+│   │   │   ├── audit_service.py # Audit logging
+│   │   │   ├── contextual_compression_service.py # Context compression for RAG
+│   │   │   ├── density_calculator_service.py # Query density calculator
+│   │   │   ├── docling_service.py # Document parsing with Docling
+│   │   │   ├── hierarchical_chunking_service.py # Hierarchical chunking
+│   │   │   ├── query_decomposition_service.py # Query decomposition
+│   │   │   ├── query_expansion_service.py # Query expansion for retrieval
+│   │   │   ├── sentence_retrieval_service.py # Sentence-level retrieval
+│   │   │   ├── vision_service.py # Vision/multimodal capabilities
+│   │   │   ├── token_service.py # Token counting utilities
+│   │   │   ├── encryption_service.py # API key encryption
+│   │   │   └── queue_service.py # Background queue management
 │   │   ├── workers/             # Background jobs
 │   │   │   ├── arq_config.py    # ARQ configuration
 │   │   │   └── document_jobs.py # Document processing jobs
@@ -291,11 +306,22 @@ Make sure to set appropriate environment variables in your `.env` file, especial
 │   │   ├── login/               # Login page
 │   │   ├── register/            # Registration page
 │   │   ├── settings/            # Settings page
+│   │   ├── forgot-password/     # Password reset request page
+│   │   ├── reset-password/      # Password reset confirmation page
+│   │   ├── admin/               # Admin panel
 │   │   └── layout.tsx           # Root layout
 │   ├── components/              # React components
 │   │   ├── ChatInterface.tsx    # Chat UI with streaming
 │   │   ├── Dashboard.tsx        # Main application component
 │   │   ├── EnhancedPDFViewer.tsx # PDF viewer with annotations
+│   │   ├── LoginForm.tsx        # Login form
+│   │   ├── RegisterForm.tsx     # Registration form
+│   │   ├── ForgotPasswordForm.tsx # Password reset request form
+│   │   ├── ResetPasswordForm.tsx  # Password reset confirmation form
+│   │   ├── APISettings.tsx      # API key settings component
+│   │   ├── AgentWorkflowProgress.tsx # Agent workflow progress indicator
+│   │   ├── ChatSidebar.tsx      # Conversation history sidebar
+│   │   ├── admin/               # Admin components
 │   │   └── ...
 │   └── lib/
 │       └── api-client.ts        # Backend API client
