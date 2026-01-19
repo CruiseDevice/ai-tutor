@@ -26,6 +26,7 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage
 
 from ..config import settings
+from ..models.conversation import Message
 from .chat_service import ChatService
 from .query_expansion_service import get_query_expansion_service
 from .rerank_service import get_rerank_service
@@ -165,6 +166,9 @@ class AgentState(TypedDict):
     query_embedding: Optional[List[float]]
     retrieved_chunks: Optional[List[Dict]]
     context_text: Optional[str]  # Formatted chunks with page numbers
+
+    # Conversation History (for context-aware responses)
+    conversation_history: Optional[List[Dict[str, str]]]  # List of {role, content} messages
 
     # Generation
     answer: Optional[str]  # Raw answer with annotations
@@ -529,12 +533,49 @@ Output (JSON array only):"""
 
         return state
 
+    def _fetch_conversation_history(
+        self,
+        db: Session,
+        conversation_id: str,
+        limit: int = 10
+    ) -> List[Dict[str, str]]:
+        """
+        Fetch conversation history from the database.
+
+        Args:
+            db: Database session
+            conversation_id: Conversation identifier
+            limit: Maximum number of messages to fetch
+
+        Returns:
+            List of message dicts with 'role' and 'content' keys
+        """
+        try:
+            history = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).order_by(Message.created_at).limit(limit).all()
+
+            # Convert to list of dicts for OpenAI API
+            messages = [
+                {"role": msg.role, "content": msg.content}
+                for msg in history
+            ]
+
+            logger.debug(f"[Agent] Fetched {len(messages)} messages from conversation history")
+            return messages
+
+        except Exception as e:
+            logger.error(f"[Agent] Error fetching conversation history: {e}")
+            return []
+
     async def _generate_answer(self, state: AgentState) -> AgentState:
         """
         Node 3: Generate answer using existing _build_system_prompt and OpenAI.
 
         Leverages ChatService._build_system_prompt() for adaptive prompting
         and ChatService._parse_annotations() for annotation extraction.
+
+        Now includes conversation history for context-aware responses.
         """
         logger.info(f"[Agent] Generating answer")
 
@@ -554,15 +595,38 @@ Output (JSON array only):"""
             else:
                 model = settings.AGENT_DEFAULT_MODEL  # gpt-4o-mini for simple/moderate
 
+            # Fetch conversation history for context-aware responses
+            history_messages = self._fetch_conversation_history(
+                db=state["db_session"],
+                conversation_id=state["conversation_id"],
+                limit=10
+            )
+
+            # Store conversation history in state for debugging/analysis
+            state["conversation_history"] = history_messages
+
+            # Build messages list with conversation history
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # Add conversation history (excluding the current user message if already in history)
+            # The history includes previous exchanges, providing context for follow-up questions
+            for msg in history_messages:
+                # Skip if this is the same as the current user query (avoid duplication)
+                if msg["role"] == "user" and msg["content"] == state["user_query"]:
+                    continue
+                messages.append(msg)
+
+            # Add current user message
+            messages.append({"role": "user", "content": state["user_query"]})
+
+            logger.debug(f"[Agent] Sending {len(messages)} messages to OpenAI (including history)")
+
             # Generate answer
             client = AsyncOpenAI(api_key=state["user_api_key"])
 
             completion = await client.chat.completions.create(
                 model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": state["user_query"]}
-                ],
+                messages=messages,
                 temperature=0.7,
                 max_completion_tokens=2000
             )
@@ -785,6 +849,7 @@ Output (JSON array only):"""
             "query_embedding": None,
             "retrieved_chunks": None,
             "context_text": None,
+            "conversation_history": None,
             "answer": None,
             "clean_answer": None,
             "annotations": None,
@@ -871,6 +936,7 @@ Output (JSON array only):"""
             "query_embedding": None,
             "retrieved_chunks": None,
             "context_text": None,
+            "conversation_history": None,
             "answer": None,
             "clean_answer": None,
             "annotations": None,
