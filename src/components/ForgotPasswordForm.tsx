@@ -1,21 +1,25 @@
 // src/components/ForgotPasswordForm.tsx
 'use client'
 
-import { CheckCircle, X } from "lucide-react";
+import { CheckCircle, Copy, X } from "lucide-react";
 import Link from "next/link"
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authApi } from "@/lib/api-client";
 
 export default function ForgotPasswordForm() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
+  const [resetToken, setResetToken] = useState('');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    setResetToken('');
 
     if (!email.trim()) {
       setError('Email is required');
@@ -37,8 +41,14 @@ export default function ForgotPasswordForm() {
         throw new Error(data.error || data.detail || 'Failed to send reset email');
       }
 
-      setSuccess('If an account with that email exists, you will receive a password reset link.');
-      setEmail('');
+      // Dev mode: token is returned directly
+      if (data.token) {
+        setResetToken(data.token);
+        setSuccess('Password reset token generated (dev mode)');
+      } else {
+        setSuccess('If an account with that email exists, you will receive a password reset link.');
+        setEmail('');
+      }
     } catch (error) {
       // TODO: Display error message to user
       console.error('Password reset request error:', error);
@@ -46,6 +56,14 @@ export default function ForgotPasswordForm() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCopyToken = () => {
+    navigator.clipboard.writeText(resetToken);
+  };
+
+  const handleResetWithToken = () => {
+    router.push(`/reset-password?token=${resetToken}`);
   };
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -73,15 +91,38 @@ export default function ForgotPasswordForm() {
                 <CheckCircle className="h-5 w-5 text-green-400" />
                 <p className="ml-3">{success}</p>
               </div>
+              {resetToken && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm font-medium">Reset Token (Dev Mode):</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-white px-2 py-1 rounded text-xs break-all">{resetToken}</code>
+                    <button
+                      type="button"
+                      onClick={handleCopyToken}
+                      className="p-1 hover:bg-green-200 rounded"
+                      title="Copy token"
+                    >
+                      <Copy size={16} />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetWithToken}
+                    className="w-full mt-2 py-1 px-3 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
+                  >
+                    Go to Reset Password
+                  </button>
+                </div>
+              )}
             </div>
           )}
           <div>
             <label htmlFor="email" className="sr-only">Email address</label>
-            <input 
-              id="email" 
-              name="email" 
-              type="email" 
-              autoComplete="email" 
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
               required
               placeholder="Email address"
               className="appearance-none rounded-none relative-block block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
