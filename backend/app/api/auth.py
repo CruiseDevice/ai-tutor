@@ -141,9 +141,16 @@ async def request_password_reset(
     """Request a password reset."""
     # Apply rate limiting
     await check_rate_limit(request, settings.RATE_LIMIT_AUTH_PER_MINUTE)
-    reset_token = AuthService.create_password_reset_token(db, request_data.email)
+    reset_token_obj = AuthService.create_password_reset_token(db, request_data.email)
 
-    # Always return the same message regardless of whether email exists
+    # In development, return the token directly for testing
+    if not settings.is_production and reset_token_obj:
+        return {
+            "message": "Password reset token generated (dev mode)",
+            "token": reset_token_obj.token,
+        }
+
+    # Production: Always return the same message regardless of whether email exists
     # This prevents email enumeration attacks
     # In production, send email with reset link
     return {
