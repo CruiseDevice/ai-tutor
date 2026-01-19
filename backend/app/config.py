@@ -159,6 +159,12 @@ class Settings(BaseSettings):
     AGENT_COMPLEXITY_THRESHOLD: str = "medium"  # Use agents for queries with "medium" or "complex" complexity
     AGENT_STREAMING_ENABLED: bool = True  # Enable streaming support for agent workflow execution
 
+    # Adaptive Token Limits (based on query complexity)
+    # Controls response length to balance detail vs. cost
+    MAX_COMPLETION_TOKENS_SIMPLE: int = 1200  # For simple queries (~900 words)
+    MAX_COMPLETION_TOKENS_MODERATE: int = 2000  # For moderate queries (~1500 words)
+    MAX_COMPLETION_TOKENS_COMPLEX: int = 3000  # For complex queries (~2250 words)
+
     # Image Processing with Docling (Multimodal support)
     # Controls image extraction, captioning, and embedding generation
     ENABLE_IMAGE_EXTRACTION: bool = True    # Feature flag to enable/disable image processing

@@ -219,6 +219,23 @@ class RAGAgentService:
 
         logger.info("RAGAgentService initialized with LangGraph workflow")
 
+    def _get_adaptive_token_limit(self, complexity: str) -> int:
+        """
+        Get adaptive max_completion_tokens based on query complexity.
+
+        Args:
+            complexity: Query complexity level (simple, moderate, complex)
+
+        Returns:
+            Appropriate token limit for the complexity level
+        """
+        limits = {
+            "simple": settings.MAX_COMPLETION_TOKENS_SIMPLE,
+            "moderate": settings.MAX_COMPLETION_TOKENS_MODERATE,
+            "complex": settings.MAX_COMPLETION_TOKENS_COMPLEX,
+        }
+        return limits.get(complexity, settings.MAX_COMPLETION_TOKENS_MODERATE)
+
     def _build_workflow(self) -> StateGraph:
         """
         Build the LangGraph workflow with conditional routing.
@@ -588,12 +605,16 @@ Output (JSON array only):"""
                 requires_cot=state.get("requires_cot", False)
             )
 
-            # Select model based on complexity
+            # Select model and token limit based on complexity
             complexity = state.get("complexity", "simple")
             if complexity == "complex":
                 model = "gpt-4o"  # Better model for complex queries
             else:
                 model = settings.AGENT_DEFAULT_MODEL  # gpt-4o-mini for simple/moderate
+
+            # Get adaptive token limit based on complexity
+            max_tokens = self._get_adaptive_token_limit(complexity)
+            logger.info(f"[Agent] Using {max_tokens} max completion tokens for {complexity} query")
 
             # Fetch conversation history for context-aware responses
             history_messages = self._fetch_conversation_history(
@@ -628,7 +649,7 @@ Output (JSON array only):"""
                 model=model,
                 messages=messages,
                 temperature=0.7,
-                max_completion_tokens=2000
+                max_completion_tokens=max_tokens
             )
 
             raw_answer = completion.choices[0].message.content
