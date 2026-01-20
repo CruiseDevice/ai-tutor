@@ -165,15 +165,31 @@ class Settings(BaseSettings):
     MAX_COMPLETION_TOKENS_MODERATE: int = 2000  # For moderate queries (~1500 words)
     MAX_COMPLETION_TOKENS_COMPLEX: int = 3000  # For complex queries (~2250 words)
 
-    # Image Processing with Docling (Multimodal support)
+    # Image Processing with Unstructured (Multimodal support)
     # Controls image extraction, captioning, and embedding generation
     ENABLE_IMAGE_EXTRACTION: bool = True    # Feature flag to enable/disable image processing
     VISION_MODEL: str = "gpt-4o-mini"   # Model for image captioning (gpt-4o-mini for cost, gpt-4o for quality)
     MAX_IMAGES_PER_DOCUMENT: int = 200  # Maximum number of images to process per document
     IMAGE_CAPTION_BATCH_SIZE: int = 5   # Number of images to caption in parallel (controls rate limits)
-    S3_ASSETS_FOLDER_SUFFIX: str = "_assets"    # Suffic for S3 folder containing extracted images
+    S3_ASSETS_FOLDER_SUFFIX: str = "_assets"    # Suffix for S3 folder containing extracted images
     IMAGE_COMPRESSION_QUALITY: int = 85     # JPEG compression quality (1-100, higher = better quality)
-    DOCLING_FALLBACK_TO_PYPDF: bool = True  # Fallback to PyPDF if Docling fails
+
+    # Unstructured Configuration
+    USE_UNSTRUCTURED: bool = True  # Enable Unstructured for image/table extraction
+    UNSTRUCTURED_STRATEGY: str = "hi_res"  # Extraction strategy: "hi_res", "fast", "ocr_only"
+    UNSTRUCTURED_TABLE_FORMAT: str = "html"  # Table format: "html", "markdown", "text"
+
+    # Table Extraction Configuration
+    ENABLE_TABLE_EXTRACTION: bool = True  # Enable table extraction with Unstructured
+    TABLE_DETECTION_CONFIDENCE: float = 0.7  # Minimum confidence for table detection
+
+    # OCR Configuration (Tesseract)
+    ENABLE_OCR: bool = True  # Enable OCR for scanned PDFs
+    OCR_LANGUAGES: List[str] = ["eng"]  # OCR languages (eng=English, deu=German, fra=French, etc.)
+    OCR_QUALITY: str = "standard"  # OCR quality: "fast", "standard", "best"
+
+    # Image extraction settings
+    IMAGE_MIN_SIZE: int = 100  # Minimum image size in pixels (width/height)
 
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [
