@@ -14,7 +14,14 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    # PDF processing
     poppler-utils \
+    # OCR support (Tesseract)
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    # XML/HTML processing (needed by Unstructured)
+    libxml2 \
+    libxslt1.1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip for faster dependency resolution
@@ -30,6 +37,9 @@ COPY . .
 
 # Expose port
 EXPOSE 8001
+
+# Set Tesseract data path environment variable
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata/
 
 # Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]

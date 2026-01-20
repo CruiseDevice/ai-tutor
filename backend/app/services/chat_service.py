@@ -26,6 +26,24 @@ class ChatService:
     def __init__(self):
         self.embedding_service = get_embedding_service()
 
+    def _get_adaptive_token_limit(self, complexity: str) -> int:
+        """
+        Get adaptive max_completion_tokens based on query complexity.
+
+        Args:
+            complexity: Query complexity level (simple, moderate, complex)
+
+        Returns:
+            Appropriate token limit for the complexity level
+        """
+        from ..config import settings
+        limits = {
+            "simple": settings.MAX_COMPLETION_TOKENS_SIMPLE,
+            "moderate": settings.MAX_COMPLETION_TOKENS_MODERATE,
+            "complex": settings.MAX_COMPLETION_TOKENS_COMPLEX,
+        }
+        return limits.get(complexity, settings.MAX_COMPLETION_TOKENS_MODERATE)
+
     async def _generate_conversation_title(self, user_message: str, user_api_key: str) -> str:
         """
         Generate a smart, concise title for the conversation based on the first user message.
@@ -2360,13 +2378,18 @@ say you don't have enough information from the document and suggest looking at o
 
             # Call OpenAI with retry logic
             logger.debug(f"Calling OpenAI API with model {model}")
+
+            # Get adaptive token limit based on query complexity
+            max_tokens = self._get_adaptive_token_limit(query_classification['complexity'])
+            logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query")
+
             try:
                 async def _create_completion():
                     return await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0.7,
-                        max_completion_tokens=1000
+                        max_completion_tokens=max_tokens
                     )
 
                 completion = await async_retry_openai_call(
@@ -3157,13 +3180,18 @@ say you don't have enough information from the document and suggest looking at o
 
             # Stream OpenAI response
             logger.debug(f"Calling OpenAI API with streaming for model {model}")
+
+            # Get adaptive token limit based on query complexity
+            max_tokens = self._get_adaptive_token_limit(query_classification['complexity'])
+            logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query (streaming)")
+
             try:
                 async def _create_stream():
                     return await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0.7,
-                        max_completion_tokens=1000,
+                        max_completion_tokens=max_tokens,
                         stream=True
                     )
 

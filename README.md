@@ -13,6 +13,9 @@ StudyFetch AI Tutor is a web application that helps students understand PDF docu
   - **Hybrid Search**: Combines semantic (vector) and keyword (full-text) search for better retrieval
   - **Re-ranking**: Cross-encoder re-ranking improves result quality
   - **Query Expansion**: Optional multi-query retrieval for complex queries
+  - **Table Extraction**: Extracts tables from PDFs with multiple format options (HTML, Markdown, text)
+  - **Image Extraction**: Extracts images with automatic captioning
+  - **OCR Support**: Extracts text from scanned PDFs using Tesseract
 - 📌 **Context-Aware Responses**: AI references specific page numbers and content from the PDF
 - 📝 **Persistent Conversations**: Chat history is saved and can be resumed later
 - 🔄 **Multi-Document Support**: Upload and manage multiple documents with separate conversation histories
@@ -48,6 +51,7 @@ The backend is split into two Python services:
 - **LangChain** - Document processing and core RAG utilities
 - **Cross-Encoder Re-ranking** - ms-marco-MiniLM-L-6-v2 for improved retrieval quality
 - **LangGraph-based Agent Workflow** - Optional multi-step RAG agent pipeline
+- **Unstructured** - Image and table extraction from PDFs with OCR support
 
 ## Architecture
 
@@ -281,7 +285,7 @@ Make sure to set appropriate environment variables in your `.env` file, especial
 │   │   │   ├── audit_service.py # Audit logging
 │   │   │   ├── contextual_compression_service.py # Context compression for RAG
 │   │   │   ├── density_calculator_service.py # Query density calculator
-│   │   │   ├── docling_service.py # Document parsing with Docling
+│   │   │   ├── unstructured_service.py # PDF image/table extraction with Unstructured
 │   │   │   ├── hierarchical_chunking_service.py # Hierarchical chunking
 │   │   │   ├── query_decomposition_service.py # Query decomposition
 │   │   │   ├── query_expansion_service.py # Query expansion for retrieval
