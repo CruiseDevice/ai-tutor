@@ -12,6 +12,7 @@ from ..models.conversation import Conversation
 from ..config import settings
 from .embedding_service import get_embedding_service
 from .cache_service import get_cache_service
+from .unstructured_service import UnstructuredService
 from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import uuid
@@ -57,6 +58,13 @@ class DocumentService:
         )
         self.bucket_name = settings.S3_PDFBUCKET_NAME
         self.embedding_service = get_embedding_service()
+
+        # Initialize Unstructured service for image and table extraction
+        if settings.USE_UNSTRUCTURED:
+            self.unstructured_service = UnstructuredService()
+            logger.info("Unstructured service initialized for image/table extraction")
+        else:
+            self.unstructured_service = None
 
     async def _generate_embeddings_parallel(
         self,
@@ -1011,9 +1019,37 @@ class DocumentService:
 
         total_chunks_processed = 0
         total_chunks_failed = 0
+        extracted_images = []
+        extracted_tables = []
 
         try:
             logger.info(f"Starting streaming processing for document {document_id}")
+
+            # Extract images with Unstructured (if enabled)
+            if settings.ENABLE_IMAGE_EXTRACTION and settings.USE_UNSTRUCTURED:
+                try:
+                    extracted_images = await self._extract_images_with_unstructured(
+                        temp_file_path,
+                        document_id,
+                        document.user_id
+                    )
+                    logger.info(f"Extracted {len(extracted_images)} images from document")
+                except Exception as e:
+                    logger.error(f"Image extraction failed, continuing with text-only processing: {e}")
+                    extracted_images = []
+
+            # Extract tables with Unstructured (if enabled)
+            if settings.ENABLE_TABLE_EXTRACTION and settings.USE_UNSTRUCTURED:
+                try:
+                    extracted_tables = await self._extract_tables_with_unstructured(
+                        temp_file_path,
+                        document_id,
+                        document.user_id
+                    )
+                    logger.info(f"Extracted {len(extracted_tables)} tables from document")
+                except Exception as e:
+                    logger.error(f"Table extraction failed, continuing without tables: {e}")
+                    extracted_tables = []
 
             # Process pages as they're extracted
             async for page_num, page_chunks_data, total_pages in self._extract_and_chunk_pages_streaming(temp_file_path):
@@ -1059,6 +1095,68 @@ class DocumentService:
                     f"Chunks processed: {total_chunks_processed}, failed: {total_chunks_failed}"
                 )
 
+            # Process and save image chunks (if any images were extracted)
+            image_chunks_processed = 0
+            if extracted_images:
+                try:
+                    image_chunks = self._create_image_chunks(extracted_images)
+                    if image_chunks:
+                        # Generate embeddings for image chunks
+                        image_texts = [chunk['content'] for chunk in image_chunks]
+                        image_embeddings = await self._generate_embeddings_parallel(
+                            image_texts,
+                            batch_size=50,
+                            max_concurrent=4
+                        )
+
+                        # Add embeddings to chunks
+                        for i, chunk in enumerate(image_chunks):
+                            chunk['embedding'] = image_embeddings[i]
+
+                        # Save image chunks
+                        image_result = await self._save_chunks_parallel(
+                            db,
+                            document_id,
+                            image_chunks,
+                            batch_size=50
+                        )
+                        image_chunks_processed = image_result['success']
+                        total_chunks_processed += image_chunks_processed
+                        logger.info(f"Saved {image_chunks_processed} image chunks")
+                except Exception as e:
+                    logger.error(f"Failed to save image chunks: {e}", exc_info=True)
+
+            # Process and save table chunks (if any tables were extracted)
+            table_chunks_processed = 0
+            if extracted_tables:
+                try:
+                    table_chunks = self._create_table_chunks(extracted_tables)
+                    if table_chunks:
+                        # Generate embeddings for table chunks
+                        table_texts = [chunk['content'] for chunk in table_chunks]
+                        table_embeddings = await self._generate_embeddings_parallel(
+                            table_texts,
+                            batch_size=50,
+                            max_concurrent=4
+                        )
+
+                        # Add embeddings to chunks
+                        for i, chunk in enumerate(table_chunks):
+                            chunk['embedding'] = table_embeddings[i]
+
+                        # Save table chunks
+                        table_result = await self._save_chunks_parallel(
+                            db,
+                            document_id,
+                            table_chunks,
+                            batch_size=50
+                        )
+                        table_chunks_processed = table_result['success']
+                        total_chunks_processed += table_chunks_processed
+                        logger.info(f"Saved {table_chunks_processed} table chunks")
+                except Exception as e:
+                    logger.error(f"Failed to save table chunks: {e}", exc_info=True)
+
             # Invalidate cache for this document since chunks have been updated
             try:
                 cache_service = await get_cache_service()
@@ -1071,7 +1169,11 @@ class DocumentService:
                 "success": True,
                 "message": "Document processed successfully using streaming",
                 "chunks_processed": total_chunks_processed,
-                "chunks_failed": total_chunks_failed
+                "chunks_failed": total_chunks_failed,
+                "images_extracted": len(extracted_images),
+                "images_uploaded": sum(1 for img in extracted_images if img.get('s3_url')),
+                "images_captioned": sum(1 for img in extracted_images if img.get('caption')),
+                "tables_extracted": len(extracted_tables)
             }
 
         finally:
@@ -1105,11 +1207,11 @@ class DocumentService:
             temp_file_path = temp_file.name
 
         try:
-            # Extract images with Docling (if enabled)
+            # Extract images with Unstructured (if enabled)
             extracted_images = []
-            if settings.ENABLE_IMAGE_EXTRACTION:
+            if settings.ENABLE_IMAGE_EXTRACTION and settings.USE_UNSTRUCTURED:
                 try:
-                    extracted_images = await self._extract_images_with_docling(
+                    extracted_images = await self._extract_images_with_unstructured(
                         temp_file_path,
                         document_id,
                         document.user_id
@@ -1118,6 +1220,20 @@ class DocumentService:
                 except Exception as e:
                     logger.error(f"Image extraction failed, continuing with text-only processing: {e}")
                     extracted_images = []
+
+            # Extract tables with Unstructured (if enabled)
+            extracted_tables = []
+            if settings.ENABLE_TABLE_EXTRACTION and settings.USE_UNSTRUCTURED:
+                try:
+                    extracted_tables = await self._extract_tables_with_unstructured(
+                        temp_file_path,
+                        document_id,
+                        document.user_id
+                    )
+                    logger.info(f"Extracted {len(extracted_tables)} tables from document")
+                except Exception as e:
+                    logger.error(f"Table extraction failed, continuing without tables: {e}")
+                    extracted_tables = []
 
             # Load PDF using LangChain
             loader = PyPDFLoader(temp_file_path)
@@ -1157,6 +1273,7 @@ class DocumentService:
                     "images_extracted": len(extracted_images),
                     "images_uploaded": sum(1 for img in extracted_images if img.get('s3_url')),
                     "images_captioned": sum(1 for img in extracted_images if img.get('caption')),
+                    "tables_extracted": len(extracted_tables),
                     "chunking_mode": "hierarchical"
                 }
 
@@ -1176,11 +1293,18 @@ class DocumentService:
                 image_chunk_data = self._create_image_chunks(extracted_images)
                 logger.info(f"Created {len(image_chunk_data)} image chunks")
 
-            # Combine text and image chunks
-            all_chunk_data = text_chunk_data + image_chunk_data
+            # Create table chunks from extracted tables
+            table_chunk_data = []
+            if extracted_tables:
+                logger.info(f"Creating table chunks from {len(extracted_tables)} extracted tables")
+                table_chunk_data = self._create_table_chunks(extracted_tables)
+                logger.info(f"Created {len(table_chunk_data)} table chunks")
+
+            # Combine text, image, and table chunks
+            all_chunk_data = text_chunk_data + image_chunk_data + table_chunk_data
             logger.info(
                 f"Total chunks: {len(all_chunk_data)} "
-                f"(text: {len(text_chunk_data)}, images: {len(image_chunk_data)})"
+                f"(text: {len(text_chunk_data)}, images: {len(image_chunk_data)}, tables: {len(table_chunk_data)})"
             )
 
             # Generate all embeddings in parallel batches (async, non-blocking)
@@ -1250,16 +1374,19 @@ class DocumentService:
             # Calculate statistics
             text_chunks_count = len(text_chunk_data)
             image_chunks_count = len(image_chunk_data)
+            table_chunks_count = len(table_chunk_data)
             images_captioned_count = sum(1 for img in extracted_images if img.get('caption'))
 
             logger.info(
                 f"Document processing complete: "
                 f"text_chunks={text_chunks_count}, "
                 f"image_chunks={image_chunks_count}, "
+                f"table_chunks={table_chunks_count}, "
                 f"total_chunks={successful_chunks}, "
                 f"sentences={sentence_stats['sentences_saved']}, "
                 f"images_extracted={len(extracted_images)}, "
-                f"images_captioned={images_captioned_count}"
+                f"images_captioned={images_captioned_count}, "
+                f"tables_extracted={len(extracted_tables)}"
             )
 
             return {
@@ -1269,10 +1396,12 @@ class DocumentService:
                 "chunks_failed": failed_chunks,
                 "text_chunks": text_chunks_count,
                 "image_chunks": image_chunks_count,
-                "total_chunks": text_chunks_count + image_chunks_count,
+                "table_chunks": table_chunks_count,
+                "total_chunks": text_chunks_count + image_chunks_count + table_chunks_count,
                 "images_extracted": len(extracted_images),
                 "images_uploaded": sum(1 for img in extracted_images if img.get('s3_url')),
                 "images_captioned": images_captioned_count,
+                "tables_extracted": len(extracted_tables),
                 "sentences_extracted": sentence_stats['sentences_extracted'],
                 "sentences_saved": sentence_stats['sentences_saved'],
                 "chunking_mode": "flat"
@@ -1397,10 +1526,10 @@ class DocumentService:
         Returns:
             Tuple of (s3_url, s3_key)
         """
-        from .docling_service import DoclingService
+        if not self.unstructured_service:
+            raise RuntimeError("Unstructured service not initialized")
 
-        docling_service = DoclingService()
-        return docling_service.save_image_to_s3(
+        return self.unstructured_service.save_image_to_s3(
             image_data,
             document_id,
             user_id,
@@ -1489,9 +1618,14 @@ class DocumentService:
         logger.info(f"Created {len(image_chunks)} image chunks for embedding")
         return image_chunks
 
-    async def _extract_images_with_docling(self, pdf_path: str, document_id: str, user_id: str) -> List[Dict]:
+    async def _extract_images_with_unstructured(
+        self,
+        pdf_path: str,
+        document_id: str,
+        user_id: str
+    ) -> List[Dict]:
         """
-        Extract images from PDF using Docling and upload to S3.
+        Extract images from PDF using Unstructured and upload to S3.
 
         Args:
             pdf_path: Path to the PDF file
@@ -1501,21 +1635,22 @@ class DocumentService:
         Returns:
             List of dicts with image metadata and S3 URLs
         """
-        from .docling_service import DoclingService
-
         if not settings.ENABLE_IMAGE_EXTRACTION:
             logger.info("Image extraction disabled via settings")
             return []
 
+        if not self.unstructured_service:
+            logger.warning("Unstructured service not initialized, skipping image extraction")
+            return []
+
         try:
-            logger.info(f"Starting image extraction with Docling for document {document_id}")
-            docling_service = DoclingService()
+            logger.info(f"Starting image extraction with Unstructured for document {document_id}")
 
-            # Extract document content
-            doc = docling_service.extract_document_content(pdf_path)
+            # Extract document content with Unstructured
+            elements = self.unstructured_service.extract_document_content(pdf_path)
 
-            # Extract images
-            images = docling_service.extract_images(doc, pdf_path)
+            # Extract images from elements
+            images = self.unstructured_service.extract_images(elements)
 
             if not images:
                 logger.info("No images found in document")
@@ -1536,8 +1671,8 @@ class DocumentService:
             uploaded_images = []
             for idx, img in enumerate(images):
                 try:
-                    # Upload to S3
-                    s3_url, s3_key = await self._upload_image_to_s3(
+                    # Upload to S3 using UnstructuredService
+                    s3_url, s3_key = self.unstructured_service.save_image_to_s3(
                         img.image_data,
                         document_id,
                         user_id,
@@ -1556,6 +1691,7 @@ class DocumentService:
                         's3_url': s3_url,
                         'image_format': img.image_format,
                         'image_index': idx,
+                        'element_type': img.element_type,
                         'caption': self._caption_to_dict(caption) if caption else None
                     }
 
@@ -1579,13 +1715,121 @@ class DocumentService:
 
         except Exception as e:
             logger.error(f"Image extraction failed: {e}", exc_info=True)
+            # Graceful degradation - return empty list
+            return []
 
-            # Graceful degradation - don't fail entire document processing
-            if settings.DOCLING_FALLBACK_TO_PYPDF:
-                logger.info("Falling back to text-only processing due to image extraction failure")
+    async def _extract_tables_with_unstructured(
+        self,
+        pdf_path: str,
+        document_id: str,
+        user_id: str
+    ) -> List[Dict]:
+        """
+        Extract tables from PDF using Unstructured.
+
+        Args:
+            pdf_path: Path to the PDF file
+            document_id: Document UUID
+            user_id: User ID
+
+        Returns:
+            List of dicts with table metadata
+        """
+        if not settings.ENABLE_TABLE_EXTRACTION:
+            logger.info("Table extraction disabled via settings")
+            return []
+
+        if not self.unstructured_service:
+            logger.warning("Unstructured service not initialized, skipping table extraction")
+            return []
+
+        try:
+            logger.info(f"Starting table extraction with Unstructured for document {document_id}")
+
+            # Extract document content with Unstructured
+            elements = self.unstructured_service.extract_document_content(pdf_path)
+
+            # Extract tables from elements
+            tables = self.unstructured_service.extract_tables(elements)
+
+            if not tables:
+                logger.info("No tables found in document")
                 return []
+
+            logger.info(f"Successfully extracted {len(tables)} tables")
+
+            # Convert tables to dict format for storage
+            table_metadata_list = []
+            for idx, table in enumerate(tables):
+                table_metadata = {
+                    'page_number': table.page_number,
+                    'bbox': table.bbox,
+                    'table_data': table.table_data,
+                    'rows': table.rows,
+                    'columns': table.columns,
+                    'table_html': table.table_html,
+                    'table_markdown': table.table_markdown,
+                    'table_text': table.table_text,
+                    'table_index': idx
+                }
+                table_metadata_list.append(table_metadata)
+
+            return table_metadata_list
+
+        except Exception as e:
+            logger.error(f"Table extraction failed: {e}", exc_info=True)
+            # Graceful degradation - return empty list
+            return []
+
+    def _create_table_chunks(self, tables: List[Dict]) -> List[Dict]:
+        """
+        Create table chunk representations from extracted tables.
+
+        Args:
+            tables: List of table metadata dicts
+
+        Returns:
+            List of chunk dicts with 'content', 'page_number', 'metadata' for embedding generation
+        """
+        table_chunks = []
+
+        for table_data in tables:
+            page_number = table_data.get('page_number', 1)
+
+            # Build text content for embedding
+            # Use table_html if available, otherwise markdown, then text
+            chunk_text = ""
+            if table_data.get('table_html'):
+                chunk_text = f"Table on page {page_number}: {table_data['table_html']}"
+            elif table_data.get('table_markdown'):
+                chunk_text = f"Table on page {page_number}: {table_data['table_markdown']}"
+            elif table_data.get('table_text'):
+                chunk_text = f"Table on page {page_number}: {table_data['table_text']}"
             else:
-                raise
+                chunk_text = f"Table on page {page_number}: No content available"
+
+            # Prepare metadata for position_data JSONB field
+            metadata = {
+                'bbox': table_data.get('bbox', (0, 0, 0, 0)),
+                'content_type': 'table',
+                'table_rows': table_data.get('rows', 0),
+                'table_columns': table_data.get('columns', 0),
+                'table_index': table_data.get('table_index', 0),
+                'table_html': table_data.get('table_html'),
+                'table_markdown': table_data.get('table_markdown'),
+            }
+
+            table_chunk = {
+                'content': chunk_text,
+                'page_number': page_number,
+                'metadata': metadata,
+                'chunk_type': 'table'  # Mark as table chunk
+            }
+
+            table_chunks.append(table_chunk)
+
+        logger.info(f"Created {len(table_chunks)} table chunks for embedding")
+        return table_chunks
 
     async def _process_with_hierarchical_chunking(
         self,
