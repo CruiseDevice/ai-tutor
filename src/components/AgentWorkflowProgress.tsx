@@ -3,7 +3,7 @@ import React from 'react';
 interface WorkflowStep {
   node: string;
   status: 'pending' | 'in_progress' | 'completed';
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 interface Props {
@@ -99,25 +99,25 @@ export default function AgentWorkflowProgress({ steps, visible }: Props) {
                   <div className="mt-1 text-xs text-gray-600 space-y-0.5">
                     {step.node === 'understand_query' && step.data.query_type && (
                       <div>
-                        <span className="font-medium">Type:</span> {step.data.query_type}
+                        <span className="font-medium">Type:</span> {String(step.data.query_type)}
                         {step.data.complexity && (
                           <span className={`ml-2 px-1.5 py-0.5 rounded text-xs font-medium ${
                             step.data.complexity === 'complex' ? 'bg-red-100 text-red-700' :
                             step.data.complexity === 'moderate' ? 'bg-yellow-100 text-yellow-700' :
                             'bg-green-100 text-green-700'
                           }`}>
-                            {step.data.complexity}
+                            {String(step.data.complexity)}
                           </span>
                         )}
                       </div>
                     )}
                     {step.node === 'retrieve_context' && step.data.chunks_retrieved && (
                       <div>
-                        <span className="font-medium">Chunks:</span> {step.data.chunks_retrieved} retrieved
-                        {step.data.chunks_used && ` → ${step.data.chunks_used} used`}
+                        <span className="font-medium">Chunks:</span> {String(step.data.chunks_retrieved)} retrieved
+                        {step.data.chunks_used && ` → ${String(step.data.chunks_used)} used`}
                       </div>
                     )}
-                    {step.node === 'verify_response' && step.data.quality_score && (
+                    {step.node === 'verify_response' && step.data.quality_score && typeof step.data.quality_score === 'number' && (
                       <div>
                         <span className="font-medium">Quality:</span>{' '}
                         <span className={step.data.quality_score >= 8 ? 'text-green-600' : step.data.quality_score >= 7 ? 'text-yellow-600' : 'text-red-600'}>
