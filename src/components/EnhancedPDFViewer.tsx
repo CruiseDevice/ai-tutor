@@ -7,7 +7,8 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import type { PDFAnnotation, AnnotationReference } from '@/types/annotations';
 
 // Initialize pdfjs worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+// Use explicit HTTPS to avoid Safari iOS CORS issues with protocol-relative URLs
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
 // Annotation Shape Component
 interface AnnotationShapeProps {

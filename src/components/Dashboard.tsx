@@ -20,7 +20,7 @@ interface ChatMessage {
 interface WorkflowStep {
   node: string;
   status: 'pending' | 'in_progress' | 'completed';
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 function DashboardWithSearchParams () {
@@ -65,7 +65,7 @@ function DashboardWithSearchParams () {
     router.push(`${pathname}?${params.toString()}`, {scroll: false});
   }, [searchParams, pathname, router]);
 
-  const handleDeleteConversation = useCallback((deletedConversationId: string, documentId: string) => {
+  const handleDeleteConversation = useCallback((deletedConversationId: string) => {
     if (deletedConversationId === conversationId) {
       // Only clear state if the deleted conversation is the current one
       setCurrentPDF('');
@@ -435,7 +435,7 @@ function DashboardWithSearchParams () {
           });
         },
         // onDone - replace temp messages with final messages
-        (data: any) => {
+        (data: Record<string, unknown>) => {
           console.log('[Dashboard] Stream completed:', data);
           console.log('[Dashboard] Data structure:', {
             hasData: !!data,
@@ -445,8 +445,8 @@ function DashboardWithSearchParams () {
           });
 
           // Handle both direct data and nested data structures
-          const userData = data?.user_message || data?.data?.user_message;
-          const assistantData = data?.assistant_message || data?.data?.assistant_message;
+          const userData = (data as { user_message?: unknown; data?: { user_message?: unknown } })?.user_message || (data as { data?: { user_message?: unknown } })?.data?.user_message;
+          const assistantData = (data as { assistant_message?: unknown; data?: { assistant_message?: unknown } })?.assistant_message || (data as { data?: { assistant_message?: unknown } })?.data?.assistant_message;
 
           if (!userData || !assistantData) {
             console.error('[Dashboard] Missing message data:', { userData, assistantData });
@@ -458,32 +458,33 @@ function DashboardWithSearchParams () {
           setMessages(prev => [
             ...prev.filter(m => m.id !== tempUserMessageId && m.id !== tempAssistantMessageId),
             {
-              id: userData.id || `user-${Date.now()}`,
-              role: (userData.role || 'user') as 'user',
-              content: userData.content,
+              id: (userData as { id?: string }).id || `user-${Date.now()}`,
+              role: ((userData as { role?: string }).role || 'user') as 'user',
+              content: (userData as { content?: string }).content || '',
               annotations: undefined
             },
             {
-              id: assistantData.id || `assistant-${Date.now()}`,
-              role: (assistantData.role || 'assistant') as 'assistant',
-              content: assistantData.content,
-              annotations: assistantData.annotations,
-              metadata: assistantData.metadata
+              id: (assistantData as { id?: string }).id || `assistant-${Date.now()}`,
+              role: ((assistantData as { role?: string }).role || 'assistant') as 'assistant',
+              content: (assistantData as { content?: string }).content || '',
+              annotations: (assistantData as { annotations?: AnnotationReference[] }).annotations,
+              metadata: (assistantData as { metadata?: AgentMetadata }).metadata
             }
           ]);
 
           // If the assistant message has annotations, update the PDF viewer
-          if (assistantData?.annotations && assistantData.annotations.length > 0) {
-            console.log('[Dashboard] Processing annotations:', assistantData.annotations);
-            setCurrentAnnotations(assistantData.annotations);
+          const assistantAnnotations = (assistantData as { annotations?: AnnotationReference[] }).annotations;
+          if (assistantAnnotations && assistantAnnotations.length > 0) {
+            console.log('[Dashboard] Processing annotations:', assistantAnnotations);
+            setCurrentAnnotations(assistantAnnotations);
 
             // Auto-navigate to the first annotation's page
-            const firstAnnotation = assistantData.annotations[0];
+            const firstAnnotation = assistantAnnotations[0];
             if (pdfViewerRef.current && firstAnnotation) {
               console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
               pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
               const firstTextMatch = firstAnnotation.annotations?.find(
-                annotation => annotation.textContent
+                (annotation: { textContent?: string }) => annotation.textContent
               )?.textContent || firstAnnotation.sourceText;
               if (firstTextMatch) {
                 console.log('[Dashboard] Highlighting text:', firstTextMatch);
