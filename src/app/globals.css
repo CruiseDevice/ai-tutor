@@ -23,7 +23,7 @@ body {
 }
 
 /* ============================================
-   Touch / Mobile Support - Phase 1.2
+   Touch / Mobile Support
    ============================================ */
 
 /* Prevent text selection on interactive elements during touch */
@@ -39,7 +39,7 @@ body {
 }
 
 /* ============================================ */
-/*   Touch / Mobile Support - Phase 6: Global Polish
+/*   Touch / Mobile Support
    ============================================ */
 
 /* Disable iOS tap delay for faster touch response */
