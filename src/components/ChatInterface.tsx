@@ -440,7 +440,7 @@ export default function ChatInterface({
               {!hasApiKey && (
                 <button
                   onClick={() => router.push('/settings')}
-                  className="mt-2 text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-md transition-colors font-medium"
+                  className="no-select no-tap-highlight mt-2 text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-md transition-colors font-medium min-h-[44px]"
                 >
                   Go to Settings
                 </button>
@@ -448,7 +448,7 @@ export default function ChatInterface({
             </div>
             <button
               onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-600"
+              className="no-tap-highlight text-red-400 hover:text-red-600 min-w-[44px] min-h-[44px] flex items-center justify-center"
             >
               <span className="sr-only">Close</span>
               ×
@@ -476,7 +476,7 @@ export default function ChatInterface({
           <div className="relative" ref={modelMenuRef}>
             <button
               onClick={toggleModelMenu}
-              className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors border border-slate-200"
+              className="no-select no-tap-highlight flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors border border-slate-200 min-h-[44px]"
             >
               <Sparkles size={12} className="text-indigo-500"/>
               <span>{getSelectedModelName()}</span>
@@ -530,7 +530,7 @@ export default function ChatInterface({
 
           {/* Agent Mode Toggle */}
           <div className="flex items-center gap-2">
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="no-tap-highlight relative inline-flex items-center cursor-pointer min-h-[44px]">
               <input
                 type="checkbox"
                 checked={useAgent}
@@ -563,7 +563,16 @@ export default function ChatInterface({
       </div>
 
       {/* Chat Messages Area */}
-      <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+      <div
+        ref={messagesContainerRef}
+        onClick={() => {
+          // Dismiss keyboard when tapping outside the input area on touch devices
+          if (textareaRef.current && document.activeElement === textareaRef.current) {
+            textareaRef.current.blur();
+          }
+        }}
+        className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
+      >
         {/* Workflow Progress */}
         <AgentWorkflowProgress steps={workflowSteps} visible={showWorkflow} />
 
@@ -596,7 +605,7 @@ export default function ChatInterface({
                     setInputMessage(suggestion);
                     if (textareaRef.current) textareaRef.current.focus();
                   }}
-                  className="text-xs text-slate-600 bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 px-4 py-3 rounded-xl transition-all text-left shadow-sm"
+                  className="no-select no-tap-highlight text-xs text-slate-600 bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 px-4 py-3 rounded-xl transition-all text-left shadow-sm min-h-[44px]"
                 >
                   &quot;{suggestion}&quot;
                 </button>
@@ -750,7 +759,7 @@ export default function ChatInterface({
           <button
             type="submit"
             disabled={!inputMessage.trim() || isLoading}
-            className={`p-3 rounded-xl shadow-md flex items-center justify-center transition-all duration-200 ${
+            className={`no-select no-tap-highlight p-3 rounded-xl shadow-md flex items-center justify-center transition-all duration-200 min-w-[44px] min-h-[44px] ${
               !inputMessage.trim() || isLoading
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg hover:scale-105 active:scale-95'

@@ -323,3 +323,17 @@ export async function getJson(response: Response): Promise<unknown> {
   return response.json();
 }
 
+/**
+ * Get the PDF proxy URL for a document.
+ *
+ * This uses the backend proxy endpoint to bypass CORS issues when loading
+ * PDFs from S3 on devices like iPads that enforce strict CORS policies.
+ *
+ * @param documentId - The document ID to fetch the PDF for
+ * @returns The proxied PDF URL
+ */
+export function getPDFProxyUrl(documentId: string): string {
+  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
+  return `${BACKEND_URL}/api/documents/${documentId}/pdf`;
+}
+

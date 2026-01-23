@@ -288,7 +288,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
         )}
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-all duration-200 active:scale-95"
+          className="no-select no-tap-highlight p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-all duration-200 active:scale-95 min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
           {isOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
@@ -299,8 +299,8 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
       <div className={`px-3 mb-6 ${isOpen ? '' : 'flex justify-center'}`}>
         <button
           onClick={handleNavigateToDashboard}
-          className={`group flex items-center gap-3 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white rounded-xl shadow-lg shadow-blue-900/20 transition-all duration-300 hover:shadow-blue-900/40 hover:-translate-y-0.5 ${
-            isOpen ? 'w-full py-3 px-4' : 'w-10 h-10 justify-center p-0'
+          className={`no-select no-tap-highlight group flex items-center gap-3 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white rounded-xl shadow-lg shadow-blue-900/20 transition-all duration-300 hover:shadow-blue-900/40 hover:-translate-y-0.5 ${
+            isOpen ? 'w-full py-3 px-4 min-h-[44px]' : 'w-10 h-10 justify-center p-0 min-w-[44px] min-h-[44px]'
           }`}
         >
           <Plus size={20} className={`${isOpen ? '' : 'ml-0'} transition-transform group-hover:rotate-90`} />
@@ -348,7 +348,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                       } ${isOpen ? 'p-3' : 'p-3 justify-center'}`}>
                       <button
                         onClick={() => toggleDocumentExpansion(documentId)}
-                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                        className="no-select no-tap-highlight flex items-center gap-3 flex-1 min-w-0 text-left min-h-[44px]"
                       >
                         <div className="relative flex-shrink-0">
                           <FileText size={18} className={hasCurrentConversation ? 'text-blue-400' : 'text-slate-500 group-hover/item:text-slate-400'} />
@@ -379,7 +379,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                               handleCreateNewConversation(e, documentId);
                             }}
                             disabled={creatingConversation === documentId}
-                            className={`p-1.5 rounded-lg transition-all ${
+                            className={`no-select no-tap-highlight p-1.5 rounded-lg transition-all min-w-[44px] min-h-[44px] flex items-center justify-center ${
                               creatingConversation === documentId
                                 ? 'text-blue-400 opacity-100 cursor-not-allowed'
                                 : 'text-slate-500 hover:bg-blue-500/10 hover:text-blue-400 opacity-70 group-hover/document:opacity-100'
@@ -399,7 +399,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                               e.stopPropagation();
                               toggleDocumentExpansion(documentId);
                             }}
-                            className="p-1 rounded-lg hover:bg-slate-700/50 transition-colors"
+                            className="no-select no-tap-highlight p-1 rounded-lg hover:bg-slate-700/50 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                             title={isExpanded ? "Collapse" : "Expand"}
                           >
                             {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -416,7 +416,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                         <div key={conversation.id} className="group/conversation relative">
                           <button
                             onClick={() => onSelectConversation(conversation.id, documentId)}
-                            className={`w-full text-left rounded-lg transition-all duration-200 flex items-center group/item ${
+                            className={`no-select no-tap-highlight w-full text-left rounded-lg transition-all duration-200 flex items-center group/item min-h-[44px] ${
                               currentConversationId === conversation.id
                                 ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700/50'
                                 : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
@@ -443,7 +443,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                           <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/conversation:opacity-100 transition-opacity">
                             <button
                               onClick={(e) => handleDelete(e, conversation.id, documentId)}
-                              className={`p-1 rounded-lg hover:bg-red-500/10 hover:text-red-400 transition-colors ${
+                              className={`no-select no-tap-highlight p-1 rounded-lg hover:bg-red-500/10 hover:text-red-400 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
                                 deleting === conversation.id ? 'text-red-400 opacity-100' : 'text-slate-500'
                               }`}
                               title="Delete conversation"
@@ -472,7 +472,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
         <div className="relative">
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className={`w-full flex items-center rounded-xl hover:bg-slate-800 transition-colors ${
+            className={`no-tap-highlight w-full flex items-center rounded-xl hover:bg-slate-800 transition-colors min-h-[44px] ${
               isOpen ? 'p-2 justify-between' : 'p-2 justify-center'
             } ${isMenuOpen ? 'bg-slate-800' : ''}`}
           >
@@ -505,7 +505,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
               <div className="p-1">
                 <Link
                   href="/settings"
-                  className="flex items-center px-3 py-2 text-sm text-slate-300 hover:bg-slate-700/50 hover:text-white rounded-lg transition-colors gap-2"
+                  className="no-select no-tap-highlight flex items-center px-3 py-2 text-sm text-slate-300 hover:bg-slate-700/50 hover:text-white rounded-lg transition-colors gap-2 min-h-[44px]"
                 >
                   <Settings size={16} className="text-slate-400" />
                   <span>Settings</span>
@@ -513,7 +513,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                 <div className="h-px bg-slate-700/50 my-1" />
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-lg transition-colors gap-2"
+                  className="no-select no-tap-highlight w-full flex items-center px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-lg transition-colors gap-2 min-h-[44px]"
                 >
                   <LogOut size={16} />
                   <span>Logout</span>
