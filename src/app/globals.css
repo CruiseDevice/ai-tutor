@@ -22,6 +22,38 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* ============================================
+   Touch / Mobile Support - Phase 1.2
+   ============================================ */
+
+/* Prevent text selection on interactive elements during touch */
+.no-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Remove tap highlight color on iOS */
+.no-tap-highlight {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================================ */
+/*   Touch / Mobile Support - Phase 6: Global Polish
+   ============================================ */
+
+/* Disable iOS tap delay for faster touch response */
+* {
+  touch-action: manipulation;
+}
+
+/* Smooth scrolling for iOS - native momentum scrolling */
+html, body {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================ */
+
 
 /* Add these to your global.css or equivalent */
 

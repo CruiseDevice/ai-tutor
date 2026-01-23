@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
 from arq import create_pool
@@ -15,6 +16,9 @@ from ..schemas.document import (
 )
 from ..services.document_service import DocumentService
 from ..workers.arq_config import ARQ_REDIS_SETTINGS
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -209,4 +213,68 @@ async def get_document(
         "createdAt": document.created_at.isoformat(),
         "updatedAt": document.updated_at.isoformat()
     }
+
+
+@router.get("/{document_id}/pdf")
+async def get_document_pdf(
+    document_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Proxy endpoint to fetch PDF from S3 and stream it to the client.
+
+    This bypasses CORS issues by having the backend fetch from S3 using
+    its AWS credentials (not subject to browser CORS) and serving to
+    the frontend with proper CORS headers.
+    """
+    # Verify document belongs to user
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.user_id == user.id
+    ).first()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    try:
+        # Fetch PDF from S3 using boto3 (bypasses browser CORS)
+        response = document_service.s3_client.get_object(
+            Bucket=document_service.bucket_name,
+            Key=document.blob_path
+        )
+
+        # Stream the PDF content to the client
+        def iterfile():
+            """Stream file in chunks to avoid loading entire file in memory."""
+            chunk_size = 8192  # 8KB chunks
+            while chunk := response['Body'].read(chunk_size):
+                yield chunk
+
+        logger.info(f"Serving PDF proxy for document {document_id} to user {user.id}")
+
+        return StreamingResponse(
+            iterfile(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{document.title}"',
+                "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+            }
+        )
+
+    except document_service.s3_client.exceptions.NoSuchKey:
+        logger.error(f"PDF not found in S3: {document.blob_path}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="PDF file not found in storage"
+        )
+    except Exception as e:
+        logger.error(f"Error fetching PDF from S3: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch PDF: {str(e)}"
+        )
 

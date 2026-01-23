@@ -6,7 +6,7 @@ import EnhancedPDFViewer, { PDFViewerRef } from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
-import { authApi, documentApi, chatApi, conversationApi, configApi } from "@/lib/api-client";
+import { authApi, documentApi, chatApi, conversationApi, configApi, getPDFProxyUrl } from "@/lib/api-client";
 import type { AnnotationReference, AgentMetadata } from "@/types/annotations";
 
 interface ChatMessage {
@@ -101,7 +101,7 @@ function DashboardWithSearchParams () {
       // Set the new conversation as active
       setConversationId(newConversation.id);
       setDocumentId(documentId);
-      setCurrentPDF(docData.url);
+      setCurrentPDF(getPDFProxyUrl(documentId));
       setMessages([]);
       setCurrentAnnotations([]);
       pdfViewerRef.current?.clearAnnotations();
@@ -131,7 +131,7 @@ function DashboardWithSearchParams () {
       // update state with the selected conversation
       setConversationId(convoId);
       setDocumentId(docId);
-      setCurrentPDF(data.conversation.document.url);
+      setCurrentPDF(getPDFProxyUrl(docId));
       setMessages(data.messages);
 
       // Check if the last assistant message has annotations
@@ -299,7 +299,7 @@ function DashboardWithSearchParams () {
       }
 
       const data = await response.json();
-      setCurrentPDF(data.url);
+      setCurrentPDF(getPDFProxyUrl(data.id));
       setDocumentId(data.id);
 
       // reset messages and annotations for new document
@@ -561,14 +561,18 @@ function DashboardWithSearchParams () {
     }
   }, []);
 
-  // Resizer handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
+  // Resizer handlers - Pointer Events for touch + mouse support
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Only respond to primary touch/click (left mouse, first finger)
+    if (!e.isPrimary) return;
+
     e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setIsResizing(true);
   };
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!isResizing || !containerRef.current) return;
 
       const containerRect = containerRef.current.getBoundingClientRect();
@@ -579,21 +583,25 @@ function DashboardWithSearchParams () {
       setSplitPosition(constrainedPosition);
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       setIsResizing(false);
     };
 
     if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('pointermove', handlePointerMove);
+      document.addEventListener('pointerup', handlePointerUp);
+      document.addEventListener('pointercancel', handlePointerUp);
       document.body.style.cursor = 'col-resize';
+      document.body.style.touchAction = 'none'; // Prevent scrolling while resizing on touch
       document.body.style.userSelect = 'none';
     }
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
       document.body.style.cursor = '';
+      document.body.style.touchAction = '';
       document.body.style.userSelect = '';
     };
   }, [isResizing]);
@@ -634,13 +642,13 @@ function DashboardWithSearchParams () {
 
         {/* Resizer */}
         <div
-          onMouseDown={handleMouseDown}
-          className={`absolute top-0 bottom-0 w-1 bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors z-20 ${
+          onPointerDown={handlePointerDown}
+          className={`no-select no-tap-highlight absolute top-0 bottom-0 w-1 bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors z-20 ${
             isResizing ? 'bg-blue-500' : ''
           }`}
           style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
         >
-          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-12 rounded-full flex items-center justify-center transition-all ${
+          <div className={`no-select no-tap-highlight absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-12 rounded-full flex items-center justify-center transition-all min-w-[44px] min-h-[44px] ${
             isResizing
               ? 'bg-blue-500 shadow-lg scale-110'
               : 'bg-gray-200 hover:bg-blue-400 hover:shadow-md'
