@@ -1,7 +1,7 @@
 // API client that talks to Python backend
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
 
-export async function apiRequest<T = any>(endpoint: string, options?: RequestInit): Promise<Response> {
+export async function apiRequest(endpoint: string, options?: RequestInit): Promise<Response> {
   const response = await fetch(`${BACKEND_URL}${endpoint}`, {
     ...options,
     credentials: 'include', // Send cookies
@@ -117,8 +117,8 @@ export const chatApi = {
     model: string,
     useAgent: boolean,
     onChunk: (chunk: string) => void,
-    onStep: (step: { node: string; data: any }) => void,
-    onDone: (data: any) => void,
+    onStep: (step: { node: string; data: Record<string, unknown> }) => void,
+    onDone: (data: Record<string, unknown>) => void,
     onError: (error: string) => void
   ) {
     const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
@@ -315,11 +315,25 @@ export const adminApi = {
 };
 
 // Helper function to get JSON from response
-export async function getJson<T = any>(response: Response): Promise<T> {
+export async function getJson(response: Response): Promise<unknown> {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
     throw new Error(error.error || error.detail || 'Request failed');
   }
   return response.json();
+}
+
+/**
+ * Get the PDF proxy URL for a document.
+ *
+ * This uses the backend proxy endpoint to bypass CORS issues when loading
+ * PDFs from S3 on devices like iPads that enforce strict CORS policies.
+ *
+ * @param documentId - The document ID to fetch the PDF for
+ * @returns The proxied PDF URL
+ */
+export function getPDFProxyUrl(documentId: string): string {
+  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
+  return `${BACKEND_URL}/api/documents/${documentId}/pdf`;
 }
 

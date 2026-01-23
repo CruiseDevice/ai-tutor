@@ -6,7 +6,7 @@ import EnhancedPDFViewer, { PDFViewerRef } from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
-import { authApi, documentApi, chatApi, conversationApi, configApi } from "@/lib/api-client";
+import { authApi, documentApi, chatApi, conversationApi, configApi, getPDFProxyUrl } from "@/lib/api-client";
 import type { AnnotationReference, AgentMetadata } from "@/types/annotations";
 
 interface ChatMessage {
@@ -20,7 +20,7 @@ interface ChatMessage {
 interface WorkflowStep {
   node: string;
   status: 'pending' | 'in_progress' | 'completed';
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 function DashboardWithSearchParams () {
@@ -65,7 +65,7 @@ function DashboardWithSearchParams () {
     router.push(`${pathname}?${params.toString()}`, {scroll: false});
   }, [searchParams, pathname, router]);
 
-  const handleDeleteConversation = useCallback((deletedConversationId: string, documentId: string) => {
+  const handleDeleteConversation = useCallback((deletedConversationId: string) => {
     if (deletedConversationId === conversationId) {
       // Only clear state if the deleted conversation is the current one
       setCurrentPDF('');
@@ -101,7 +101,7 @@ function DashboardWithSearchParams () {
       // Set the new conversation as active
       setConversationId(newConversation.id);
       setDocumentId(documentId);
-      setCurrentPDF(docData.url);
+      setCurrentPDF(getPDFProxyUrl(documentId));
       setMessages([]);
       setCurrentAnnotations([]);
       pdfViewerRef.current?.clearAnnotations();
@@ -131,7 +131,7 @@ function DashboardWithSearchParams () {
       // update state with the selected conversation
       setConversationId(convoId);
       setDocumentId(docId);
-      setCurrentPDF(data.conversation.document.url);
+      setCurrentPDF(getPDFProxyUrl(docId));
       setMessages(data.messages);
 
       // Check if the last assistant message has annotations
@@ -299,7 +299,7 @@ function DashboardWithSearchParams () {
       }
 
       const data = await response.json();
-      setCurrentPDF(data.url);
+      setCurrentPDF(getPDFProxyUrl(data.id));
       setDocumentId(data.id);
 
       // reset messages and annotations for new document
@@ -435,7 +435,7 @@ function DashboardWithSearchParams () {
           });
         },
         // onDone - replace temp messages with final messages
-        (data: any) => {
+        (data: Record<string, unknown>) => {
           console.log('[Dashboard] Stream completed:', data);
           console.log('[Dashboard] Data structure:', {
             hasData: !!data,
@@ -445,8 +445,8 @@ function DashboardWithSearchParams () {
           });
 
           // Handle both direct data and nested data structures
-          const userData = data?.user_message || data?.data?.user_message;
-          const assistantData = data?.assistant_message || data?.data?.assistant_message;
+          const userData = (data as { user_message?: unknown; data?: { user_message?: unknown } })?.user_message || (data as { data?: { user_message?: unknown } })?.data?.user_message;
+          const assistantData = (data as { assistant_message?: unknown; data?: { assistant_message?: unknown } })?.assistant_message || (data as { data?: { assistant_message?: unknown } })?.data?.assistant_message;
 
           if (!userData || !assistantData) {
             console.error('[Dashboard] Missing message data:', { userData, assistantData });
@@ -458,32 +458,33 @@ function DashboardWithSearchParams () {
           setMessages(prev => [
             ...prev.filter(m => m.id !== tempUserMessageId && m.id !== tempAssistantMessageId),
             {
-              id: userData.id || `user-${Date.now()}`,
-              role: (userData.role || 'user') as 'user',
-              content: userData.content,
+              id: (userData as { id?: string }).id || `user-${Date.now()}`,
+              role: ((userData as { role?: string }).role || 'user') as 'user',
+              content: (userData as { content?: string }).content || '',
               annotations: undefined
             },
             {
-              id: assistantData.id || `assistant-${Date.now()}`,
-              role: (assistantData.role || 'assistant') as 'assistant',
-              content: assistantData.content,
-              annotations: assistantData.annotations,
-              metadata: assistantData.metadata
+              id: (assistantData as { id?: string }).id || `assistant-${Date.now()}`,
+              role: ((assistantData as { role?: string }).role || 'assistant') as 'assistant',
+              content: (assistantData as { content?: string }).content || '',
+              annotations: (assistantData as { annotations?: AnnotationReference[] }).annotations,
+              metadata: (assistantData as { metadata?: AgentMetadata }).metadata
             }
           ]);
 
           // If the assistant message has annotations, update the PDF viewer
-          if (assistantData?.annotations && assistantData.annotations.length > 0) {
-            console.log('[Dashboard] Processing annotations:', assistantData.annotations);
-            setCurrentAnnotations(assistantData.annotations);
+          const assistantAnnotations = (assistantData as { annotations?: AnnotationReference[] }).annotations;
+          if (assistantAnnotations && assistantAnnotations.length > 0) {
+            console.log('[Dashboard] Processing annotations:', assistantAnnotations);
+            setCurrentAnnotations(assistantAnnotations);
 
             // Auto-navigate to the first annotation's page
-            const firstAnnotation = assistantData.annotations[0];
+            const firstAnnotation = assistantAnnotations[0];
             if (pdfViewerRef.current && firstAnnotation) {
               console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
               pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
               const firstTextMatch = firstAnnotation.annotations?.find(
-                annotation => annotation.textContent
+                (annotation: { textContent?: string }) => annotation.textContent
               )?.textContent || firstAnnotation.sourceText;
               if (firstTextMatch) {
                 console.log('[Dashboard] Highlighting text:', firstTextMatch);
@@ -560,14 +561,18 @@ function DashboardWithSearchParams () {
     }
   }, []);
 
-  // Resizer handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
+  // Resizer handlers - Pointer Events for touch + mouse support
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Only respond to primary touch/click (left mouse, first finger)
+    if (!e.isPrimary) return;
+
     e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setIsResizing(true);
   };
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!isResizing || !containerRef.current) return;
 
       const containerRect = containerRef.current.getBoundingClientRect();
@@ -578,21 +583,25 @@ function DashboardWithSearchParams () {
       setSplitPosition(constrainedPosition);
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       setIsResizing(false);
     };
 
     if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('pointermove', handlePointerMove);
+      document.addEventListener('pointerup', handlePointerUp);
+      document.addEventListener('pointercancel', handlePointerUp);
       document.body.style.cursor = 'col-resize';
+      document.body.style.touchAction = 'none'; // Prevent scrolling while resizing on touch
       document.body.style.userSelect = 'none';
     }
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
       document.body.style.cursor = '';
+      document.body.style.touchAction = '';
       document.body.style.userSelect = '';
     };
   }, [isResizing]);
@@ -633,13 +642,13 @@ function DashboardWithSearchParams () {
 
         {/* Resizer */}
         <div
-          onMouseDown={handleMouseDown}
-          className={`absolute top-0 bottom-0 w-1 bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors z-20 ${
+          onPointerDown={handlePointerDown}
+          className={`no-select no-tap-highlight absolute top-0 bottom-0 w-1 bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors z-20 ${
             isResizing ? 'bg-blue-500' : ''
           }`}
           style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
         >
-          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-12 rounded-full flex items-center justify-center transition-all ${
+          <div className={`no-select no-tap-highlight absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-12 rounded-full flex items-center justify-center transition-all min-w-[44px] min-h-[44px] ${
             isResizing
               ? 'bg-blue-500 shadow-lg scale-110'
               : 'bg-gray-200 hover:bg-blue-400 hover:shadow-md'

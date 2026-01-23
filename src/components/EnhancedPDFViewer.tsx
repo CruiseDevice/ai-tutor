@@ -7,7 +7,8 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import type { PDFAnnotation, AnnotationReference } from '@/types/annotations';
 
 // Initialize pdfjs worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+// Use explicit HTTPS to avoid Safari iOS CORS issues with protocol-relative URLs
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
 // Annotation Shape Component
 interface AnnotationShapeProps {
@@ -129,6 +130,16 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   const [localAnnotations, setLocalAnnotations] = useState<AnnotationReference[]>([]);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [highlightedTextRects, setHighlightedTextRects] = useState<{x: number, y: number, width: number, height: number}[]>([]);
+
+  // PDF data state - fetch PDF with credentials to avoid 401 errors
+  // Use Blob URL instead of Uint8Array to avoid DataCloneError with large PDFs
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  // Touch swipe gesture state for page navigation
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
 
   // Combine external and local annotations
   const allAnnotations = useMemo(() => [...externalAnnotations, ...localAnnotations], [externalAnnotations, localAnnotations]);
@@ -272,6 +283,63 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
     }
   }, [currentPageAnnotations, showAnnotations, findTextOnPage, pageNumber]);
 
+  // Fetch PDF with credentials when currentPDF changes
+  // This avoids 401 errors since PDF.js worker doesn't include credentials
+  useEffect(() => {
+    let objectUrl: string | null = null;
+
+    const fetchPdfWithCredentials = async () => {
+      // Revoke previous URL if exists
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
+      }
+
+      if (!currentPDF) {
+        setPdfUrl(null);
+        setLoadingPdf(false);
+        setPdfError(null);
+        return;
+      }
+
+      setLoadingPdf(true);
+      setPdfError(null);
+
+      try {
+        console.log('[PDF Viewer] Fetching PDF with credentials:', currentPDF);
+        const response = await fetch(currentPDF, {
+          credentials: 'include',
+          cache: 'force-cache', // Cache the PDF for better performance
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
+        }
+
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+
+        console.log('[PDF Viewer] PDF loaded successfully, size:', blob.size);
+        setPdfUrl(objectUrl);
+      } catch (err) {
+        console.error('[PDF Viewer] Error loading PDF:', err);
+        setPdfError(err instanceof Error ? err.message : 'Failed to load PDF');
+        setPdfUrl(null);
+      } finally {
+        setLoadingPdf(false);
+      }
+    };
+
+    fetchPdfWithCredentials();
+
+    // Cleanup: revoke object URL when effect runs again or component unmounts
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [currentPDF]);
+
   // Handler for page load success - triggers text search for current annotations
   const handlePageLoadSuccess = useCallback(() => {
     console.log('[PDF Annotation] Page rendered successfully');
@@ -378,6 +446,38 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
     setRotation((prev) => (prev + 90) % 360);
   };
 
+  // Touch swipe gesture handlers for page navigation
+  const minSwipeDistance = 50; // Minimum horizontal distance to trigger page change
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStart(e.touches[0].clientX);
+    setTouchEnd(null);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.touches[0].clientX);
+  };
+
+  const handleTouchEnd = () => {
+    if (touchStart === null || touchEnd === null) return;
+
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+
+    if (isLeftSwipe && pageNumber < (numPages || 1)) {
+      // Swiped left → next page
+      goToPage(pageNumber + 1);
+    } else if (isRightSwipe && pageNumber > 1) {
+      // Swiped right → previous page
+      goToPage(pageNumber - 1);
+    }
+
+    // Reset for next gesture
+    setTouchStart(null);
+    setTouchEnd(null);
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-slate-50/50 relative overflow-hidden group">
       {/* Background Pattern */}
@@ -397,7 +497,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
             <div className="flex items-center gap-1 bg-slate-100/50 rounded-lg p-1">
               <button
                 onClick={() => setScale(prev => Math.max(0.5, prev - 0.1))}
-                className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-600 transition-all"
+                className="no-select no-tap-highlight p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-600 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Zoom Out"
               >
                 <ZoomOut size={16} />
@@ -407,7 +507,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
               </span>
               <button
                 onClick={() => setScale(prev => Math.min(2, prev + 0.1))}
-                className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-600 transition-all"
+                className="no-select no-tap-highlight p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-600 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Zoom In"
               >
                 <ZoomIn size={16} />
@@ -419,7 +519,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
               <button
                 onClick={() => goToPage(pageNumber - 1)}
                 disabled={pageNumber <= 1}
-                className="p-2 rounded-full hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-700 transition-colors"
+                className="no-select no-tap-highlight p-2 rounded-full hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-700 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
                 <ChevronLeft size={20}/>
               </button>
@@ -443,7 +543,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
               <button
                 onClick={() => goToPage(pageNumber + 1)}
                 disabled={pageNumber >= (numPages || 1)}
-                className="p-2 rounded-full hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-700 transition-colors"
+                className="no-select no-tap-highlight p-2 rounded-full hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-700 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
                 <ChevronRight size={20}/>
               </button>
@@ -455,7 +555,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
               {allAnnotations.length > 0 && (
                 <button
                   onClick={() => setShowAnnotations(!showAnnotations)}
-                  className={`p-2 rounded-lg transition-colors ${
+                  className={`no-select no-tap-highlight p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
                     showAnnotations
                       ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
                       : 'hover:bg-slate-100 text-slate-400'
@@ -467,7 +567,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
               )}
               <button
                 onClick={rotate}
-                className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+                className="no-select no-tap-highlight p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Rotate Page"
               >
                 <RotateCw size={18} />
@@ -489,10 +589,29 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
         className="flex-1 overflow-auto relative z-10 pt-20 pb-8 px-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
         ref={containerRef}
       >
-        {currentPDF ? (
+        {loadingPdf ? (
+          <div className="flex flex-col items-center justify-center h-64 gap-3">
+            <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+            <span className="text-sm text-slate-500 font-medium">Loading Document...</span>
+          </div>
+        ) : pdfError ? (
+          <div className="flex flex-col items-center justify-center h-64 gap-2 text-red-500">
+            <div className="p-3 bg-red-50 rounded-full">
+              <Upload size={24} />
+            </div>
+            <span className="font-medium">Failed to load PDF</span>
+            <span className="text-sm text-red-400">{pdfError}</span>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="no-tap-highlight text-xs text-blue-500 hover:underline mt-2 min-h-[44px]"
+            >
+              Try uploading again
+            </button>
+          </div>
+        ) : pdfUrl ? (
           <div className="flex justify-center min-h-full">
             <Document
-              file={currentPDF}
+              file={pdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               loading={
                 <div className="flex flex-col items-center justify-center h-64 gap-3">
@@ -508,7 +627,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                   <span className="font-medium">Failed to load PDF</span>
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-blue-500 hover:underline mt-2"
+                    className="no-tap-highlight text-xs text-blue-500 hover:underline mt-2 min-h-[44px]"
                   >
                     Try uploading again
                   </button>
@@ -518,6 +637,9 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
             >
               <div
                 ref={pageContainerRef}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
                 className="relative transition-all duration-300 ease-out shadow-2xl shadow-slate-200/50 rounded-sm overflow-hidden"
                 style={{
                   transform: `scale(${1})`, // Scale handled by react-pdf prop usually, but we can wrap for effects
@@ -598,7 +720,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
             <div
               onClick={() => fileInputRef.current?.click()}
               className={`
-                group cursor-pointer w-full max-w-xl border-2 border-dashed rounded-3xl p-12
+                no-select no-tap-highlight group cursor-pointer w-full max-w-xl border-2 border-dashed rounded-3xl p-12
                 flex flex-col items-center justify-center gap-4 text-center transition-all duration-300
                 ${isDragging
                   ? 'border-blue-500 bg-blue-50/50 shadow-lg shadow-blue-100'
