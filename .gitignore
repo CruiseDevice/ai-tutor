@@ -63,3 +63,6 @@ backend/figures/
 
 # Cursor AI plans (local only)
 .cursor/
+
+# Resume and personal documents
+*.docx
