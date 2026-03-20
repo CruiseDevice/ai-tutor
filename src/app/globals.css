@@ -4,9 +4,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   Academic Brutalist - Typography & Colors
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brutalist color palette */
+  --ink: #0a0a0a;
+  --paper: #f5f2eb;
+  --accent: #d45200;
+  --rule: #0a0a0a;
+  --subtle: #8a8578;
+
+  /* Font families */
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+
+  /* Legacy variables (for compatibility) */
+  --background: #f5f2eb;
+  --foreground: #0a0a0a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -16,11 +34,26 @@
   }
 }
 
+/* ============================================
+   Brutalist Base Styles
+   ============================================ */
+
 body {
-  /* color: var(--foreground); */
-  /* background: var(--background); */
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-serif);
+  background: var(--paper);
+  color: var(--ink);
 }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+/* ============================================
+   Touch / Mobile Support
+   ============================================ */
 
 /* ============================================
    Touch / Mobile Support
@@ -96,31 +129,13 @@ html, body {
   padding: 0.125rem 0.25rem;
 }
 
-/* Custom animations for landing page */
+/* Brutalist animations */
 @keyframes float {
   0%, 100% {
     transform: translateY(0px) rotate(0deg);
   }
   50% {
     transform: translateY(-20px) rotate(5deg);
-  }
-}
-
-@keyframes gradient-shift {
-  0%, 100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 40px rgba(139, 92, 246, 0.6);
   }
 }
 
@@ -188,43 +203,6 @@ html, body {
   }
 }
 
-@keyframes highlight {
-  0%, 100% {
-    background-color: transparent;
-    color: inherit;
-  }
-  50% {
-    background-color: rgba(139, 92, 246, 0.2);
-    color: #7c3aed;
-  }
-}
-
-@keyframes highlight-pulse {
-  0%, 100% {
-    background-color: rgba(192, 132, 252, 0.3);
-    box-shadow: 0 0 0 0 rgba(192, 132, 252, 0.4);
-  }
-  50% {
-    background-color: rgba(192, 132, 252, 0.5);
-    box-shadow: 0 0 0 4px rgba(192, 132, 252, 0.2);
-  }
-}
-
-@keyframes document-highlight {
-  0% {
-    background-color: rgba(192, 132, 252, 0.1);
-    transform: scale(1);
-  }
-  50% {
-    background-color: rgba(192, 132, 252, 0.3);
-    transform: scale(1.01);
-  }
-  100% {
-    background-color: rgba(192, 132, 252, 0.2);
-    transform: scale(1);
-  }
-}
-
 @keyframes shimmer {
   0% {
     background-position: -1000px 0;
@@ -234,17 +212,9 @@ html, body {
   }
 }
 
+/* Brutalist animations */
 .animate-float {
   animation: float 6s ease-in-out infinite;
-}
-
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradient-shift 8s ease infinite;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 3s ease-in-out infinite;
 }
 
 .animate-slide-up {
@@ -259,48 +229,6 @@ html, body {
   animation: scale-in 0.2s ease-out forwards;
 }
 
-.glass-effect {
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-/* Navigation specific styles */
-nav {
-  background: rgba(255, 255, 255, 0.95) !important;
-  backdrop-filter: blur(12px);
-}
-
-.gradient-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-  background-size: 200% 200%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: gradient-shift 5s ease infinite;
-}
-
-.feature-card {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.feature-card:hover {
-  transform: translateY(-8px) scale(1.02);
-}
-
-.chat-bubble-user {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.chat-bubble-ai {
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-}
-
-.demo-screen {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  box-shadow: 0 20px 60px rgba(102, 126, 234, 0.4);
-}
-
 .animate-slide-in-right {
   animation: slide-in-right 0.4s ease-out forwards;
 }
@@ -311,10 +239,6 @@ nav {
 
 .animate-blink {
   animation: blink 1s infinite;
-}
-
-.animate-highlight {
-  animation: highlight 2s ease-in-out;
 }
 
 /* Document viewer styles */
