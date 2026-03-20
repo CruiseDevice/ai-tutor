@@ -96,7 +96,7 @@ function DashboardWithSearchParams () {
       if (!docResponse.ok) {
         throw new Error('Failed to fetch document');
       }
-      const docData = await docResponse.json();
+      await docResponse.json(); // Doc data fetched for future use
 
       // Set the new conversation as active
       setConversationId(newConversation.id);

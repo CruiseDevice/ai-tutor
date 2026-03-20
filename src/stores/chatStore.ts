@@ -267,7 +267,7 @@ export const useChatStore = create<ChatState>()(
 // Initialize cross-tab sync (only in browser)
 if (typeof window !== 'undefined') {
   // Listen for changes from other tabs
-  const unsubscribe = listenForCrossTabChanges(
+  void listenForCrossTabChanges(
     useChatStore.getState().conversationId,
     (conversationId) => {
       useChatStore.getState().loadConversation(conversationId);
