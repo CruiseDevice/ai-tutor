@@ -107,6 +107,13 @@ function DashboardWithSearchParams () {
     router.push(`${pathname}?${params.toString()}`, {scroll: false});
   }, [searchParams, pathname, router]);
 
+  // Sync store conversationId to URL (when conversation is selected in sidebar)
+  useEffect(() => {
+    if (storeConversationId) {
+      updateUrl(storeConversationId);
+    }
+  }, [storeConversationId, updateUrl]);
+
   useEffect(() => {
     // debugging log
     const checkAuth = async () => {
@@ -143,41 +150,62 @@ function DashboardWithSearchParams () {
     fetchConfig();
   }, [storeSetMaxFileSize]);
 
-  // Now effect to restore chat from URL parameter
+  // Effect to restore chat from URL parameter (on page load or URL change)
+  const isInitialMount = useRef(true);
   useEffect(() => {
     const chatId = searchParams.get('chat');
 
-    // Reset state if no chat ID is present in the URL
-    if (!chatId) {
-      storeClearChat();
-      return;
-    }
-
-      // Only attempt to restore if we have a chat ID and we're not already showing that conversation
-      // and we're not currently loading
+    // Skip clearing on initial render - let the app start fresh
+    // Only clear if URL explicitly changes from having a chat to not having one
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      // Still try to restore if URL has chat param
       if (chatId && chatId !== storeConversationId && !storeIsLoading) {
-        // find the document ID for this conversation
         const restoreConversation = async () => {
           try {
-            // first get all conversations to find the document ID matching this chat ID
             const data = await fetchConversations();
             const matchingConversation = data.find(
               (convo: {id: string}) => convo.id === chatId
             );
-
             if(matchingConversation) {
-              // Use store to load conversation
               await storeLoadConversation(chatId);
             }
           } catch (error) {
-            // TODO: Display error message to user
             console.error('Error restoring conversations: ', error);
             setError('Failed to restore conversation from URL');
           }
         };
         restoreConversation();
       }
-  }, [searchParams, storeConversationId, storeIsLoading, storeLoadConversation, storeClearChat]); // Depend on store state
+      return;
+    }
+
+    // If URL has no chat param and we previously had one, clear the chat
+    // This handles the case of navigating away from a conversation
+    if (!chatId && storeConversationId) {
+      storeClearChat();
+      return;
+    }
+
+    // Restore conversation from URL if different from current
+    if (chatId && chatId !== storeConversationId && !storeIsLoading) {
+      const restoreConversation = async () => {
+        try {
+          const data = await fetchConversations();
+          const matchingConversation = data.find(
+            (convo: {id: string}) => convo.id === chatId
+          );
+          if(matchingConversation) {
+            await storeLoadConversation(chatId);
+          }
+        } catch (error) {
+          console.error('Error restoring conversations: ', error);
+          setError('Failed to restore conversation from URL');
+        }
+      };
+      restoreConversation();
+    }
+  }, [searchParams, storeConversationId, storeIsLoading, storeLoadConversation, storeClearChat]);
 
   const fetchConversations = async () => {
     try {
