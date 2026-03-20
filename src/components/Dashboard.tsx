@@ -10,6 +10,7 @@ import { authApi, documentApi, chatApi, conversationApi, configApi, getPDFProxyU
 import type { AnnotationReference, AgentMetadata } from "@/types/annotations";
 
 // Store imports for Zustand migration
+import { useChatStore } from '@/stores/chatStore';
 import { useAnnotationsStore } from '@/stores/annotationsStore';
 
 interface ChatMessage {
@@ -31,7 +32,6 @@ function DashboardWithSearchParams () {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [currentPDF, setCurrentPDF] = useState('');
   const [documentId, setDocumentId] = useState('');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -45,8 +45,9 @@ function DashboardWithSearchParams () {
   const pdfViewerRef = useRef<PDFViewerRef>(null);
 
   // =====================================================
-  // STORE HOOKS (annotations now managed by annotationsStore)
+  // STORE HOOKS (PDF and annotations now managed by stores)
   // =====================================================
+  const storeSetCurrentPDF = useChatStore((s) => s.setCurrentPDF);
   const storeSetAnnotations = useAnnotationsStore((s) => s.setAnnotations);
   const storeClearAnnotations = useAnnotationsStore((s) => s.clearAnnotations);
 
@@ -74,7 +75,7 @@ function DashboardWithSearchParams () {
   const handleDeleteConversation = useCallback((deletedConversationId: string) => {
     if (deletedConversationId === conversationId) {
       // Only clear state if the deleted conversation is the current one
-      setCurrentPDF('');
+      storeSetCurrentPDF('');
       setDocumentId('');
       setConversationId(null);
       setMessages([]);
@@ -107,7 +108,7 @@ function DashboardWithSearchParams () {
       // Set the new conversation as active
       setConversationId(newConversation.id);
       setDocumentId(documentId);
-      setCurrentPDF(getPDFProxyUrl(documentId));
+      storeSetCurrentPDF(getPDFProxyUrl(documentId));
       setMessages([]);
       storeClearAnnotations();  // ← Store-based
       pdfViewerRef.current?.clearAnnotations();
@@ -137,7 +138,7 @@ function DashboardWithSearchParams () {
       // update state with the selected conversation
       setConversationId(convoId);
       setDocumentId(docId);
-      setCurrentPDF(getPDFProxyUrl(docId));
+      storeSetCurrentPDF(getPDFProxyUrl(docId));
       setMessages(data.messages);
 
       // Check if the last assistant message has annotations
@@ -205,7 +206,7 @@ function DashboardWithSearchParams () {
 
     // Reset state if no chat ID is present in the URL
     if (!chatId) {
-      setCurrentPDF('');
+      storeSetCurrentPDF('');
       setDocumentId('');
       setConversationId(null);
       setMessages([]);
@@ -284,7 +285,7 @@ function DashboardWithSearchParams () {
       }
 
       const data = await response.json();
-      setCurrentPDF(getPDFProxyUrl(data.id));
+      storeSetCurrentPDF(getPDFProxyUrl(data.id));
       setDocumentId(data.id);
 
       // reset messages and annotations for new document
@@ -611,8 +612,7 @@ function DashboardWithSearchParams () {
         >
           <EnhancedPDFViewer
             ref={pdfViewerRef}
-            useStore={true}  // ← Flip the switch: test store mode
-            onFileUpload={handleFileUpload}  // Keep this - file upload still needs handler
+            onFileUpload={handleFileUpload}
             fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
           />
         </div>

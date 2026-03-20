@@ -6,6 +6,10 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import type { PDFAnnotation, AnnotationReference } from '@/types/annotations';
 
+// Store imports for Zustand migration
+import { useChatStore } from '@/stores/chatStore';
+import { useAnnotationsStore, selectAnnotations } from '@/stores/annotationsStore';
+
 // Initialize pdfjs worker
 // Use explicit HTTPS to avoid Safari iOS CORS issues with protocol-relative URLs
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
@@ -99,19 +103,16 @@ export interface PDFViewerRef {
 }
 
 interface EnhancedPDFViewerProps {
-  currentPDF: string | null;
+  // Required handlers
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+
+  // Ref for file input (from parent)
   fileInputRef: React.RefObject<HTMLInputElement>;
-  annotations?: AnnotationReference[];
-  onAnnotationClick?: (annotation: AnnotationReference) => void;
 }
 
 const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
-  currentPDF,
   onFileUpload,
   fileInputRef: externalFileInputRef,
-  annotations: externalAnnotations = [],
-  onAnnotationClick,
 }, ref) => {
 
   const internalFileInputRef = useRef<HTMLInputElement>(null);
@@ -141,8 +142,15 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
 
-  // Combine external and local annotations
-  const allAnnotations = useMemo(() => [...externalAnnotations, ...localAnnotations], [externalAnnotations, localAnnotations]);
+  // =====================================================
+  // STORE HOOKS - PDF data now managed by Zustand stores
+  // =====================================================
+  const currentPDF = useChatStore((s) => s.currentPDF);
+  const storeAnnotations = useAnnotationsStore(selectAnnotations);
+  const storeSetSelectedAnnotation = useAnnotationsStore((s) => s.setSelectedAnnotation);
+
+  // Combine external (store) and local annotations
+  const allAnnotations = useMemo(() => [...storeAnnotations, ...localAnnotations], [storeAnnotations, localAnnotations]);
 
   // Get annotations for current page
   const currentPageAnnotations = useMemo(
@@ -156,6 +164,11 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
       setPageInputError(null);
     }
   }, [numPages]);
+
+  // Handler for annotation click - delegates to store
+  const handleAnnotationClick = useCallback((annotationRef: AnnotationReference) => {
+    storeSetSelectedAnnotation(annotationRef.pageNumber.toString());
+  }, [storeSetSelectedAnnotation]);
 
   // Function to find text on the current page and get its position
   const findTextOnPage = useCallback((searchText: string) => {
@@ -676,8 +689,8 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                           boxShadow: '0 0 8px rgba(255, 235, 59, 0.6)',
                         }}
                         onClick={() => {
-                          if (onAnnotationClick && currentPageAnnotations[0]) {
-                            onAnnotationClick(currentPageAnnotations[0]);
+                          if (currentPageAnnotations[0]) {
+                            handleAnnotationClick(currentPageAnnotations[0]);
                           }
                         }}
                       />
@@ -689,7 +702,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                         <AnnotationShape
                           key={annotation.id}
                           annotation={annotation}
-                          onClick={() => onAnnotationClick?.(annotationRef)}
+                          onClick={() => handleAnnotationClick(annotationRef)}
                         />
                       ))
                     )}

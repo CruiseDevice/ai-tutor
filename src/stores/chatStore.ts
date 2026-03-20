@@ -22,6 +22,7 @@ interface ChatState {
 
   // Synchronous Actions
   setConversation: (id: string, docId: string, pdfUrl: string) => void;
+  setCurrentPDF: (pdfUrl: string) => void;
   setMessages: (messages: ChatMessage[]) => void;
   addMessage: (message: ChatMessage) => void;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
@@ -65,6 +66,8 @@ export const useChatStore = create<ChatState>()(
         // Broadcast to other tabs
         broadcastConversationChange(id, docId);
       },
+
+      setCurrentPDF: (pdfUrl) => set({ currentPDF: pdfUrl }),
 
       setMessages: (messages) => set({ messages }),
 
