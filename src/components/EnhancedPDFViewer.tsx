@@ -1,5 +1,5 @@
 // app/components/EnhancedPDFViewer.tsx
-import { ChevronLeft, ChevronRight, Loader2, Upload, ZoomIn, ZoomOut, RotateCw, Search, Eye, EyeOff } from "lucide-react";
+import { Loader2, Upload, Eye, EyeOff } from "lucide-react";
 import { useRef, useState, useCallback, useImperativeHandle, forwardRef, useEffect, useMemo } from "react";
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -40,11 +40,10 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
         <div
           style={{
             ...baseStyle,
-            backgroundColor: color || 'rgba(255, 235, 59, 0.4)',
-            borderRadius: '2px',
+            backgroundColor: color || 'rgba(212, 82, 0, 0.4)',
           }}
           onClick={onClick}
-          className="hover:brightness-110 hover:shadow-lg"
+          className="hover:brightness-110"
         />
       );
 
@@ -53,12 +52,12 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
         <div
           style={{
             ...baseStyle,
-            border: `3px solid ${color || 'rgba(33, 150, 243, 0.8)'}`,
+            border: `3px solid ${color || 'rgba(10, 10, 10, 0.8)'}`,
             borderRadius: '50%',
             backgroundColor: 'transparent',
           }}
           onClick={onClick}
-          className="hover:border-4 hover:shadow-lg animate-pulse"
+          className="animate-pulse"
         />
       );
 
@@ -67,12 +66,10 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
         <div
           style={{
             ...baseStyle,
-            border: `3px solid ${color || 'rgba(76, 175, 80, 0.8)'}`,
-            backgroundColor: color?.replace('0.8', '0.1') || 'rgba(76, 175, 80, 0.1)',
-            borderRadius: '4px',
+            border: `3px solid ${color || 'rgba(10, 10, 10, 0.8)'}`,
+            backgroundColor: color?.replace('0.8', '0.1') || 'rgba(10, 10, 10, 0.1)',
           }}
           onClick={onClick}
-          className="hover:border-4 hover:shadow-lg"
         />
       );
 
@@ -83,10 +80,9 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
             ...baseStyle,
             height: '3px',
             top: `${bounds.y + bounds.height}%`,
-            backgroundColor: color || 'rgba(244, 67, 54, 0.8)',
+            backgroundColor: color || 'rgba(212, 82, 0, 0.8)',
           }}
           onClick={onClick}
-          className="hover:h-1"
         />
       );
 
@@ -492,170 +488,178 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50/50 relative overflow-hidden group">
-      {/* Background Pattern */}
-      <div className="absolute inset-0 z-0 opacity-[0.03]"
-           style={{
-             backgroundImage: 'radial-gradient(#64748b 1px, transparent 1px)',
-             backgroundSize: '24px 24px'
-           }}
-      />
-
-      {/* Control Bar - Floating Glass Effect */}
+    <div className="w-full h-full flex flex-col bg-panel-bg relative overflow-hidden">
+      {/* =====================================================
+          [003] HEADER - Document Title & Controls
+          ===================================================== */}
       {currentPDF && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[90%] max-w-4xl">
-          <div className="bg-white/80 backdrop-blur-md border border-white/20 shadow-lg rounded-2xl px-4 py-2 flex items-center justify-between gap-4 transition-all duration-300 hover:bg-white/95 hover:shadow-xl ring-1 ring-black/5">
+        <div className="border-b-2 border-ink bg-panel-bg">
+          <div className="flex items-center justify-between px-4 py-3">
+            {/* Left: Panel Number & Title */}
+            <div className="flex items-center gap-3 overflow-hidden">
+              <span className="font-mono text-xs text-accent">[003]</span>
+              <h3 className="font-mono text-sm font-bold truncate max-w-md">
+                {currentPDF.split('/').pop() || 'Document'}
+              </h3>
+            </div>
 
-            {/* Left: Zoom Controls */}
-            <div className="flex items-center gap-1 bg-slate-100/50 rounded-lg p-1">
+            {/* Right: Page Info & Actions */}
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs text-subtle">
+                p.{pageNumber}/{numPages || '-'}
+              </span>
+
+              {/* Annotation Toggle */}
+              {allAnnotations.length > 0 && (
+                <button
+                  onClick={() => setShowAnnotations(!showAnnotations)}
+                  className={`no-select font-mono text-xs px-2 py-1 border transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                    showAnnotations
+                      ? 'bg-accent text-paper border-accent'
+                      : 'border-ink hover:bg-ink hover:text-paper'
+                  }`}
+                  title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
+                >
+                  {showAnnotations ? '[§ ON]' : '[§ OFF]'}
+                </button>
+              )}
+
+              <button
+                onClick={rotate}
+                className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                title="Rotate Page"
+              >
+                [↻]
+              </button>
+            </div>
+          </div>
+
+          {/* Control Bar - Brutalist Style */}
+          <div className="flex items-center justify-center gap-4 px-4 py-2 border-t border-ink">
+            {/* Zoom Controls */}
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setScale(prev => Math.max(0.5, prev - 0.1))}
-                className="no-select no-tap-highlight p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-600 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Zoom Out"
               >
-                <ZoomOut size={16} />
+                [−]
               </button>
-              <span className="text-xs font-medium text-slate-600 w-12 text-center select-none">
+              <span className="font-mono text-xs w-12 text-center">
                 {Math.round(scale * 100)}%
               </span>
               <button
                 onClick={() => setScale(prev => Math.min(2, prev + 0.1))}
-                className="no-select no-tap-highlight p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-600 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Zoom In"
               >
-                <ZoomIn size={16} />
+                [+]
               </button>
             </div>
 
-            {/* Center: Page Navigation */}
-            <div className="flex items-center gap-3">
+            {/* Divider */}
+            <div className="w-px h-6 bg-ink"></div>
+
+            {/* Page Navigation */}
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => goToPage(pageNumber - 1)}
                 disabled={pageNumber <= 1}
-                className="no-select no-tap-highlight p-2 rounded-full hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-700 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper disabled:opacity-30 disabled:hover:bg-transparent transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
-                <ChevronLeft size={20}/>
+                [◀]
               </button>
 
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-600 bg-slate-100/50 px-3 py-1.5 rounded-lg border border-transparent focus-within:border-blue-200 focus-within:bg-white transition-all">
-                <span className="text-slate-400">Page</span>
+              <div className="flex items-center gap-1 font-mono text-xs bg-paper border border-ink px-2 py-1">
                 <input
                   ref={pageInputRef}
                   type="text"
                   defaultValue={pageNumber}
-                  key={pageNumber} // Force re-render on page change
-                  className="w-8 text-center bg-transparent focus:outline-none text-slate-900 font-semibold"
+                  key={pageNumber}
+                  className="w-8 text-center bg-transparent focus:outline-none font-mono"
                   onChange={handlePageInputChange}
                   onKeyDown={handlePageInputKeyDown}
                   onFocus={(e) => e.target.select()}
                   aria-label="Go to page"
                 />
-                <span className="text-slate-400">/ {numPages || '-'}</span>
+                <span className="text-subtle">/ {numPages || '-'}</span>
               </div>
 
               <button
                 onClick={() => goToPage(pageNumber + 1)}
                 disabled={pageNumber >= (numPages || 1)}
-                className="no-select no-tap-highlight p-2 rounded-full hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-700 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper disabled:opacity-30 disabled:hover:bg-transparent transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
-                <ChevronRight size={20}/>
-              </button>
-            </div>
-
-            {/* Right: Tools */}
-            <div className="flex items-center gap-2">
-              {/* Annotation Toggle */}
-              {allAnnotations.length > 0 && (
-                <button
-                  onClick={() => setShowAnnotations(!showAnnotations)}
-                  className={`no-select no-tap-highlight p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                    showAnnotations
-                      ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-                      : 'hover:bg-slate-100 text-slate-400'
-                  }`}
-                  title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
-                >
-                  {showAnnotations ? <Eye size={18} /> : <EyeOff size={18} />}
-                </button>
-              )}
-              <button
-                onClick={rotate}
-                className="no-select no-tap-highlight p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                title="Rotate Page"
-              >
-                <RotateCw size={18} />
+                [▶]
               </button>
             </div>
 
             {/* Error Toast */}
             {pageInputError && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1 bg-red-100 text-red-600 text-xs rounded-full shadow-lg border border-red-200 animate-in fade-in slide-in-from-top-1">
-                {pageInputError}
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1 bg-accent text-paper font-mono text-xs border border-accent">
+                [{pageInputError}]
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* PDF Content Area */}
+      {/* =====================================================
+          CONTENT AREA
+          ===================================================== */}
       <div
-        className="flex-1 overflow-auto relative z-10 pt-20 pb-8 px-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
+        className="flex-1 overflow-auto relative z-10 scrollbar-thin scrollbar-thumb-slate-200"
         ref={containerRef}
       >
         {loadingPdf ? (
           <div className="flex flex-col items-center justify-center h-64 gap-3">
-            <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
-            <span className="text-sm text-slate-500 font-medium">Loading Document...</span>
+            <Loader2 className="h-8 w-8 text-accent animate-spin" />
+            <span className="font-mono text-sm text-subtle">[LOADING...]</span>
           </div>
         ) : pdfError ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-2 text-red-500">
-            <div className="p-3 bg-red-50 rounded-full">
-              <Upload size={24} />
-            </div>
-            <span className="font-medium">Failed to load PDF</span>
-            <span className="text-sm text-red-400">{pdfError}</span>
+          <div className="flex flex-col items-center justify-center h-64 gap-3 text-accent">
+            <span className="font-mono text-4xl">[!]</span>
+            <span className="font-serif font-medium">Failed to load PDF</span>
+            <span className="font-mono text-xs text-subtle">{pdfError}</span>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="no-tap-highlight text-xs text-blue-500 hover:underline mt-2 min-h-[44px]"
+              className="brutalist-button brutalist-button-primary font-mono text-xs px-4 py-2 mt-2 min-h-[44px]"
             >
-              Try uploading again
+              [TRY AGAIN]
             </button>
           </div>
         ) : pdfUrl ? (
-          <div className="flex justify-center min-h-full">
+          <div className="flex justify-center min-h-full p-4">
             <Document
               file={pdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               loading={
                 <div className="flex flex-col items-center justify-center h-64 gap-3">
-                  <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
-                  <span className="text-sm text-slate-500 font-medium">Loading Document...</span>
+                  <Loader2 className="h-8 w-8 text-accent animate-spin" />
+                  <span className="font-mono text-sm text-subtle">[LOADING...]</span>
                 </div>
               }
               error={
-                <div className="flex flex-col items-center justify-center h-64 gap-2 text-red-500">
-                  <div className="p-3 bg-red-50 rounded-full">
-                    <Upload size={24} />
-                  </div>
-                  <span className="font-medium">Failed to load PDF</span>
+                <div className="flex flex-col items-center justify-center h-64 gap-2 text-accent">
+                  <span className="font-mono text-4xl">[!]</span>
+                  <span className="font-serif font-medium">Failed to load PDF</span>
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="no-tap-highlight text-xs text-blue-500 hover:underline mt-2 min-h-[44px]"
+                    className="brutalist-button brutalist-button-primary font-mono text-xs px-4 py-2 mt-2 min-h-[44px]"
                   >
-                    Try uploading again
+                    [TRY AGAIN]
                   </button>
                 </div>
               }
-              className="pdf-document transition-opacity duration-300 ease-in-out"
+              className="pdf-document"
             >
               <div
                 ref={pageContainerRef}
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
-                className="relative transition-all duration-300 ease-out shadow-2xl shadow-slate-200/50 rounded-sm overflow-hidden"
+                className="relative border-2 border-ink bg-white"
                 style={{
-                  transform: `scale(${1})`, // Scale handled by react-pdf prop usually, but we can wrap for effects
                   transformOrigin: 'top center'
                 }}
               >
@@ -683,10 +687,8 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                           top: rect.y,
                           width: rect.width,
                           height: rect.height,
-                          backgroundColor: 'rgba(255, 235, 59, 0.5)',
-                          border: '2px solid rgba(255, 193, 7, 0.8)',
-                          borderRadius: '2px',
-                          boxShadow: '0 0 8px rgba(255, 235, 59, 0.6)',
+                          backgroundColor: 'rgba(212, 82, 0, 0.4)',
+                          border: '2px solid rgba(212, 82, 0, 0.8)',
                         }}
                         onClick={() => {
                           if (currentPageAnnotations[0]) {
@@ -712,9 +714,9 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                 {/* Annotation indicator badge */}
                 {showAnnotations && currentPageAnnotations.length > 0 && (
                   <div className="absolute top-2 right-2 z-20">
-                    <div className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded-full shadow-md flex items-center gap-1 animate-bounce">
-                      <Eye size={12} />
-                      {currentPageAnnotations.length} annotation{currentPageAnnotations.length > 1 ? 's' : ''}
+                    <div className="bg-accent text-paper font-mono text-xs px-2 py-1 border border-accent flex items-center gap-1">
+                      <span>[§]</span>
+                      {currentPageAnnotations.length}
                     </div>
                   </div>
                 )}
@@ -722,51 +724,61 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
             </Document>
           </div>
         ) : (
+          /* =====================================================
+             EMPTY STATE - Upload Zone
+             ===================================================== */
           <div
-            className={`h-full flex flex-col items-center justify-center p-8 transition-all duration-300 ${
-              isDragging ? 'scale-105 bg-blue-50/50' : ''
+            className={`h-full flex flex-col items-center justify-center p-8 transition-all duration-200 ${
+              isDragging ? 'bg-accent/5' : ''
             }`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
+            {/* Panel Number */}
+            <div className="flex items-center gap-2 mb-6">
+              <span className="font-mono text-xs text-accent">[003]</span>
+              <span className="font-mono text-xs uppercase">Document Viewer</span>
+            </div>
+
+            {/* Upload Zone */}
             <div
               onClick={() => fileInputRef.current?.click()}
               className={`
-                no-select no-tap-highlight group cursor-pointer w-full max-w-xl border-2 border-dashed rounded-3xl p-12
-                flex flex-col items-center justify-center gap-4 text-center transition-all duration-300
+                no-select group cursor-pointer w-full max-w-xl border-2 border-dashed border-ink p-12
+                flex flex-col items-center justify-center gap-4 text-center transition-all duration-200
                 ${isDragging
-                  ? 'border-blue-500 bg-blue-50/50 shadow-lg shadow-blue-100'
-                  : 'border-slate-200 hover:border-blue-400 hover:bg-white hover:shadow-xl hover:shadow-slate-100'
+                  ? 'bg-accent/10 border-accent'
+                  : 'hover:bg-accent/5'
                 }
               `}
             >
               <div className={`
-                p-4 rounded-full transition-all duration-300 mb-2
+                p-4 border-2 border-ink transition-all duration-200 mb-2
                 ${isDragging
-                  ? 'bg-blue-100 text-blue-600 scale-110'
-                  : 'bg-slate-50 text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500 group-hover:scale-110'
+                  ? 'bg-accent text-paper'
+                  : 'group-hover:bg-accent group-hover:text-paper'
                 }
               `}>
                 {isProcessing ? (
-                  <Loader2 className="h-10 w-10 animate-spin" />
+                  <Loader2 className="h-8 w-8 animate-spin" />
                 ) : (
-                  <Upload className="h-10 w-10" />
+                  <Upload className="h-8 w-8" />
                 )}
               </div>
 
-              <div className="space-y-1">
-                <h3 className="text-xl font-semibold text-slate-700 group-hover:text-blue-600 transition-colors">
-                  {isProcessing ? 'Processing...' : 'Upload Course Material'}
+              <div className="space-y-2">
+                <h3 className="font-mono text-xl text-ink group-hover:text-accent transition-colors">
+                  [{isProcessing ? 'PROCESSING...' : 'UPLOAD DOCUMENT'}]
                 </h3>
-                <p className="text-sm text-slate-500">
-                  Drag and drop your PDF here, or click to browse
+                <p className="font-serif text-sm text-subtle">
+                  Drag & drop your PDF here, or click to browse
                 </p>
               </div>
 
-              <div className="flex gap-4 mt-4 opacity-50 text-xs text-slate-400">
-                <span className="flex items-center gap-1"><Search size={12}/> Searchable</span>
-                <span className="flex items-center gap-1"><ZoomIn size={12}/> High Res</span>
+              <div className="flex gap-4 mt-4 font-mono text-xs">
+                <span className="px-3 py-1 border border-ink text-subtle">[searchable]</span>
+                <span className="px-3 py-1 border border-ink text-subtle">[high-res]</span>
               </div>
             </div>
 

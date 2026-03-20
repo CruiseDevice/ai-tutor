@@ -528,6 +528,8 @@ Output (JSON array only):"""
                     user_api_key=state["user_api_key"],
                     limit=limit
                 )
+                # TODO(human): Diagnostic logging for agent chunk retrieval
+                logger.info(f"[Agent DEBUG] Standard retrieval returned {len(chunks)} chunks for document {state['document_id']}")
 
             state["retrieved_chunks"] = chunks
 

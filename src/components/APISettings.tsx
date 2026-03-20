@@ -1,6 +1,5 @@
 'use client';
 
-import { ArrowLeft, Key, Shield, CheckCircle2, AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { userApi } from "@/lib/api-client";
@@ -39,37 +38,42 @@ export default function APISettings() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 p-4 sm:p-6 lg:p-8">
-      {/* Background Pattern */}
-      <div className="fixed inset-0 z-0 opacity-[0.03]"
+    <div className="min-h-screen bg-paper p-4 sm:p-6 lg:p-8">
+      {/* Background Pattern - Subtle */}
+      <div className="fixed inset-0 z-0 opacity-[0.02] pointer-events-none"
         style={{
-          backgroundImage: 'radial-gradient(#64748b 1px, transparent 1px)',
-          backgroundSize: '32px 32px'
+          backgroundImage: 'radial-gradient(#0a0a0a 1px, transparent 1px)',
+          backgroundSize: '24px 24px'
         }}
       />
 
       <div className="max-w-2xl mx-auto relative z-10">
-        {/* Back Button */}
+        {/* =====================================================
+            BACK BUTTON - Brutalist Style
+            ===================================================== */}
         <button
           onClick={() => router.back()}
-          className="mb-8 group flex items-center gap-2 px-4 py-2.5 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-200 text-sm font-medium text-slate-700 hover:text-blue-600"
+          className="mb-8 font-mono text-xs px-4 py-2.5 border border-ink hover:bg-ink hover:text-paper transition-colors flex items-center gap-2 min-w-[44px] min-h-[44px]"
         >
-          <ArrowLeft size={18} className="group-hover:-translate-x-0.5 transition-transform duration-200"/>
-          <span>Back to Dashboard</span>
+          [←] Back to Dashboard
         </button>
 
-        {/* Main Card */}
-        <div className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-          {/* Header Section with Gradient */}
-          <div className="relative bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 p-8 sm:p-10">
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48Y2lyY2xlIGN4PSIzMCIgY3k9IjMwIiByPSIyIi8+PC9nPjwvZz48L3N2Zz4=')] opacity-20"></div>
-            <div className="relative z-10 flex items-start gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg border border-white/30">
-                <Key size={28} className="text-white" />
+        {/* =====================================================
+            MAIN CARD - Brutalist Style
+            ===================================================== */}
+        <div className="bg-panel-bg border-2 border-ink overflow-hidden">
+          {/* Header Section - No Gradient, Stark Style */}
+          <div className="border-b-2 border-ink p-6 sm:p-8">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 border-2 border-ink flex items-center justify-center font-mono text-2xl bg-paper">
+                [⚡]
               </div>
               <div className="flex-1">
-                <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">API Settings</h1>
-                <p className="text-blue-100 text-sm sm:text-base leading-relaxed">
+                <div className="flex items-center gap-2 mb-1">
+                  <h1 className="font-mono text-xl sm:text-2xl font-bold uppercase">API Settings</h1>
+                  <span className="font-mono text-xs text-accent">[003]</span>
+                </div>
+                <p className="font-serif text-sm text-subtle leading-relaxed">
                   Configure your OpenAI API key to enable personalized chat completions
                 </p>
               </div>
@@ -77,25 +81,23 @@ export default function APISettings() {
           </div>
 
           {/* Form Section */}
-          <div className="p-6 sm:p-8 lg:p-10">
+          <div className="p-6 sm:p-8">
             {/* Error Message */}
             {error && (
               <div
-                className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300"
+                className="mb-6 border-2 border-accent bg-accent/10 px-4 py-3 flex items-start gap-3"
                 role="alert"
               >
-                <div className="p-1.5 bg-red-100 rounded-lg flex-shrink-0">
-                  <AlertCircle size={18} className="text-red-600"/>
-                </div>
+                <span className="font-mono text-accent text-lg">[!]</span>
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-red-800">{error}</p>
+                  <p className="font-mono text-xs font-bold text-accent uppercase">Error</p>
+                  <p className="font-serif text-sm text-ink mt-1">{error}</p>
                 </div>
                 <button
                   onClick={() => setError('')}
-                  className="text-red-400 hover:text-red-600 transition-colors"
+                  className="font-mono text-accent hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center"
                 >
-                  <span className="sr-only">Close</span>
-                  ×
+                  [×]
                 </button>
               </div>
             )}
@@ -103,21 +105,18 @@ export default function APISettings() {
             {/* Success Message */}
             {success && (
               <div
-                className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300"
+                className="mb-6 border-2 border-ink bg-ink text-paper px-4 py-3 flex items-start gap-3"
                 role="alert"
               >
-                <div className="p-1.5 bg-green-100 rounded-lg flex-shrink-0">
-                  <CheckCircle2 size={18} className="text-green-600"/>
-                </div>
+                <span className="font-mono text-lg">[✓]</span>
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-green-800">{success}</p>
+                  <p className="font-serif text-sm">{success}</p>
                 </div>
                 <button
                   onClick={() => setSuccess('')}
-                  className="text-green-400 hover:text-green-600 transition-colors"
+                  className="font-mono hover:underline min-w-[44px] min-h-[44px] flex items-center justify-center"
                 >
-                  <span className="sr-only">Close</span>
-                  ×
+                  [×]
                 </button>
               </div>
             )}
@@ -127,42 +126,36 @@ export default function APISettings() {
               <div className="space-y-3">
                 <label
                   htmlFor="apiKey"
-                  className="flex items-center gap-2 text-sm font-semibold text-slate-700"
+                  className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-ink"
                 >
-                  <Shield size={16} className="text-indigo-500"/>
+                  <span>[⚡]</span>
                   <span>OpenAI API Key</span>
                 </label>
 
-                <div className="relative">
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 rounded-xl blur-sm"></div>
-                  <input
-                    type="password"
-                    id="apiKey"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-proj-..."
-                    className="relative w-full px-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 text-sm text-slate-800 placeholder:text-slate-400"
-                  />
-                </div>
+                <input
+                  type="password"
+                  id="apiKey"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="[sk-proj-...]"
+                  className="w-full px-4 py-3.5 font-serif text-sm bg-paper border-2 border-ink focus:outline-none focus:ring-2 focus:ring-accent/50 placeholder:text-subtle"
+                />
 
                 {/* Info Card */}
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="border-2 border-ink bg-accent/5 px-4 py-3">
                   <div className="flex items-start gap-3">
-                    <div className="p-1.5 bg-blue-100 rounded-lg flex-shrink-0 mt-0.5">
-                      <Sparkles size={14} className="text-blue-600"/>
-                    </div>
+                    <span className="font-mono text-accent text-sm">[ℹ]</span>
                     <div className="flex-1">
-                      <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                      <p className="font-serif text-sm text-ink leading-relaxed">
                         Enter your OpenAI API key to use your own account for chat completion. Your key is encrypted and stored securely.
                       </p>
                       <a
                         href="https://platform.openai.com/api-keys"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                        className="inline-flex items-center gap-1 mt-2 font-mono text-xs text-accent hover:underline"
                       >
-                        Get your API key
-                        <ArrowLeft size={12} className="rotate-180"/>
+                        [Get your API key →]
                       </a>
                     </div>
                   </div>
@@ -173,33 +166,33 @@ export default function APISettings() {
               <button
                 type="submit"
                 disabled={isLoading || !apiKey.trim()}
-                className={`w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl shadow-lg font-medium text-sm transition-all duration-200 ${
+                className={`w-full py-3.5 px-6 font-mono text-sm uppercase border-2 flex items-center justify-center gap-2 min-h-[44px] transition-all duration-150 ${
                   isLoading || !apiKey.trim()
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                    : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]'
+                    ? 'bg-paper text-subtle border-ink cursor-not-allowed'
+                    : 'bg-ink text-paper border-ink hover:bg-accent hover:border-accent'
                 }`}
               >
                 {isLoading ? (
                   <>
-                    <Loader2 size={18} className="animate-spin"/>
-                    <span>Saving...</span>
+                    <span className="inline-block h-4 w-4 animate-spin border-2 border-paper/40 border-t-paper rounded-full" />
+                    <span>[Saving...]</span>
                   </>
                 ) : (
                   <>
-                    <CheckCircle2 size={18}/>
+                    <span>[✓]</span>
                     <span>Save API Key</span>
                   </>
                 )}
               </button>
             </form>
 
-            {/* Security Note */}
-            <div className="mt-8 pt-6 border-t border-gray-200">
-              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                <Shield size={18} className="text-amber-600 flex-shrink-0 mt-0.5"/>
+            {/* Security Notice */}
+            <div className="mt-8 pt-6 border-t-2 border-ink">
+              <div className="flex items-start gap-3 border-2 border-ink bg-accent/5 px-4 py-3">
+                <span className="font-mono text-accent text-lg">[⚠]</span>
                 <div>
-                  <p className="text-xs font-semibold text-amber-900 mb-1">Security Notice</p>
-                  <p className="text-xs text-amber-700 leading-relaxed">
+                  <p className="font-mono text-xs font-bold text-accent uppercase mb-1">Security Notice</p>
+                  <p className="font-serif text-xs text-ink leading-relaxed">
                     Your API key is encrypted and stored securely. Never share your API key with others or commit it to version control.
                   </p>
                 </div>

@@ -757,6 +757,11 @@ Title:"""
         try:
             from ..config import settings
 
+            # TODO(human): Diagnostic - Check if any chunks exist for this document
+            chunk_count = db.execute(text("SELECT COUNT(*) FROM document_chunks WHERE document_id = :document_id"),
+                                    {"document_id": document_id}).scalar()
+            logger.info(f"[DEBUG find_similar_chunks] Document {document_id} has {chunk_count} chunks in database")
+
             # Check if document uses hierarchical parent-child chunking
             uses_hierarchical = self._check_hierarchical_chunking(db, document_id)
 
@@ -1335,6 +1340,8 @@ Title:"""
                 document_id, query_embedding, final_chunks, rerank_enabled=rerank_enabled
             )
 
+            # TODO(human): Diagnostic logging to track chunk retrieval
+            logger.info(f"[DEBUG find_similar_chunks] Returning {len(final_chunks)} chunks for document {document_id}")
             return final_chunks
 
         except (SQLAlchemyError, DatabaseError) as e:
@@ -2237,6 +2244,8 @@ Respond with ONLY a JSON object in this exact format:
             # Find relevant chunks (retrieve more for token-based selection)
             logger.debug(f"Finding similar chunks for document {document_id}")
             candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key)
+            # TODO(human): Add diagnostic logging to understand why chunks might be empty
+            logger.info(f"[DEBUG CHAT] Retrieved {len(candidate_chunks)} candidate chunks for document {document_id}")
 
             # Get conversation history for token counting
             logger.debug(f"Fetching conversation history for {conversation_id}")
@@ -3023,6 +3032,8 @@ say you don't have enough information from the document and suggest looking at o
             # Find relevant chunks (retrieve more for token-based selection)
             logger.debug(f"Finding similar chunks for document {document_id}")
             candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key)
+            # TODO(human): Add diagnostic logging to understand why chunks might be empty
+            logger.info(f"[DEBUG CHAT] Retrieved {len(candidate_chunks)} candidate chunks for document {document_id}")
 
             # Get conversation history for token counting
             logger.debug(f"Fetching conversation history for {conversation_id}")

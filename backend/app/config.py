@@ -167,7 +167,7 @@ class Settings(BaseSettings):
 
     # Image Processing with Unstructured (Multimodal support)
     # Controls image extraction, captioning, and embedding generation
-    ENABLE_IMAGE_EXTRACTION: bool = True    # Feature flag to enable/disable image processing
+    ENABLE_IMAGE_EXTRACTION: bool = False    # Feature flag to enable/disable image processing
     VISION_MODEL: str = "gpt-4o-mini"   # Model for image captioning (gpt-4o-mini for cost, gpt-4o for quality)
     MAX_IMAGES_PER_DOCUMENT: int = 200  # Maximum number of images to process per document
     IMAGE_CAPTION_BATCH_SIZE: int = 5   # Number of images to caption in parallel (controls rate limits)
@@ -175,7 +175,7 @@ class Settings(BaseSettings):
     IMAGE_COMPRESSION_QUALITY: int = 85     # JPEG compression quality (1-100, higher = better quality)
 
     # Unstructured Configuration
-    USE_UNSTRUCTURED: bool = True  # Enable Unstructured for image/table extraction
+    USE_UNSTRUCTURED: bool = False  # Enable Unstructured for image/table extraction
     UNSTRUCTURED_STRATEGY: str = "hi_res"  # Extraction strategy: "hi_res", "fast", "ocr_only"
     UNSTRUCTURED_TABLE_FORMAT: str = "html"  # Table format: "html", "markdown", "text"
 

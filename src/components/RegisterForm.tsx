@@ -4,7 +4,6 @@
 import Link from "next/link";
 import React, { useState } from "react"
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
 import { authApi } from "@/lib/api-client";
 
 interface FormErrors {
@@ -109,52 +108,67 @@ export default function RegisterForm () {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-paper px-4">
       <div className="w-full max-w-md">
-        <header className="mb-6">
-          <p className="text-[11px] font-semibold tracking-[0.2em] text-indigo-600 uppercase">
-            StudyFetch
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold text-slate-900">
+        {/* =====================================================
+            HEADER - TUTOR.AI branding
+            ===================================================== */}
+        <header className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="font-mono font-bold text-2xl uppercase tracking-tight">
+              TUTOR<span className="text-accent">.AI</span>
+            </h1>
+            <span className="font-mono text-xs text-accent">[002]</span>
+          </div>
+          <p className="font-serif text-ink">
             Create your account
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Set up your StudyFetch profile in a minute.
           </p>
         </header>
 
-        <div className="rounded-xl bg-white border border-slate-200 shadow-sm p-6 sm:p-7 space-y-5">
+        {/* =====================================================
+            FORM CARD - Brutalist Style
+            ===================================================== */}
+        <div className="bg-panel-bg border-2 border-ink p-6 sm:p-8 space-y-5">
+          {/* Error Alert */}
           {errors.general && (
             <div
-              className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700"
+              className="flex items-start gap-3 border-2 border-accent bg-accent/10 px-4 py-3"
               role="alert"
             >
-              <div className="mt-0.5 flex-1">
-                <p className="font-medium">We couldn&apos;t create your account</p>
-                <p className="mt-0.5 text-xs sm:text-sm">{errors.general}</p>
+              <span className="font-mono text-accent text-lg">[!]</span>
+              <div className="flex-1">
+                <p className="font-mono text-xs font-bold text-accent uppercase">Couldn&apos;t create account</p>
+                <p className="font-serif text-sm text-ink mt-1">{errors.general}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setErrors(prev => ({ ...prev, general: undefined }))}
-                className="shrink-0 text-red-500 hover:text-red-700"
+                className="font-mono text-accent hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
-                <X size={16} />
+                [×]
               </button>
             </div>
           )}
 
-          <div className="rounded-md bg-slate-50 border border-slate-200 px-3.5 py-3 text-xs sm:text-sm text-slate-600">
-            <p className="font-medium text-slate-700">Password requirements</p>
-            <ul className="mt-1.5 space-y-0.5 list-disc list-inside">
-              <li>At least 8 characters</li>
-            </ul>
+          {/* Info Box - Password Requirements */}
+          <div className="border-2 border-ink bg-accent/5 px-4 py-3">
+            <div className="flex items-start gap-2">
+              <span className="font-mono text-accent text-sm">[ℹ]</span>
+              <div>
+                <p className="font-mono text-xs font-bold text-ink uppercase">Password requirements</p>
+                <ul className="mt-1.5 font-serif text-sm text-subtle">
+                  <li>• At least 8 characters</li>
+                </ul>
+              </div>
+            </div>
           </div>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
-            <div className="space-y-1.5">
+            {/* Email Field */}
+            <div className="space-y-2">
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-slate-700"
+                className="block font-mono text-xs uppercase tracking-wider text-ink"
               >
                 Email
               </label>
@@ -164,24 +178,25 @@ export default function RegisterForm () {
                 name="email"
                 autoComplete="email"
                 required
-                placeholder="you@example.com"
-                className={`block w-full rounded-md border px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                placeholder="[you@example.com]"
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-paper border-2 outline-none transition focus:ring-2 ${
                   errors.email
-                    ? "border-red-500 focus:ring-red-500 focus:border-red-500"
-                    : "border-slate-300"
+                    ? "border-accent ring-accent/50"
+                    : "border-ink focus:ring-accent/50"
                 }`}
                 value={formData.email}
                 onChange={handleChange}
               />
               {errors.email && (
-                <p className="mt-1 text-xs text-red-600">{errors.email}</p>
+                <p className="font-mono text-xs text-accent">[{errors.email}]</p>
               )}
             </div>
 
-            <div className="space-y-1.5">
+            {/* Password Field */}
+            <div className="space-y-2">
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-slate-700"
+                className="block font-mono text-xs uppercase tracking-wider text-ink"
               >
                 Password
               </label>
@@ -191,24 +206,25 @@ export default function RegisterForm () {
                 name="password"
                 autoComplete="new-password"
                 required
-                placeholder="••••••••"
-                className={`block w-full rounded-md border px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                placeholder="[••••••••]"
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-paper border-2 outline-none transition focus:ring-2 ${
                   errors.password
-                    ? "border-red-500 focus:ring-red-500 focus:border-red-500"
-                    : "border-slate-300"
+                    ? "border-accent ring-accent/50"
+                    : "border-ink focus:ring-accent/50"
                 }`}
                 value={formData.password}
                 onChange={handleChange}
               />
               {errors.password && (
-                <p className="mt-1 text-xs text-red-600">{errors.password}</p>
+                <p className="font-mono text-xs text-accent">[{errors.password}]</p>
               )}
             </div>
 
-            <div className="space-y-1.5">
+            {/* Confirm Password Field */}
+            <div className="space-y-2">
               <label
                 htmlFor="confirmPassword"
-                className="block text-sm font-medium text-slate-700"
+                className="block font-mono text-xs uppercase tracking-wider text-ink"
               >
                 Confirm password
               </label>
@@ -218,41 +234,47 @@ export default function RegisterForm () {
                 name="confirmPassword"
                 autoComplete="new-password"
                 required
-                placeholder="Repeat your password"
-                className={`block w-full rounded-md border px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                placeholder="[Repeat your password]"
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-paper border-2 outline-none transition focus:ring-2 ${
                   errors.confirmPassword
-                    ? "border-red-500 focus:ring-red-500 focus:border-red-500"
-                    : "border-slate-300"
+                    ? "border-accent ring-accent/50"
+                    : "border-ink focus:ring-accent/50"
                 }`}
                 value={formData.confirmPassword}
                 onChange={handleChange}
               />
               {errors.confirmPassword && (
-                <p className="mt-1 text-xs text-red-600">
-                  {errors.confirmPassword}
+                <p className="font-mono text-xs text-accent">
+                  [{errors.confirmPassword}]
                 </p>
               )}
             </div>
 
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              className="brutalist-button brutalist-button-primary w-full py-3 font-mono text-sm uppercase disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
             >
-              {loading && (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              {loading ? (
+                <>
+                  <span className="inline-block h-4 w-4 animate-spin border-2 border-paper/40 border-t-paper rounded-full" />
+                  <span>[Creating account...]</span>
+                </>
+              ) : (
+                <span>[Sign up]</span>
               )}
-              <span>{loading ? "Creating your account..." : "Sign up"}</span>
             </button>
           </form>
 
-          <p className="pt-1 text-center text-xs sm:text-sm text-slate-500">
+          {/* Login Link */}
+          <p className="pt-1 text-center font-serif text-sm text-subtle">
             Already have an account?{" "}
             <Link
               href="/login"
-              className="font-medium text-indigo-600 hover:text-indigo-500"
+              className="font-mono text-xs text-accent hover:underline"
             >
-              Sign in
+              [Sign in]
             </Link>
           </p>
         </div>

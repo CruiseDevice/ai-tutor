@@ -9,9 +9,28 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        mono: ['var(--font-mono)', 'monospace'],
+        serif: ['var(--font-serif)', 'Georgia', 'serif'],
+      },
       colors: {
+        // Legacy (for compatibility)
         background: "var(--background)",
         foreground: "var(--foreground)",
+        // Brutalist palette
+        ink: 'var(--ink)',
+        paper: 'var(--paper)',
+        accent: 'var(--accent)',
+        rule: 'var(--rule)',
+        subtle: 'var(--subtle)',
+        // Dashboard extensions
+        'sidebar-bg': 'var(--sidebar-bg)',
+        'panel-bg': 'var(--panel-bg)',
+        'chat-user': 'var(--chat-user)',
+        'chat-ai': 'var(--chat-ai)',
+      },
+      borderWidth: {
+        '3': '3px',
       },
     },
   },
