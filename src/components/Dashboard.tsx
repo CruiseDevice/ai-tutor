@@ -308,11 +308,6 @@ function DashboardWithSearchParams () {
     }
   }
 
-  const handleVoiceRecord = () => {
-    // implement voice recording logic later
-    console.log('Voice recording toggled');
-  }
-
   // Resizer handlers - Pointer Events for touch + mouse support
   const handlePointerDown = (e: React.PointerEvent) => {
     // Only respond to primary touch/click (left mouse, first finger)
@@ -409,9 +404,7 @@ function DashboardWithSearchParams () {
           className="h-full overflow-hidden"
           style={{ width: `${100 - splitPosition}%` }}
         >
-          <ChatInterface
-            onVoiceRecord={handleVoiceRecord}
-          />
+          <ChatInterface />
         </div>
       </div>
     </div>
