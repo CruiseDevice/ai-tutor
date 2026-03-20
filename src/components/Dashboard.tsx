@@ -380,7 +380,6 @@ function DashboardWithSearchParams () {
           style={{ width: `${100 - splitPosition}%` }}
         >
           <ChatInterface
-            useStore={true}
             onVoiceRecord={handleVoiceRecord}
           />
         </div>
