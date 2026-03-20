@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from "react";
 import { conversationApi, authApi } from "@/lib/api-client";
 
+// Store imports for Zustand migration
+import { useAuthStore, selectUser } from "@/stores/authStore";
+import { useDocumentsStore, selectDocumentGroups, selectIsLoadingDocs } from "@/stores/documentsStore";
+import { useChatStore } from "@/stores/chatStore";
+
 interface Conversation {
   id: string;
   documentId: string;
@@ -29,12 +34,16 @@ interface DocumentGroup {
 }
 
 interface ChatSidebarProps {
-  userId: string;
+  // OLD: Existing props - deprecated but still functional
+  userId?: string;
   userEmail?: string;
-  onSelectConversation: (conversationId: string, documentId: string) => void;
-  currentConversationId: string | null;
+  onSelectConversation?: (conversationId: string, documentId: string) => void;
+  currentConversationId?: string | null;
   onDeleteConversation?: (conversationId: string, documentId: string) => void;
   onCreateNewConversation?: (documentId: string) => Promise<{ id: string; document_id?: string; title?: string; updated_at?: string } | void>;
+
+  // NEW: Use store instead of props (default: false for safety)
+  useStore?: boolean;
 }
 
 export interface ChatSidebarRef {
@@ -49,6 +58,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   currentConversationId,
   onDeleteConversation,
   onCreateNewConversation,
+  useStore = false,  // Default to false for safety
 }, ref) => {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(true); // Default to open for better UX
@@ -59,6 +69,28 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // =====================================================
+  // STORE HOOKS (used when useStore=true)
+  // =====================================================
+  const storeUser = useAuthStore(selectUser);
+  const storeDocumentGroups = useDocumentsStore(selectDocumentGroups);
+  const storeIsLoading = useDocumentsStore(selectIsLoadingDocs);
+  const storeConversationId = useChatStore((s) => s.conversationId);
+  const storeLoadConversation = useChatStore((s) => s.loadConversation);
+  const storeDeleteConversation = useDocumentsStore((s) => s.deleteConversation);
+  const storeCreateConversation = useDocumentsStore((s) => s.createConversation);
+  const storeToggleExpanded = useDocumentsStore((s) => s.toggleExpanded);
+  const storeFetchDocumentGroups = useDocumentsStore((s) => s.fetchDocumentGroups);
+
+  // =====================================================
+  // CHOOSE SOURCE based on useStore flag
+  // =====================================================
+  const activeUserId = useStore ? storeUser.userId : userId;
+  const activeUserEmail = useStore ? storeUser.userEmail : userEmail;
+  const activeDocumentGroups = useStore ? storeDocumentGroups : documentGroups;
+  const activeIsLoading = useStore ? storeIsLoading : isLoading;
+  const activeConversationId = useStore ? storeConversationId : currentConversationId;
 
   function addNewConversation(newConversation: Conversation) {
     // Find the document group and add the conversation
@@ -77,7 +109,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
             conversations: [
               {
                 id: newConversation.id,
-                user_id: userId,
+                user_id: activeUserId,
                 document_id: newConversation.documentId,
                 title: newConversation.title,
                 created_at: new Date().toISOString(),
@@ -93,7 +125,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   }
 
   const refreshConversations = useCallback(async () => {
-    if (!userId) return;
+    if (!activeUserId) return;
 
     setIsLoading(true);
     try {
@@ -107,13 +139,13 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
       setDocumentGroups(data);
 
       // Expand documents that have the current conversation
-      if (currentConversationId) {
+      if (activeConversationId) {
         const hasCurrentConversation = data.some(group =>
-          group.conversations.some(conv => conv.id === currentConversationId)
+          group.conversations.some(conv => conv.id === activeConversationId)
         );
         if (hasCurrentConversation) {
           const currentGroup = data.find(group =>
-            group.conversations.some(conv => conv.id === currentConversationId)
+            group.conversations.some(conv => conv.id === activeConversationId)
           );
           if (currentGroup?.document?.id) {
             setExpandedDocuments(prev => new Set([...prev, currentGroup.document!.id]));
@@ -125,7 +157,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
     } finally {
       setIsLoading(false);
     }
-  }, [userId, currentConversationId]);
+  }, [activeUserId, activeConversationId]);
 
   useImperativeHandle(ref, () => ({
     addNewConversation,
@@ -135,6 +167,13 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   useEffect(() => {
     refreshConversations();
   }, [refreshConversations]);
+
+  // Load conversations on mount (store mode only)
+  useEffect(() => {
+    if (useStore) {
+      storeFetchDocumentGroups();
+    }
+  }, [useStore, storeFetchDocumentGroups]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -164,88 +203,116 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
     }
   };
 
-  const handleDelete = async(e: React.MouseEvent, conversationId: string, documentId: string) => {
+  const handleSelectConversation = useCallback((conversationId: string, documentId: string) => {
+    if (useStore) {
+      storeLoadConversation(conversationId);
+    } else {
+      onSelectConversation?.(conversationId, documentId);
+    }
+  }, [useStore, storeLoadConversation, onSelectConversation]);
+
+  const handleDelete = useCallback(async(e: React.MouseEvent, conversationId: string, documentId: string) => {
     e.stopPropagation();
     if (confirm("Are you sure you want to delete this conversation?")) {
-      setDeleting(conversationId);
+      if (useStore) {
+        // Store mode: use store's delete method
+        await storeDeleteConversation(conversationId, documentId);
+      } else {
+        // Props mode: keep existing behavior
+        setDeleting(conversationId);
 
-      try {
-        const response = await conversationApi.delete(conversationId);
+        try {
+          const response = await conversationApi.delete(conversationId);
 
-        if (!response.ok) {
-          throw new Error('Failed to delete conversation');
-        }
-
-        // Remove conversation from the group
-        setDocumentGroups(prev => prev.map(group => {
-          if (group.document?.id === documentId) {
-            return {
-              ...group,
-              conversations: group.conversations.filter(c => c.id !== conversationId)
-            };
+          if (!response.ok) {
+            throw new Error('Failed to delete conversation');
           }
-          return group;
-        }).filter(group => group.conversations.length > 0 || group.document)); // Remove empty groups
 
-        if (currentConversationId === conversationId && onDeleteConversation) {
-          onDeleteConversation(conversationId, documentId);
+          // Remove conversation from the group
+          setDocumentGroups(prev => prev.map(group => {
+            if (group.document?.id === documentId) {
+              return {
+                ...group,
+                conversations: group.conversations.filter(c => c.id !== conversationId)
+              };
+            }
+            return group;
+          }).filter(group => group.conversations.length > 0 || group.document)); // Remove empty groups
+
+          if (currentConversationId === conversationId && onDeleteConversation) {
+            onDeleteConversation(conversationId, documentId);
+          }
+        } catch (error) {
+          console.error('Delete conversation error: ', error);
+          alert('Failed to delete conversation');
+        } finally {
+          setDeleting(null);
         }
-      } catch (error) {
-        console.error('Delete conversation error: ', error);
-        alert('Failed to delete conversation');
-      } finally {
-        setDeleting(null);
       }
     }
-  }
+  }, [useStore, storeDeleteConversation, currentConversationId, onDeleteConversation]);
 
-  const handleCreateNewConversation = async (e: React.MouseEvent, documentId: string) => {
+  const handleCreateNewConversation = useCallback(async (e: React.MouseEvent, documentId: string) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!onCreateNewConversation) {
-      console.warn('onCreateNewConversation prop not provided');
-      return;
-    }
 
-    setCreatingConversation(documentId);
-    // Expand the document first so the new conversation will be visible
-    setExpandedDocuments(prev => new Set([...prev, documentId]));
-
-    try {
-      const newConv = await onCreateNewConversation(documentId);
-
-      if (newConv && typeof newConv === 'object') {
-        // Manually add the new conversation to the list
-        // This avoids potential race conditions with refreshConversations returning stale data
-        addNewConversation({
-          id: newConv.id,
-          documentId: documentId,
-          title: newConv.title || 'New Chat',
-          updatedAt: newConv.updated_at || new Date().toISOString()
-        });
-      } else {
-        // Fallback if no conversation object returned
-        await refreshConversations();
+    if (useStore) {
+      // Store mode: use store's create method
+      const result = await storeCreateConversation(documentId);
+      if (result) {
+        return { id: result.id, document_id: documentId, title: result.title };
       }
-    } catch (error) {
-      console.error('Error creating new conversation: ', error);
-      alert('Failed to create new conversation');
-    } finally {
-      setCreatingConversation(null);
-    }
-  }
-
-  const toggleDocumentExpansion = (documentId: string) => {
-    setExpandedDocuments(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(documentId)) {
-        newSet.delete(documentId);
-      } else {
-        newSet.add(documentId);
+    } else {
+      // Props mode: keep existing behavior
+      if (!onCreateNewConversation) {
+        console.warn('onCreateNewConversation prop not provided');
+        return;
       }
-      return newSet;
-    });
-  };
+
+      setCreatingConversation(documentId);
+      // Expand the document first so the new conversation will be visible
+      setExpandedDocuments(prev => new Set([...prev, documentId]));
+
+      try {
+        const newConv = await onCreateNewConversation(documentId);
+
+        if (newConv && typeof newConv === 'object') {
+          // Manually add the new conversation to the list
+          // This avoids potential race conditions with refreshConversations returning stale data
+          addNewConversation({
+            id: newConv.id,
+            documentId: documentId,
+            title: newConv.title || 'New Chat',
+            updatedAt: newConv.updated_at || new Date().toISOString()
+          });
+        } else {
+          // Fallback if no conversation object returned
+          await refreshConversations();
+        }
+      } catch (error) {
+        console.error('Error creating new conversation: ', error);
+        alert('Failed to create new conversation');
+      } finally {
+        setCreatingConversation(null);
+      }
+    }
+  }, [useStore, storeCreateConversation, onCreateNewConversation, refreshConversations, addNewConversation]);
+
+  const toggleDocumentExpansion = useCallback((documentId: string) => {
+    if (useStore) {
+      storeToggleExpanded(documentId);
+    } else {
+      setExpandedDocuments(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(documentId)) {
+          newSet.delete(documentId);
+        } else {
+          newSet.add(documentId);
+        }
+        return newSet;
+      });
+    }
+  }, [useStore, storeToggleExpanded]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -316,11 +383,11 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
           </div>
         )}
 
-        {isLoading ? (
+        {activeIsLoading ? (
           <div className="flex justify-center items-center h-20">
             <div className="animate-spin rounded-full h-6 w-6 border-2 border-slate-600 border-t-blue-500"></div>
           </div>
-        ) : documentGroups.length === 0 ? (
+        ) : activeDocumentGroups.length === 0 ? (
           <div className={`text-center p-4 text-slate-500 text-sm ${!isOpen && 'hidden'}`}>
             <div className="mb-2 inline-flex p-3 rounded-full bg-slate-800/50">
               <MessageSquare size={20} />
@@ -329,13 +396,13 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
           </div>
         ) : (
           <ul className="space-y-1">
-            {documentGroups.map((group) => {
+            {activeDocumentGroups.map((group) => {
               if (!group.document) return null;
 
               const documentId = group.document.id;
               const isExpanded = expandedDocuments.has(documentId);
               const conversationCount = group.conversations.length;
-              const hasCurrentConversation = group.conversations.some(c => c.id === currentConversationId);
+              const hasCurrentConversation = group.conversations.some(c => c.id === activeConversationId);
 
               return (
                 <li key={documentId} className="group/document">
@@ -415,16 +482,16 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
                       {group.conversations.map((conversation) => (
                         <div key={conversation.id} className="group/conversation relative">
                           <button
-                            onClick={() => onSelectConversation(conversation.id, documentId)}
+                            onClick={() => handleSelectConversation(conversation.id, documentId)}
                             className={`no-select no-tap-highlight w-full text-left rounded-lg transition-all duration-200 flex items-center group/item min-h-[44px] ${
-                              currentConversationId === conversation.id
+                              activeConversationId === conversation.id
                                 ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700/50'
                                 : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
                             } p-2.5`}
                           >
                             <div className="relative flex-shrink-0 mr-2">
-                              <MessageSquare size={14} className={currentConversationId === conversation.id ? 'text-blue-400' : 'text-slate-500 group-hover/item:text-slate-400'} />
-                              {currentConversationId === conversation.id && (
+                              <MessageSquare size={14} className={activeConversationId === conversation.id ? 'text-blue-400' : 'text-slate-500 group-hover/item:text-slate-400'} />
+                              {activeConversationId === conversation.id && (
                                 <span className="absolute -right-0.5 -top-0.5 w-1.5 h-1.5 rounded-full bg-blue-500 ring-1 ring-[#0f172a]" />
                               )}
                             </div>
@@ -478,12 +545,12 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
           >
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-900/20 font-semibold text-xs">
-                {userId ? userId.substring(0, 2).toUpperCase() : 'U'}
+                {activeUserId ? activeUserId.substring(0, 2).toUpperCase() : 'U'}
               </div>
               {isOpen && (
                 <div className="text-left">
                   <div className="text-xs font-medium text-white truncate w-32">
-                    {userEmail || userId || 'User'}
+                    {activeUserEmail || activeUserId || 'User'}
                   </div>
                   <div className="text-[10px] text-slate-500">Pro Plan</div>
                 </div>
