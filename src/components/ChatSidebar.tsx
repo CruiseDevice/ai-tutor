@@ -6,8 +6,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallba
 import { conversationApi, authApi } from "@/lib/api-client";
 
 // Store imports for Zustand migration
-import { useAuthStore, selectUser } from "@/stores/authStore";
-import { useDocumentsStore, selectDocumentGroups, selectIsLoadingDocs } from "@/stores/documentsStore";
+import { useAuthStore } from "@/stores/authStore";
+import { useDocumentsStore, selectDocumentGroups, selectIsLoadingDocs, selectExpandedDocuments } from "@/stores/documentsStore";
 import { useChatStore } from "@/stores/chatStore";
 
 interface Conversation {
@@ -73,7 +73,8 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   // =====================================================
   // STORE HOOKS (used when useStore=true)
   // =====================================================
-  const storeUser = useAuthStore(selectUser);
+  const storeUserId = useAuthStore((s) => s.userId);
+  const storeUserEmail = useAuthStore((s) => s.userEmail);
   const storeDocumentGroups = useDocumentsStore(selectDocumentGroups);
   const storeIsLoading = useDocumentsStore(selectIsLoadingDocs);
   const storeConversationId = useChatStore((s) => s.conversationId);
@@ -81,16 +82,18 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
   const storeDeleteConversation = useDocumentsStore((s) => s.deleteConversation);
   const storeCreateConversation = useDocumentsStore((s) => s.createConversation);
   const storeToggleExpanded = useDocumentsStore((s) => s.toggleExpanded);
+  const storeExpandedDocuments = useDocumentsStore(selectExpandedDocuments);
   const storeFetchDocumentGroups = useDocumentsStore((s) => s.fetchDocumentGroups);
 
   // =====================================================
   // CHOOSE SOURCE based on useStore flag
   // =====================================================
-  const activeUserId = useStore ? storeUser.userId : userId;
-  const activeUserEmail = useStore ? storeUser.userEmail : userEmail;
+  const activeUserId = useStore ? storeUserId : userId;
+  const activeUserEmail = useStore ? storeUserEmail : userEmail;
   const activeDocumentGroups = useStore ? storeDocumentGroups : documentGroups;
   const activeIsLoading = useStore ? storeIsLoading : isLoading;
   const activeConversationId = useStore ? storeConversationId : currentConversationId;
+  const activeExpandedDocuments = useStore ? storeExpandedDocuments : expandedDocuments;
 
   function addNewConversation(newConversation: Conversation) {
     // Find the document group and add the conversation
@@ -400,7 +403,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({
               if (!group.document) return null;
 
               const documentId = group.document.id;
-              const isExpanded = expandedDocuments.has(documentId);
+              const isExpanded = activeExpandedDocuments.has(documentId);
               const conversationCount = group.conversations.length;
               const hasCurrentConversation = group.conversations.some(c => c.id === activeConversationId);
 

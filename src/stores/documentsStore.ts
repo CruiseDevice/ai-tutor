@@ -180,3 +180,4 @@ export const useDocumentsStore = create<DocumentsState>()(
 // Selectors
 export const selectDocumentGroups = (state: DocumentsState) => state.documentGroups;
 export const selectIsLoadingDocs = (state: DocumentsState) => state.isLoading;
+export const selectExpandedDocuments = (state: DocumentsState) => state.expandedDocuments;
