@@ -5,7 +5,7 @@ import { conversationApi, chatApi, getPDFProxyUrl } from '../lib/api-client';
 import { StreamBatcher } from './utils/StreamBatcher';
 import { listenForCrossTabChanges, broadcastConversationChange } from './utils/crossTabSync';
 import { useAnnotationsStore } from './annotationsStore';
-import type { ChatMessage, WorkflowStep, AnnotationReference } from '../types';
+import type { ChatMessage, WorkflowStep } from '../types';
 
 interface ChatState {
   // State

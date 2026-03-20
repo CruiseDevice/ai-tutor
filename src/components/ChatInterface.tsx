@@ -9,26 +9,12 @@ import rehypeKatex from "rehype-katex";
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { userApi } from "@/lib/api-client";
-import type { AnnotationReference, AgentMetadata } from "@/types/annotations";
+import type { AnnotationReference } from "@/types/annotations";
 import AgentWorkflowProgress from "./AgentWorkflowProgress";
 
 // Store imports for Zustand migration
 import { useChatStore, selectMessages, selectIsLoading } from '@/stores/chatStore';
 import { useAnnotationsStore } from '@/stores/annotationsStore';
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  annotations?: AnnotationReference[];
-  metadata?: AgentMetadata;
-}
-
-interface WorkflowStep {
-  node: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  data?: Record<string, unknown>;
-}
 
 const AVAILABLE_MODELS = [
   // GPT-5 Series (Chat Models)
@@ -227,7 +213,7 @@ const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
 };
 
 export default function ChatInterface({
-  onVoiceRecord,
+  onVoiceRecord, // eslint-disable-line @typescript-eslint/no-unused-vars -- TODO: implement voice recording
 }: ChatInterfaceProps) {
   const router = useRouter();
 
