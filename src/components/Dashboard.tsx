@@ -9,6 +9,9 @@ import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
 import { authApi, documentApi, chatApi, conversationApi, configApi, getPDFProxyUrl } from "@/lib/api-client";
 import type { AnnotationReference, AgentMetadata } from "@/types/annotations";
 
+// Store imports for Zustand migration
+import { useAnnotationsStore } from '@/stores/annotationsStore';
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -30,19 +33,22 @@ function DashboardWithSearchParams () {
 
   const [currentPDF, setCurrentPDF] = useState('');
   const [documentId, setDocumentId] = useState('');
-  const [userId, setUserId] = useState('');
-  const [userEmail, setUserEmail] = useState('');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [currentAnnotations, setCurrentAnnotations] = useState<AnnotationReference[]>([]);
   const [maxFileSize, setMaxFileSize] = useState<number>(10 * 1024 * 1024); // Default to 10MB until config loads
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
   const pdfViewerRef = useRef<PDFViewerRef>(null);
+
+  // =====================================================
+  // STORE HOOKS (annotations now managed by annotationsStore)
+  // =====================================================
+  const storeSetAnnotations = useAnnotationsStore((s) => s.setAnnotations);
+  const storeClearAnnotations = useAnnotationsStore((s) => s.clearAnnotations);
 
   // Resizer state
   const [splitPosition, setSplitPosition] = useState(60); // Percentage (60% for PDF, 40% for Chat)
@@ -72,14 +78,14 @@ function DashboardWithSearchParams () {
       setDocumentId('');
       setConversationId(null);
       setMessages([]);
-      setCurrentAnnotations([]);
+      storeClearAnnotations();  // ← Store-based
       pdfViewerRef.current?.clearAnnotations();
       // update url to remove the chat parameter
       const params = new URLSearchParams(searchParams.toString());
       params.delete('chat');
       router.push(`${pathname}${params.toString() ? '?' + params.toString() : ''}`, {scroll: false});
     }
-  }, [conversationId, pathname, router, searchParams])
+  }, [conversationId, pathname, router, searchParams, storeClearAnnotations])
 
   const handleCreateNewConversation = useCallback(async (documentId: string) => {
     try {
@@ -103,7 +109,7 @@ function DashboardWithSearchParams () {
       setDocumentId(documentId);
       setCurrentPDF(getPDFProxyUrl(documentId));
       setMessages([]);
-      setCurrentAnnotations([]);
+      storeClearAnnotations();  // ← Store-based
       pdfViewerRef.current?.clearAnnotations();
 
       // Update URL
@@ -141,10 +147,10 @@ function DashboardWithSearchParams () {
 
       if (lastAssistantMessage?.annotations) {
         console.log('[Dashboard] Found annotations in loaded conversation:', lastAssistantMessage.annotations);
-        setCurrentAnnotations(lastAssistantMessage.annotations);
+        storeSetAnnotations(lastAssistantMessage.annotations);  // ← Store-based
       } else {
         // Clear previous annotations when switching conversations
-        setCurrentAnnotations([]);
+        storeClearAnnotations();  // ← Store-based
         pdfViewerRef.current?.clearAnnotations();
       }
 
@@ -155,7 +161,7 @@ function DashboardWithSearchParams () {
       console.error('Error loading conversation: ', error);
       setError('Failed to load conversation');
     }
-  }, [conversationId, updateUrl]);
+  }, [conversationId, updateUrl, storeSetAnnotations, storeClearAnnotations]);
 
   useEffect(() => {
     // debugging log
@@ -174,27 +180,6 @@ function DashboardWithSearchParams () {
     };
     checkAuth();
   }, [router])
-
-  // fetch user ID and email on component mount
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const response = await authApi.getUser();
-        const data = await response.json();
-        if(response.ok) {
-          setUserId(data.id);
-          setUserEmail(data.email || '');
-        } else {
-          // TODO: Display error message to user
-          console.error('Failed to fetch user: ', data);
-        }
-      } catch (error) {
-        // TODO: Display error message to user
-        console.error('Error fetching user:', error);
-      }
-    };
-    fetchUser();
-  }, []);
 
   // fetch config (e.g., max file size) on component mount
   useEffect(() => {
@@ -304,7 +289,7 @@ function DashboardWithSearchParams () {
 
       // reset messages and annotations for new document
       setMessages([]);
-      setCurrentAnnotations([]);
+      storeClearAnnotations();  // ← Store-based
       pdfViewerRef.current?.clearAnnotations();
 
       // set new conversation id from the response
@@ -476,7 +461,7 @@ function DashboardWithSearchParams () {
           const assistantAnnotations = (assistantData as { annotations?: AnnotationReference[] }).annotations;
           if (assistantAnnotations && assistantAnnotations.length > 0) {
             console.log('[Dashboard] Processing annotations:', assistantAnnotations);
-            setCurrentAnnotations(assistantAnnotations);
+            storeSetAnnotations(assistantAnnotations);  // ← Store-based
 
             // Auto-navigate to the first annotation's page
             const firstAnnotation = assistantAnnotations[0];
@@ -548,8 +533,8 @@ function DashboardWithSearchParams () {
       // Navigate to the page
       pdfViewerRef.current.goToPage(annotation.pageNumber);
 
-      // Set the annotation to be displayed
-      setCurrentAnnotations([annotation]);
+      // Set the annotation in store (PDF viewer reads from store)
+      storeSetAnnotations([annotation]);  // ← Store-based
 
       // If there's text to highlight, use the highlight function
       const textMatch = annotation.annotations?.find(
@@ -559,7 +544,7 @@ function DashboardWithSearchParams () {
         pdfViewerRef.current.highlightText(annotation.pageNumber, textMatch);
       }
     }
-  }, []);
+  }, [storeSetAnnotations]);
 
   // Resizer handlers - Pointer Events for touch + mouse support
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -615,12 +600,6 @@ function DashboardWithSearchParams () {
       {/* Sidebar */}
       <ChatSidebar
         ref={chatSidebarRef}
-        userId={userId}
-        userEmail={userEmail}
-        onSelectConversation={handleSelectConversation}
-        currentConversationId={conversationId}
-        onDeleteConversation={handleDeleteConversation}
-        onCreateNewConversation={handleCreateNewConversation}
       />
 
       {/* Main content Area */}
@@ -632,11 +611,9 @@ function DashboardWithSearchParams () {
         >
           <EnhancedPDFViewer
             ref={pdfViewerRef}
-            currentPDF={currentPDF}
-            onFileUpload={handleFileUpload}
+            useStore={true}  // ← Flip the switch: test store mode
+            onFileUpload={handleFileUpload}  // Keep this - file upload still needs handler
             fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
-            annotations={currentAnnotations}
-            onAnnotationClick={handleAnnotationClick}
           />
         </div>
 
