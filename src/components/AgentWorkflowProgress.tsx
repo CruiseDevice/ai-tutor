@@ -52,11 +52,12 @@ export default function AgentWorkflowProgress({ steps, visible }: Props) {
       </div>
 
       <div className="space-y-2">
-        {steps.map((step, index) => {
-          const config = STEP_CONFIG[step.node as keyof typeof STEP_CONFIG];
-          if (!config) return null;
+        {steps
+          .filter((step) => step.node === 'understand_query' || step.node === 'retrieve_context' || step.node === 'generate_answer' || step.node === 'verify_response' || step.node === 'format_response')
+          .map((step, index) => {
+            const config = STEP_CONFIG[step.node as keyof typeof STEP_CONFIG];
 
-          return (
+            return (
             <div
               key={step.node}
               className={`flex items-start gap-3 p-2 rounded transition-all ${

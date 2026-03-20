@@ -1,16 +1,11 @@
 // app/components/ChatInterface.tsx
-import { Bot, ChevronDown, Loader2, Send, Sparkles, User, Paperclip, StopCircle, Search, FileText, ArrowRight, Copy, Check } from "lucide-react";
+import { Bot, ChevronDown, Loader2, Send, Sparkles, Paperclip, StopCircle, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { userApi } from "@/lib/api-client";
 import type { AnnotationReference } from "@/types/annotations";
 import AgentWorkflowProgress from "./AgentWorkflowProgress";
+import { ChatMessage } from "./Chat/ChatMessage";
 
 // Store imports for Zustand migration
 import { useChatStore, selectMessages, selectIsLoading } from '@/stores/chatStore';
@@ -58,159 +53,6 @@ interface ChatInterfaceProps {
   // Voice recording not yet migrated to store
   onVoiceRecord?: () => void;
 }
-
-// Helper function to convert LaTeX delimiters to markdown math format
-const preprocessMathContent = (content: string): string => {
-  // Split content into parts, separating code blocks and inline code
-  const parts: Array<{ type: 'code' | 'text', content: string }> = [];
-
-  // Match code blocks (```...```) and inline code (`...`)
-  const codeBlockRegex = /(```[\s\S]*?```|`[^`\n]+?`)/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = codeBlockRegex.exec(content)) !== null) {
-    // Add text before code block
-    if (match.index > lastIndex) {
-      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
-    }
-    // Add code block
-    parts.push({ type: 'code', content: match[0] });
-    lastIndex = match.index + match[0].length;
-  }
-
-  // Add remaining text
-  if (lastIndex < content.length) {
-    parts.push({ type: 'text', content: content.slice(lastIndex) });
-  }
-
-  // Process only text parts, leave code blocks unchanged
-  return parts.map(part => {
-    if (part.type === 'code') {
-      return part.content;
-    }
-
-    let processed = part.content;
-
-    // Convert \[ ... \] to $$ ... $$ for display math
-    // Use a function replacer to avoid `$1` substitution quirks
-    processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_match, inner) => `$$${inner}$$`);
-
-    // Convert \( ... \) to $ ... $ for inline math
-    processed = processed.replace(/\\\((.*?)\\\)/g, (_match, inner) => `$${inner}$`);
-
-    return processed;
-  }).join('');
-};
-
-// Code block component with syntax highlighting and copy button
-interface CodeBlockProps {
-  inline?: boolean;
-  className?: string;
-  children?: React.ReactNode;
-  [key: string]: unknown;
-}
-
-const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
-  const [copied, setCopied] = useState(false);
-  const match = /language-(\w+)/.exec(className || '');
-  const language = match ? match[1] : '';
-
-  // Extract code string from children - ensure it's always a plain string
-  // ReactMarkdown passes children as an array of strings for code blocks
-  // Use useMemo to ensure we don't recreate the string unnecessarily
-  const codeString = useMemo(() => {
-    const extracted = React.Children.toArray(children)
-      .map((child) => {
-        // For code blocks, children should be strings
-        if (typeof child === 'string') {
-          return child;
-        }
-        // If it's a React element, try to extract text content
-        if (React.isValidElement(child)) {
-          const element = child as React.ReactElement<{ children?: React.ReactNode }>;
-          if (element.props?.children) {
-            return React.Children.toArray(element.props.children)
-              .map(c => typeof c === 'string' ? c : String(c))
-              .join('');
-          }
-        }
-        // Fallback: convert to string
-        return String(child);
-      })
-      .join('')
-      .replace(/\n$/, '');
-    return extracted;
-  }, [children]);
-
-  // Determine if this is a code block (has language class and not inline)
-  const hasLanguage = className && className.includes('language-');
-  const isCodeBlock = hasLanguage && inline !== true;
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(codeString);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Inline code - render as inline if explicitly inline or no language class
-  if (!isCodeBlock || inline) {
-    return (
-      <code className="px-1.5 py-0.5 bg-pink-50 text-pink-600 rounded text-sm font-mono">
-        {children}
-      </code>
-    );
-  }
-
-  // Code block with syntax highlighting
-  // Render SyntaxHighlighter directly - it will replace the pre+code structure
-  return (
-    <div className="relative group my-4 -mx-4 sm:mx-0 overflow-hidden">
-      <div className="absolute top-3 right-3 z-10">
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded-md transition-colors opacity-0 group-hover:opacity-100 shadow-lg"
-          title="Copy code"
-        >
-          {copied ? (
-            <>
-              <Check size={14} />
-              <span>Copied!</span>
-            </>
-          ) : (
-            <>
-              <Copy size={14} />
-              <span>Copy</span>
-            </>
-          )}
-        </button>
-      </div>
-      <div className="overflow-x-auto">
-        <SyntaxHighlighter
-          style={vscDarkPlus}
-          language={language || 'text'}
-          customStyle={{
-            margin: 0,
-            borderRadius: '0.5rem',
-            padding: '1rem',
-            paddingTop: '1.5rem',
-            fontSize: '0.875rem',
-            lineHeight: '1.5',
-            overflow: 'visible',
-          }}
-          codeTagProps={{
-            style: {
-              fontSize: '0.875rem',
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-            }
-          }}
-        >
-          {codeString}
-        </SyntaxHighlighter>
-      </div>
-    </div>
-  );
-};
 
 export default function ChatInterface({
   onVoiceRecord, // eslint-disable-line @typescript-eslint/no-unused-vars -- TODO: implement voice recording
@@ -569,10 +411,10 @@ export default function ChatInterface({
         className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
       >
         {/* Workflow Progress */}
-        <AgentWorkflowProgress steps={workflowSteps} visible={showWorkflow} />
+        <AgentWorkflowProgress key="workflow-progress" steps={workflowSteps} visible={showWorkflow} />
 
         {messages.length === 0 && !!!conversationId && (
-          <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div key="no-document-state" className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mb-6 shadow-sm transform rotate-3">
               <Paperclip size={32} className="text-blue-400" />
             </div>
@@ -584,7 +426,7 @@ export default function ChatInterface({
         )}
 
         {messages.length === 0 && !!conversationId && (
-          <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div key="empty-state" className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-200 transform -rotate-3">
               <Bot size={40} className="text-white" />
             </div>
@@ -610,113 +452,15 @@ export default function ChatInterface({
         )}
 
         {messages.map((message) => (
-          <div
+          <ChatMessage
             key={message.id}
-            className={`flex gap-4 ${
-              message.role==='user' ? 'justify-end' : 'justify-start'
-            } animate-in fade-in slide-in-from-bottom-2 duration-300`}
-          >
-            {/* Avatar for Assistant */}
-            {message.role !== 'user' && (
-              <div className="w-8 h-8 rounded-lg bg-white border border-gray-100 flex-shrink-0 flex items-center justify-center shadow-sm mt-1">
-                <Bot size={16} className="text-indigo-600" />
-              </div>
-            )}
-
-            <div
-              className={`max-w-[85%] sm:max-w-[75%] rounded-2xl shadow-sm text-sm leading-relaxed ${
-                message.role === 'user'
-                ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-tr-sm p-4'
-                : 'bg-white border border-gray-100 text-slate-700 rounded-tl-sm overflow-visible'
-              }`}
-            >
-              {message.role === 'user' ? (
-                message.content
-              ) : (
-                <>
-                  <div className="p-4 markdown-content prose prose-sm max-w-none prose-headings:text-slate-800 prose-p:text-slate-700 prose-a:text-blue-600 hover:prose-a:underline prose-strong:text-slate-900 prose-code:text-pink-600 prose-code:bg-pink-50 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0 prose-pre:border-0 overflow-x-auto">
-                    <ReactMarkdown
-                      remarkPlugins={[
-                        remarkGfm,
-                        [remarkMath, { singleDollarTextMath: true }]
-                      ]}
-                      rehypePlugins={[
-                        [rehypeKatex, {
-                          strict: false,
-                          trust: true,
-                          fleqn: false
-                        }]
-                      ]}
-                      components={{
-                        code: CodeBlock,
-                        pre: ({ children }: { children?: React.ReactNode }) => {
-                          // ReactMarkdown wraps code blocks in <pre><code>
-                          // CodeBlock component will render SyntaxHighlighter which replaces both pre and code
-                          // So we just pass through the code element - CodeBlock handles the rendering
-                          return <>{children}</>;
-                        },
-                      }}
-                    >
-                      {preprocessMathContent(message.content)}
-                    </ReactMarkdown>
-                  </div>
-
-                  {/* Annotation References */}
-                  {message.annotations && message.annotations.length > 0 && (
-                    <div className="border-t border-gray-100 bg-gradient-to-r from-yellow-50 to-amber-50 p-3">
-                      <div className="flex items-center gap-2 text-xs font-medium text-amber-700 mb-2">
-                        <FileText size={14} />
-                        <span>Referenced in PDF</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {message.annotations.map((annotation, idx) => (
-                          <button
-                            key={`${message.id}-annotation-${idx}`}
-                            onClick={() => handleAnnotationClick(annotation)}
-                            className="group flex items-center gap-2 px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-xs text-slate-700 hover:bg-amber-100 hover:border-amber-300 hover:text-amber-800 transition-all shadow-sm hover:shadow"
-                          >
-                            {annotation.sourceImageUrl && (
-                              <span className="h-6 w-6 rounded border border-amber-200 overflow-hidden bg-white flex-shrink-0">
-                                <img
-                                  src={annotation.sourceImageUrl}
-                                  alt="Annotation preview"
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
-                                />
-                              </span>
-                            )}
-                            <span className="font-semibold text-amber-600">
-                              Page {annotation.pageNumber}
-                            </span>
-                            {annotation.explanation && (
-                              <>
-                                <span className="text-gray-300">|</span>
-                                <span className="max-w-[150px] truncate text-slate-500 group-hover:text-slate-700">
-                                  {annotation.explanation}
-                                </span>
-                              </>
-                            )}
-                            <ArrowRight size={12} className="text-amber-500 group-hover:translate-x-0.5 transition-transform" />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Avatar for User */}
-            {message.role === 'user' && (
-              <div className="w-8 h-8 rounded-lg bg-blue-100 flex-shrink-0 flex items-center justify-center mt-1">
-                <User size={16} className="text-blue-600" />
-              </div>
-            )}
-          </div>
+            messageId={message.id}
+            onAnnotationClick={handleAnnotationClick}
+          />
         ))}
 
         {(isLoading) && (
-          <div className="flex gap-4 justify-start animate-in fade-in slide-in-from-bottom-2">
+          <div key="loading-indicator" className="flex gap-4 justify-start animate-in fade-in slide-in-from-bottom-2">
              <div className="w-8 h-8 rounded-lg bg-white border border-gray-100 flex-shrink-0 flex items-center justify-center shadow-sm mt-1">
                 <Bot size={16} className="text-indigo-600" />
               </div>
@@ -727,7 +471,7 @@ export default function ChatInterface({
             </div>
           </div>
         )}
-        <div ref={messageEndRef} />
+        <div key="message-end-ref" ref={messageEndRef} />
       </div>
 
       {/* Input Area */}

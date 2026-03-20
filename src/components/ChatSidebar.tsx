@@ -198,10 +198,10 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
           </div>
         ) : (
           <ul className="space-y-1">
-            {storeDocumentGroups.map((group) => {
-              if (!group.document) return null;
-
-              const documentId = group.document.id;
+            {storeDocumentGroups
+              .filter((group) => group.document != null)
+              .map((group) => {
+              const documentId = group.document!.id;
               const isExpanded = storeExpandedDocuments.has(documentId);
               const conversationCount = group.conversations.length;
               const hasCurrentConversation = group.conversations.some(c => c.id === storeConversationId);
