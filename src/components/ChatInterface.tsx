@@ -49,14 +49,7 @@ const AVAILABLE_MODELS = [
   { id: "o4-mini-deep-research", name: "O4 Mini Deep Research", description: "Mini deep research • $2.00/$0.50 per 1M tokens" },
 ]
 
-interface ChatInterfaceProps {
-  // Voice recording not yet migrated to store
-  onVoiceRecord?: () => void;
-}
-
-export default function ChatInterface({
-  onVoiceRecord, // eslint-disable-line @typescript-eslint/no-unused-vars -- TODO: implement voice recording
-}: ChatInterfaceProps) {
+export default function ChatInterface() {
   const router = useRouter();
 
   // =====================================================
