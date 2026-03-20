@@ -11,6 +11,7 @@ import { authApi, documentApi, conversationApi, configApi, getPDFProxyUrl } from
 // Store imports for Zustand migration
 import { useChatStore } from '@/stores/chatStore';
 import { useAnnotationsStore } from '@/stores/annotationsStore';
+import { useAuthStore } from '@/stores/authStore';
 
 function DashboardWithSearchParams () {
   const router = useRouter();
@@ -18,13 +19,12 @@ function DashboardWithSearchParams () {
   const searchParams = useSearchParams();
 
   const [error, setError] = useState<string | null>(null);
-  const [maxFileSize, setMaxFileSize] = useState<number>(10 * 1024 * 1024); // Default to 10MB until config loads
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
   const pdfViewerRef = useRef<PDFViewerRef>(null);
 
   // =====================================================
-  // STORE HOOKS (PDF and annotations now managed by stores)
+  // STORE HOOKS (PDF, annotations, and auth managed by stores)
   // =====================================================
   const storeSetCurrentPDF = useChatStore((s) => s.setCurrentPDF);
   const storeSetConversation = useChatStore((s) => s.setConversation);
@@ -36,6 +36,8 @@ function DashboardWithSearchParams () {
   const storeConversationId = useChatStore((s) => s.conversationId);
   const storeIsLoading = useChatStore((s) => s.isLoading);
   const storeLoadConversation = useChatStore((s) => s.loadConversation);
+  const storeMaxFileSize = useAuthStore((s) => s.maxFileSize);
+  const storeSetMaxFileSize = useAuthStore((s) => s.setMaxFileSize);
 
   // =====================================================
   // AUTO-NAVIGATION: Watch for new annotations and navigate PDF
@@ -130,7 +132,7 @@ function DashboardWithSearchParams () {
         const response = await configApi.get();
         if (response.ok) {
           const data = await response.json();
-          setMaxFileSize(data.max_file_size);
+          storeSetMaxFileSize(data.max_file_size);
         } else {
           console.warn('Failed to fetch config, using default max file size');
         }
@@ -139,7 +141,7 @@ function DashboardWithSearchParams () {
       }
     };
     fetchConfig();
-  }, []);
+  }, [storeSetMaxFileSize]);
 
   // Now effect to restore chat from URL parameter
   useEffect(() => {
@@ -204,9 +206,9 @@ function DashboardWithSearchParams () {
       return;
     }
 
-    // Validate file size using config from backend
-    if (file.size > maxFileSize) {
-      const maxSizeMB = (maxFileSize / (1024 * 1024)).toFixed(0);
+    // Validate file size using config from backend (via authStore)
+    if (file.size > storeMaxFileSize) {
+      const maxSizeMB = (storeMaxFileSize / (1024 * 1024)).toFixed(0);
       setError(`File size should be less than ${maxSizeMB}MB`);
       return;
     }
