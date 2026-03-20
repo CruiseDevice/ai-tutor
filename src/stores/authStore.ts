@@ -67,5 +67,5 @@ export const selectUser = (state: AuthState) => ({
 });
 
 export const selectIsAuthenticated = (state: AuthState) => state.isAuthenticated;
-export const selectIsLoading = (state: AuthState) => state.isLoading;
+export const selectIsAuthLoading = (state: AuthState) => state.isLoading;
 export const selectMaxFileSize = (state: AuthState) => state.maxFileSize;
