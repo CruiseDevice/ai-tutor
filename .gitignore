@@ -60,3 +60,6 @@ __pycache__/
 # Personal documentation (not for GitHub)
 /docs/
 backend/figures/
+
+# Cursor AI plans (local only)
+.cursor/
