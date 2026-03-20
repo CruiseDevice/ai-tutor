@@ -6,40 +6,19 @@ import EnhancedPDFViewer, { PDFViewerRef } from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatSidebar, { ChatSidebarRef } from "./ChatSidebar";
-import { authApi, documentApi, chatApi, conversationApi, configApi, getPDFProxyUrl } from "@/lib/api-client";
-import type { AnnotationReference, AgentMetadata } from "@/types/annotations";
+import { authApi, documentApi, conversationApi, configApi, getPDFProxyUrl } from "@/lib/api-client";
 
 // Store imports for Zustand migration
 import { useChatStore } from '@/stores/chatStore';
 import { useAnnotationsStore } from '@/stores/annotationsStore';
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  annotations?: AnnotationReference[];
-  metadata?: AgentMetadata;
-}
-
-interface WorkflowStep {
-  node: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  data?: Record<string, unknown>;
-}
 
 function DashboardWithSearchParams () {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [documentId, setDocumentId] = useState('');
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [maxFileSize, setMaxFileSize] = useState<number>(10 * 1024 * 1024); // Default to 10MB until config loads
-  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
-  const [showWorkflow, setShowWorkflow] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatSidebarRef = useRef<ChatSidebarRef>(null);
   const pdfViewerRef = useRef<PDFViewerRef>(null);
@@ -48,8 +27,62 @@ function DashboardWithSearchParams () {
   // STORE HOOKS (PDF and annotations now managed by stores)
   // =====================================================
   const storeSetCurrentPDF = useChatStore((s) => s.setCurrentPDF);
-  const storeSetAnnotations = useAnnotationsStore((s) => s.setAnnotations);
+  const storeSetConversation = useChatStore((s) => s.setConversation);
+  const storeSetMessages = useChatStore((s) => s.setMessages);
+  const storeClearChat = useChatStore((s) => s.clearChat);
   const storeClearAnnotations = useAnnotationsStore((s) => s.clearAnnotations);
+  const storeMessages = useChatStore((s) => s.messages);
+  const storeAnnotations = useAnnotationsStore((s) => s.currentAnnotations);
+  const storeConversationId = useChatStore((s) => s.conversationId);
+  const storeIsLoading = useChatStore((s) => s.isLoading);
+  const storeLoadConversation = useChatStore((s) => s.loadConversation);
+
+  // =====================================================
+  // AUTO-NAVIGATION: Watch for new annotations and navigate PDF
+  // =====================================================
+  const prevAnnotationsLengthRef = useRef(0);
+  useEffect(() => {
+    // Only navigate when annotations are ADDED (not cleared)
+    if (storeAnnotations.length > 0 && storeAnnotations.length > prevAnnotationsLengthRef.current) {
+      const firstAnnotation = storeAnnotations[0];
+      if (pdfViewerRef.current && firstAnnotation) {
+        console.log('[Dashboard] Auto-navigating to annotation:', firstAnnotation.pageNumber);
+        pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
+
+        const firstTextMatch = firstAnnotation.annotations?.find(
+          (annotation: { textContent?: string }) => annotation.textContent
+        )?.textContent || firstAnnotation.sourceText;
+        if (firstTextMatch) {
+          setTimeout(() => {
+            pdfViewerRef.current?.highlightText(firstAnnotation.pageNumber, firstTextMatch);
+          }, 500);
+        }
+      }
+    }
+    prevAnnotationsLengthRef.current = storeAnnotations.length;
+  }, [storeAnnotations]);
+
+  // =====================================================
+  // SIDEBAR REFRESH: Trigger refresh after first message
+  // =====================================================
+  const prevMessagesLengthRef = useRef(0);
+  useEffect(() => {
+    const wasEmpty = prevMessagesLengthRef.current === 0;
+    const nowHasMessages = storeMessages.length > 0;
+
+    if (wasEmpty && nowHasMessages && chatSidebarRef.current) {
+      // This was the first message, refresh sidebar to update conversation title
+      setTimeout(() => {
+        if (chatSidebarRef.current) {
+          const sidebar = chatSidebarRef.current as unknown as { refreshConversations: () => void };
+          if (typeof sidebar.refreshConversations === 'function') {
+            sidebar.refreshConversations();
+          }
+        }
+      }, 1000);
+    }
+    prevMessagesLengthRef.current = storeMessages.length;
+  }, [storeMessages]);
 
   // Resizer state
   const [splitPosition, setSplitPosition] = useState(60); // Percentage (60% for PDF, 40% for Chat)
@@ -71,98 +104,6 @@ function DashboardWithSearchParams () {
     // Update the URL without causing a page refresh
     router.push(`${pathname}?${params.toString()}`, {scroll: false});
   }, [searchParams, pathname, router]);
-
-  const handleDeleteConversation = useCallback((deletedConversationId: string) => {
-    if (deletedConversationId === conversationId) {
-      // Only clear state if the deleted conversation is the current one
-      storeSetCurrentPDF('');
-      setDocumentId('');
-      setConversationId(null);
-      setMessages([]);
-      storeClearAnnotations();  // ← Store-based
-      pdfViewerRef.current?.clearAnnotations();
-      // update url to remove the chat parameter
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete('chat');
-      router.push(`${pathname}${params.toString() ? '?' + params.toString() : ''}`, {scroll: false});
-    }
-  }, [conversationId, pathname, router, searchParams, storeClearAnnotations])
-
-  const handleCreateNewConversation = useCallback(async (documentId: string) => {
-    try {
-      // Create new conversation
-      const response = await conversationApi.create(documentId);
-      if (!response.ok) {
-        throw new Error('Failed to create conversation');
-      }
-
-      const newConversation = await response.json();
-
-      // Get document info to set PDF URL
-      const docResponse = await documentApi.get(documentId);
-      if (!docResponse.ok) {
-        throw new Error('Failed to fetch document');
-      }
-      await docResponse.json(); // Doc data fetched for future use
-
-      // Set the new conversation as active
-      setConversationId(newConversation.id);
-      setDocumentId(documentId);
-      storeSetCurrentPDF(getPDFProxyUrl(documentId));
-      setMessages([]);
-      storeClearAnnotations();  // ← Store-based
-      pdfViewerRef.current?.clearAnnotations();
-
-      // Update URL
-      updateUrl(newConversation.id);
-      return newConversation;
-    } catch (error) {
-      console.error('Error creating new conversation: ', error);
-      throw error; // Re-throw so ChatSidebar can handle it
-    }
-  }, [updateUrl])
-
-
-  const handleSelectConversation = useCallback(async (convoId: string, docId: string) => {
-    if(convoId === conversationId) return;  // Already selected
-
-    try {
-      const response = await conversationApi.get(convoId);
-      if (!response.ok) {
-        throw new Error("Failed to fetch conversation");
-      }
-
-      const data = await response.json();
-      console.log('[Dashboard] Loaded conversation:', data);
-
-      // update state with the selected conversation
-      setConversationId(convoId);
-      setDocumentId(docId);
-      storeSetCurrentPDF(getPDFProxyUrl(docId));
-      setMessages(data.messages);
-
-      // Check if the last assistant message has annotations
-      const lastAssistantMessage = [...data.messages].reverse().find(
-        (m: ChatMessage) => m.role === 'assistant' && m.annotations && m.annotations.length > 0
-      );
-
-      if (lastAssistantMessage?.annotations) {
-        console.log('[Dashboard] Found annotations in loaded conversation:', lastAssistantMessage.annotations);
-        storeSetAnnotations(lastAssistantMessage.annotations);  // ← Store-based
-      } else {
-        // Clear previous annotations when switching conversations
-        storeClearAnnotations();  // ← Store-based
-        pdfViewerRef.current?.clearAnnotations();
-      }
-
-      // Update URL with the selected conversation
-      updateUrl(convoId);
-    } catch (error) {
-      // TODO: Display error message to user
-      console.error('Error loading conversation: ', error);
-      setError('Failed to load conversation');
-    }
-  }, [conversationId, updateUrl, storeSetAnnotations, storeClearAnnotations]);
 
   useEffect(() => {
     // debugging log
@@ -206,19 +147,15 @@ function DashboardWithSearchParams () {
 
     // Reset state if no chat ID is present in the URL
     if (!chatId) {
-      storeSetCurrentPDF('');
-      setDocumentId('');
-      setConversationId(null);
-      setMessages([]);
+      storeClearChat();
       return;
     }
 
       // Only attempt to restore if we have a chat ID and we're not already showing that conversation
       // and we're not currently loading
-      if (chatId && chatId !== conversationId && !isLoading) {
+      if (chatId && chatId !== storeConversationId && !storeIsLoading) {
         // find the document ID for this conversation
         const restoreConversation = async () => {
-          setIsLoading(true);
           try {
             // first get all conversations to find the document ID matching this chat ID
             const data = await fetchConversations();
@@ -227,20 +164,18 @@ function DashboardWithSearchParams () {
             );
 
             if(matchingConversation) {
-              // Now we can load this specific conversation
-              await handleSelectConversation(chatId, matchingConversation.document_id);
+              // Use store to load conversation
+              await storeLoadConversation(chatId);
             }
           } catch (error) {
             // TODO: Display error message to user
             console.error('Error restoring conversations: ', error);
             setError('Failed to restore conversation from URL');
-          } finally {
-            setIsLoading(false);
           }
         };
         restoreConversation();
       }
-  }, [searchParams]); // Only depend on searchParams changes
+  }, [searchParams, storeConversationId, storeIsLoading, storeLoadConversation, storeClearChat]); // Depend on store state
 
   const fetchConversations = async () => {
     try {
@@ -286,16 +221,15 @@ function DashboardWithSearchParams () {
 
       const data = await response.json();
       storeSetCurrentPDF(getPDFProxyUrl(data.id));
-      setDocumentId(data.id);
 
       // reset messages and annotations for new document
-      setMessages([]);
-      storeClearAnnotations();  // ← Store-based
+      storeSetMessages([]);
+      storeClearAnnotations();
       pdfViewerRef.current?.clearAnnotations();
 
       // set new conversation id from the response
       if(data.conversationId){
-        setConversationId(data.conversationId);
+        storeSetConversation(data.conversationId, data.id, getPDFProxyUrl(data.id));
         // update URL with the new conversation ID
         updateUrl(data.conversationId);
 
@@ -348,204 +282,6 @@ function DashboardWithSearchParams () {
     // implement voice recording logic later
     console.log('Voice recording toggled');
   }
-
-  const handleSendMessage = async (content: string, model: string, useAgent: boolean) => {
-    if (!content.trim() || !conversationId || !documentId) return;
-
-    const tempUserMessageId = `temp-user-${Date.now()}`;
-    const tempAssistantMessageId = `temp-assistant-${Date.now()}`;
-
-    const userMessage = {
-      id: tempUserMessageId,
-      role: 'user' as const,
-      content: content.trim()
-    };
-
-    // Add user message to chat
-    setMessages(prev => [...prev, userMessage]);
-
-    // Initialize workflow steps if using agent
-    if (useAgent) {
-      setShowWorkflow(true);
-      setWorkflowSteps([
-        { node: 'understand_query', status: 'in_progress' },
-        { node: 'retrieve_context', status: 'pending' },
-        { node: 'generate_answer', status: 'pending' },
-        { node: 'format_response', status: 'pending' },
-      ]);
-    } else {
-      setShowWorkflow(false);
-      setWorkflowSteps([]);
-    }
-
-    // Create temporary assistant message for streaming
-    const assistantMessage: ChatMessage = {
-      id: tempAssistantMessageId,
-      role: 'assistant',
-      content: '',
-      annotations: undefined
-    };
-    setMessages(prev => [...prev, assistantMessage]);
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      await chatApi.sendMessageStream(
-        conversationId,
-        documentId,
-        content,
-        model,
-        useAgent,
-        // onChunk - update assistant message content incrementally
-        (chunk: string) => {
-          setMessages(prev => prev.map(msg =>
-            msg.id === tempAssistantMessageId
-              ? { ...msg, content: msg.content + chunk }
-              : msg
-          ));
-        },
-        // onStep - update workflow steps as backend emits events
-        (step) => {
-          setWorkflowSteps((prev) => {
-            const currentIndex = prev.findIndex((s) => s.node === step.node);
-            return prev.map((s, index) => {
-              if (s.node === step.node) {
-                // Mark current step as completed
-                return { ...s, status: 'completed' as const, data: step.data };
-              } else if (index === currentIndex + 1) {
-                // Mark next step as in_progress
-                return { ...s, status: 'in_progress' as const };
-              }
-              return s;
-            });
-          });
-        },
-        // onDone - replace temp messages with final messages
-        (data: Record<string, unknown>) => {
-          console.log('[Dashboard] Stream completed:', data);
-          console.log('[Dashboard] Data structure:', {
-            hasData: !!data,
-            hasUserMessage: !!data?.user_message,
-            hasAssistantMessage: !!data?.assistant_message,
-            dataKeys: data ? Object.keys(data) : []
-          });
-
-          // Handle both direct data and nested data structures
-          const userData = (data as { user_message?: unknown; data?: { user_message?: unknown } })?.user_message || (data as { data?: { user_message?: unknown } })?.data?.user_message;
-          const assistantData = (data as { assistant_message?: unknown; data?: { assistant_message?: unknown } })?.assistant_message || (data as { data?: { assistant_message?: unknown } })?.data?.assistant_message;
-
-          if (!userData || !assistantData) {
-            console.error('[Dashboard] Missing message data:', { userData, assistantData });
-            setIsLoading(false);
-            setShowWorkflow(false);
-            return;
-          }
-
-          setMessages(prev => [
-            ...prev.filter(m => m.id !== tempUserMessageId && m.id !== tempAssistantMessageId),
-            {
-              id: (userData as { id?: string }).id || `user-${Date.now()}`,
-              role: ((userData as { role?: string }).role || 'user') as 'user',
-              content: (userData as { content?: string }).content || '',
-              annotations: undefined
-            },
-            {
-              id: (assistantData as { id?: string }).id || `assistant-${Date.now()}`,
-              role: ((assistantData as { role?: string }).role || 'assistant') as 'assistant',
-              content: (assistantData as { content?: string }).content || '',
-              annotations: (assistantData as { annotations?: AnnotationReference[] }).annotations,
-              metadata: (assistantData as { metadata?: AgentMetadata }).metadata
-            }
-          ]);
-
-          // If the assistant message has annotations, update the PDF viewer
-          const assistantAnnotations = (assistantData as { annotations?: AnnotationReference[] }).annotations;
-          if (assistantAnnotations && assistantAnnotations.length > 0) {
-            console.log('[Dashboard] Processing annotations:', assistantAnnotations);
-            storeSetAnnotations(assistantAnnotations);  // ← Store-based
-
-            // Auto-navigate to the first annotation's page
-            const firstAnnotation = assistantAnnotations[0];
-            if (pdfViewerRef.current && firstAnnotation) {
-              console.log('[Dashboard] Navigating to page:', firstAnnotation.pageNumber);
-              pdfViewerRef.current.goToPage(firstAnnotation.pageNumber);
-              const firstTextMatch = firstAnnotation.annotations?.find(
-                (annotation: { textContent?: string }) => annotation.textContent
-              )?.textContent || firstAnnotation.sourceText;
-              if (firstTextMatch) {
-                console.log('[Dashboard] Highlighting text:', firstTextMatch);
-                // Small delay to allow page to render
-                setTimeout(() => {
-                  pdfViewerRef.current?.highlightText(firstAnnotation.pageNumber, firstTextMatch);
-                }, 500);
-              }
-            }
-          } else {
-            console.log('[Dashboard] No annotations in response');
-          }
-
-          // Refresh sidebar to update conversation title (if this was the first message)
-          const messageCountBefore = messages.length;
-          if (messageCountBefore === 0) {
-            // This was the first message, title should have been generated
-            // Refresh sidebar after a short delay to allow backend to save the title
-            setTimeout(() => {
-              if (chatSidebarRef.current) {
-                const sidebar = chatSidebarRef.current as unknown as { refreshConversations: () => void };
-                if (typeof sidebar.refreshConversations === 'function') {
-                  sidebar.refreshConversations();
-                }
-              }
-            }, 1000);
-          }
-
-          setIsLoading(false);
-          setError(null);
-          setShowWorkflow(false); // Hide workflow when done
-        },
-        // onError - handle errors
-        (errorMessage: string) => {
-          console.error('Streaming error:', errorMessage);
-          // Remove temporary messages on error
-          setMessages(prev => prev.filter(m =>
-            m.id !== tempUserMessageId && m.id !== tempAssistantMessageId
-          ));
-          setIsLoading(false);
-          setError(errorMessage);
-          setShowWorkflow(false); // Hide workflow on error
-        }
-      );
-    } catch (error) {
-      // Remove the temporary messages on error
-      setMessages(prev => prev.filter(m =>
-        m.id !== tempUserMessageId && m.id !== tempAssistantMessageId
-      ));
-      setIsLoading(false);
-      setShowWorkflow(false); // Hide workflow on error
-      const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
-      console.error('Chat error: ', errorMessage);
-      setError(errorMessage);
-    }
-  }
-
-  // Handle annotation click from chat - navigate to page and highlight text
-  const handleAnnotationClick = useCallback((annotation: AnnotationReference) => {
-    if (pdfViewerRef.current) {
-      // Navigate to the page
-      pdfViewerRef.current.goToPage(annotation.pageNumber);
-
-      // Set the annotation in store (PDF viewer reads from store)
-      storeSetAnnotations([annotation]);  // ← Store-based
-
-      // If there's text to highlight, use the highlight function
-      const textMatch = annotation.annotations?.find(
-        entry => entry.textContent
-      )?.textContent || annotation.sourceText;
-      if (textMatch) {
-        pdfViewerRef.current.highlightText(annotation.pageNumber, textMatch);
-      }
-    }
-  }, [storeSetAnnotations]);
 
   // Resizer handlers - Pointer Events for touch + mouse support
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -644,13 +380,8 @@ function DashboardWithSearchParams () {
           style={{ width: `${100 - splitPosition}%` }}
         >
           <ChatInterface
-            messages={messages}
-            onSendMessage={handleSendMessage}
+            useStore={true}
             onVoiceRecord={handleVoiceRecord}
-            isConversationSelected={!!conversationId}
-            onAnnotationClick={handleAnnotationClick}
-            workflowSteps={workflowSteps}
-            showWorkflow={showWorkflow}
           />
         </div>
       </div>

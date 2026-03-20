@@ -4,7 +4,8 @@ import { devtools } from 'zustand/middleware';
 import { conversationApi, chatApi, getPDFProxyUrl } from '../lib/api-client';
 import { StreamBatcher } from './utils/StreamBatcher';
 import { listenForCrossTabChanges, broadcastConversationChange } from './utils/crossTabSync';
-import type { ChatMessage, WorkflowStep } from '../types';
+import { useAnnotationsStore } from './annotationsStore';
+import type { ChatMessage, WorkflowStep, AnnotationReference } from '../types';
 
 interface ChatState {
   // State
@@ -217,6 +218,11 @@ export const useChatStore = create<ChatState>()(
               const assistantData = response.assistant_message || response.data?.assistant_message;
 
               if (userData && assistantData) {
+                // Handle annotations from assistant response
+                if (assistantData.annotations && assistantData.annotations.length > 0) {
+                  useAnnotationsStore.getState().setAnnotations(assistantData.annotations);
+                }
+
                 set((state) => ({
                   messages: [
                     ...state.messages.filter(m => m.id !== userMsgId && m.id !== assistantMsgId),
