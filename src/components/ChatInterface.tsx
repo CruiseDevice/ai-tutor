@@ -69,17 +69,8 @@ const AVAILABLE_MODELS = [
 ]
 
 interface ChatInterfaceProps {
-  // OLD: Existing props - deprecated but still functional
-  messages?: ChatMessage[];
-  onSendMessage?: (message: string, model: string, useAgent: boolean) => Promise<void>;
+  // Voice recording not yet migrated to store
   onVoiceRecord?: () => void;
-  isConversationSelected?: boolean;
-  onAnnotationClick?: (annotation: AnnotationReference) => void;
-  workflowSteps?: WorkflowStep[];
-  showWorkflow?: boolean;
-
-  // NEW: Use store instead of props (default: false for safety)
-  useStore?: boolean;
 }
 
 // Helper function to convert LaTeX delimiters to markdown math format
@@ -236,63 +227,40 @@ const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
 };
 
 export default function ChatInterface({
-  messages: propMessages,
-  onSendMessage: propOnSendMessage,
-  onVoiceRecord: propOnVoiceRecord,
-  isConversationSelected: propIsConversationSelected,
-  onAnnotationClick: propOnAnnotationClick,
-  workflowSteps: propWorkflowSteps,
-  showWorkflow: propShowWorkflow,
-  useStore = false,
+  onVoiceRecord,
 }: ChatInterfaceProps) {
   const router = useRouter();
 
   // =====================================================
-  // STORE HOOKS (used when useStore=true)
+  // STORE HOOKS
   // =====================================================
-  const storeMessages = useChatStore(selectMessages);
-  const storeIsLoading = useChatStore(selectIsLoading);
-  const storeConversationId = useChatStore((s) => s.conversationId);
-  const storeSelectedModel = useChatStore((s) => s.selectedModel);
-  const storeSendMessage = useChatStore((s) => s.sendMessage);
-  const storeSetSelectedModel = useChatStore((s) => s.setSelectedModel);
-  const storeHasApiKey = useChatStore((s) => s.hasApiKey);
-  const storeUseAgent = useChatStore((s) => s.useAgent);
-  const storeToggleAgent = useChatStore((s) => s.toggleAgent);
-  const storeWorkflowSteps = useChatStore((s) => s.workflowSteps);
-  const storeShowWorkflow = useChatStore((s) => s.showWorkflow);
-  const storeSetSelectedAnnotation = useAnnotationsStore((s) => s.setSelectedAnnotation);
+  const messages = useChatStore(selectMessages);
+  const isLoading = useChatStore(selectIsLoading);
+  const conversationId = useChatStore((s) => s.conversationId);
+  const selectedModel = useChatStore((s) => s.selectedModel);
+  const sendMessage = useChatStore((s) => s.sendMessage);
+  const setSelectedModel = useChatStore((s) => s.setSelectedModel);
+  const setApiKeyStatus = useChatStore((s) => s.setApiKeyStatus);
+  const hasApiKey = useChatStore((s) => s.hasApiKey);
+  const useAgent = useChatStore((s) => s.useAgent);
+  const toggleAgent = useChatStore((s) => s.toggleAgent);
+  const workflowSteps = useChatStore((s) => s.workflowSteps);
+  const showWorkflow = useChatStore((s) => s.showWorkflow);
+  const setSelectedAnnotation = useAnnotationsStore((s) => s.setSelectedAnnotation);
 
-  // Local state (used when not in store mode)
-  // const [isRecording, setIsRecording] = useState(false);
+  // Local state
   const [inputMessage, setInputMessage] = useState('');
-  const [localIsLoading, setLocalIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
-  const [localSelectedModel, setLocalSelectedModel] = useState(AVAILABLE_MODELS[0].id);
-  const [hasApiKey, setHasApiKey] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
-  const [localUseAgent, setLocalUseAgent] = useState(true);
-
-  // =====================================================
-  // CHOOSE SOURCE based on useStore flag
-  // =====================================================
-  const activeMessages = useStore ? storeMessages : (propMessages || []);
-  const activeIsLoading = useStore ? storeIsLoading : localIsLoading;
-  const activeIsSelected = useStore ? !!storeConversationId : (propIsConversationSelected || false);
-  const activeWorkflowSteps = useStore ? storeWorkflowSteps : (propWorkflowSteps || []);
-  const activeShowWorkflow = useStore ? storeShowWorkflow : (propShowWorkflow || false);
-  const activeSelectedModel = useStore ? storeSelectedModel : localSelectedModel;
-  const activeHasApiKey = useStore ? storeHasApiKey : hasApiKey;
-  const activeUseAgent = useStore ? storeUseAgent : localUseAgent;
 
   const messageEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
-  const prevMessagesLengthRef = useRef(activeMessages.length);
+  const prevMessagesLengthRef = useRef(messages.length);
 
   useEffect(() => {
     const checkApiKey = async () => {
@@ -304,14 +272,14 @@ export default function ChatInterface({
         }
 
         const data = await response.json();
-        setHasApiKey(data.hasApiKey);
+        setApiKeyStatus(data.hasApiKey);
       } catch (error) {
         console.error('Error checking API key:', error);
-        setHasApiKey(false);
+        setApiKeyStatus(false);
       }
     };
     checkApiKey();
-  }, []);
+  }, [setApiKeyStatus]);
 
   // Clear error after 5 seconds
   useEffect(() => {
@@ -353,9 +321,9 @@ export default function ChatInterface({
     const container = messagesContainerRef.current;
     if (!container) return;
 
-    const messagesIncreased = activeMessages.length > prevMessagesLengthRef.current;
+    const messagesIncreased = messages.length > prevMessagesLengthRef.current;
     const wasEmpty = prevMessagesLengthRef.current === 0;
-    prevMessagesLengthRef.current = activeMessages.length;
+    prevMessagesLengthRef.current = messages.length;
 
     // Only auto-scroll if new messages were added
     if (!messagesIncreased) return;
@@ -373,7 +341,7 @@ export default function ChatInterface({
         });
       });
     }
-  }, [activeMessages]);
+  }, [messages]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -385,9 +353,9 @@ export default function ChatInterface({
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputMessage.trim() || activeIsLoading || !activeIsSelected) return;
+    if (!inputMessage.trim() || isLoading || !conversationId) return;
 
-    if (!activeHasApiKey) {
+    if (!hasApiKey) {
       setError('Please set up your OpenAI API key in settings to continue chatting');
       return;
     }
@@ -397,20 +365,13 @@ export default function ChatInterface({
     // Reset height
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-    setLocalIsLoading(true);
     setError(null);
 
     try {
-      if (useStore) {
-        await storeSendMessage(messageToSend);
-      } else {
-        await propOnSendMessage?.(messageToSend, activeSelectedModel, activeUseAgent);
-      }
-      setTimeout(() => setLocalIsLoading(false), 100);
+      await sendMessage(messageToSend);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message. Please try again.';
       setError(errorMessage);
-      setLocalIsLoading(false);
     }
   }
 
@@ -430,23 +391,15 @@ export default function ChatInterface({
 
   const selectModel = (modelId: string) => {
     setIsModelMenuOpen(false);
-    if (useStore) {
-      storeSetSelectedModel(modelId);
-    } else {
-      setLocalSelectedModel(modelId);
-    }
+    setSelectedModel(modelId);
   }
 
   const handleToggleAgent = () => {
-    if (useStore) {
-      storeToggleAgent();
-    } else {
-      setLocalUseAgent(prev => !prev);
-    }
+    toggleAgent();
   }
 
   const getSelectedModelName = () => {
-    const model = AVAILABLE_MODELS.find(m => m.id === activeSelectedModel);
+    const model = AVAILABLE_MODELS.find(m => m.id === selectedModel);
     return model ? model.name : 'Select Model';
   }
 
@@ -469,14 +422,10 @@ export default function ChatInterface({
     };
   }, [modelMenuRef]);
 
-  // Handler for annotation click - supports both modes
+  // Handler for annotation click
   const handleAnnotationClick = useCallback((annotation: AnnotationReference) => {
-    if (useStore) {
-      storeSetSelectedAnnotation(annotation.pageNumber.toString());
-    } else {
-      propOnAnnotationClick?.(annotation);
-    }
-  }, [useStore, storeSetSelectedAnnotation, propOnAnnotationClick]);
+    setSelectedAnnotation(annotation.pageNumber.toString());
+  }, [setSelectedAnnotation]);
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50/50 relative overflow-hidden">
@@ -497,7 +446,7 @@ export default function ChatInterface({
             </div>
             <div className="flex-1 text-sm">
               <p className="font-medium">{error}</p>
-              {!activeHasApiKey && (
+              {!hasApiKey && (
                 <button
                   onClick={() => router.push('/settings')}
                   className="no-select no-tap-highlight mt-2 text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-md transition-colors font-medium min-h-[44px]"
@@ -570,14 +519,14 @@ export default function ChatInterface({
                       key={model.id}
                       onClick={() => selectModel(model.id)}
                       className={`w-full text-left px-3 py-2.5 rounded-lg flex flex-col gap-0.5 transition-all mb-1 ${
-                        activeSelectedModel === model.id
+                        selectedModel === model.id
                           ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
                           : 'hover:bg-slate-50 text-slate-700'
                       }`}
                     >
                       <span className="text-sm font-medium flex items-center gap-2">
                         {model.name}
-                        {activeSelectedModel === model.id && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
+                        {selectedModel === model.id && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
                       </span>
                       <span className="text-xs text-slate-400 line-clamp-1">{model.description}</span>
                     </button>
@@ -593,7 +542,7 @@ export default function ChatInterface({
             <label className="no-tap-highlight relative inline-flex items-center cursor-pointer min-h-[44px]">
               <input
                 type="checkbox"
-                checked={activeUseAgent}
+                checked={useAgent}
                 onChange={handleToggleAgent}
                 className="sr-only peer"
               />
@@ -603,7 +552,7 @@ export default function ChatInterface({
               <span className="text-xs font-medium text-gray-700">
                 Agent Mode
               </span>
-              {activeUseAgent && (
+              {useAgent && (
                 <span className="text-[10px] text-blue-600">Advanced reasoning</span>
               )}
             </div>
@@ -634,9 +583,9 @@ export default function ChatInterface({
         className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
       >
         {/* Workflow Progress */}
-        <AgentWorkflowProgress steps={activeWorkflowSteps} visible={activeShowWorkflow} />
+        <AgentWorkflowProgress steps={workflowSteps} visible={showWorkflow} />
 
-        {activeMessages.length === 0 && !activeIsSelected && (
+        {messages.length === 0 && !!!conversationId && (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mb-6 shadow-sm transform rotate-3">
               <Paperclip size={32} className="text-blue-400" />
@@ -648,7 +597,7 @@ export default function ChatInterface({
           </div>
         )}
 
-        {activeMessages.length === 0 && activeIsSelected && (
+        {messages.length === 0 && !!conversationId && (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-200 transform -rotate-3">
               <Bot size={40} className="text-white" />
@@ -674,7 +623,7 @@ export default function ChatInterface({
           </div>
         )}
 
-        {activeMessages.map((message) => (
+        {messages.map((message) => (
           <div
             key={message.id}
             className={`flex gap-4 ${
@@ -780,7 +729,7 @@ export default function ChatInterface({
           </div>
         ))}
 
-        {(activeIsLoading || localIsLoading) && (
+        {(isLoading) && (
           <div className="flex gap-4 justify-start animate-in fade-in slide-in-from-bottom-2">
              <div className="w-8 h-8 rounded-lg bg-white border border-gray-100 flex-shrink-0 flex items-center justify-center shadow-sm mt-1">
                 <Bot size={16} className="text-indigo-600" />
@@ -818,14 +767,14 @@ export default function ChatInterface({
 
           <button
             type="submit"
-            disabled={!inputMessage.trim() || activeIsLoading || localIsLoading}
+            disabled={!inputMessage.trim() || isLoading}
             className={`no-select no-tap-highlight p-3 rounded-xl shadow-md flex items-center justify-center transition-all duration-200 min-w-[44px] min-h-[44px] ${
-              !inputMessage.trim() || activeIsLoading || localIsLoading
+              !inputMessage.trim() || isLoading
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg hover:scale-105 active:scale-95'
             }`}
           >
-            {activeIsLoading || localIsLoading ? (
+            {isLoading ? (
               <Loader2 size={20} className="animate-spin" />
             ) : (
               <Send size={20} className={inputMessage.trim() ? 'ml-0.5' : ''} />
