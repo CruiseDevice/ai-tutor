@@ -91,21 +91,28 @@ function DashboardWithSearchParams () {
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Track when URL change originated from store update (to prevent circular updates)
+  const isUpdatingUrlFromStoreRef = useRef(false);
+
   // Function to update URL with the chat ID
+  // NOTE: searchParams is NOT a dependency to avoid race condition where
+  // URL changes trigger this callback to recreate, which triggers the
+  // sync effect to run again with stale storeConversationId
   const updateUrl = useCallback((chatId: string | null) => {
     // Don't update URL if chatId is null, undefined or empty
     if (!chatId) {
       return;
     }
-    // create a new URLSearchParams object
-    const params = new URLSearchParams(searchParams.toString());
+    // Mark that we're updating URL from store (prevents circular sync)
+    isUpdatingUrlFromStoreRef.current = true;
 
-    // Set the chat parameter
-    params.set('chat', chatId);
+    // Read current URL params directly from window.location to avoid stale closure
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set('chat', chatId);
 
     // Update the URL without causing a page refresh
-    router.push(`${pathname}?${params.toString()}`, {scroll: false});
-  }, [searchParams, pathname, router]);
+    router.push(`${pathname}?${currentUrl.searchParams.toString()}`, {scroll: false});
+  }, [pathname, router]);
 
   // Sync store conversationId to URL (when conversation is selected in sidebar)
   useEffect(() => {
@@ -153,6 +160,12 @@ function DashboardWithSearchParams () {
   // Effect to restore chat from URL parameter (on page load or URL change)
   const isInitialMount = useRef(true);
   useEffect(() => {
+    // Skip if this URL change originated from the store (prevents circular updates)
+    if (isUpdatingUrlFromStoreRef.current) {
+      isUpdatingUrlFromStoreRef.current = false;
+      return;
+    }
+
     const chatId = searchParams.get('chat');
 
     // Skip clearing on initial render - let the app start fresh
