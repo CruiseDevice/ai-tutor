@@ -127,8 +127,8 @@ export const useChatStore = create<ChatState>()(
           set({
             conversationId: id,
             messages: data.messages,
-            documentId: data.document_id,
-            currentPDF: getPDFProxyUrl(data.document_id),
+            documentId: data.conversation.document_id,
+            currentPDF: getPDFProxyUrl(data.conversation.document_id),
           });
         } catch (error) {
           set({ error: error instanceof Error ? error.message : 'Failed to load conversation' });
