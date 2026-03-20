@@ -226,8 +226,8 @@ export const useChatStore = create<ChatState>()(
                 set((state) => ({
                   messages: [
                     ...state.messages.filter(m => m.id !== userMsgId && m.id !== assistantMsgId),
-                    userData,
-                    assistantData,
+                    { ...userData, id: userMsgId },
+                    { ...assistantData, id: assistantMsgId },
                   ],
                   isLoading: false,
                   showWorkflow: false,
