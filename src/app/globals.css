@@ -18,6 +18,13 @@
   --rule: #0a0a0a;
   --subtle: #8a8578;
 
+  /* Dashboard extensions */
+  --sidebar-bg: #e8e4db;
+  --panel-bg: #f5f2eb;
+  --chat-user: #0a0a0a;
+  --chat-ai: #ffffff;
+  --border-thick: 2px;
+
   /* Font families */
   --font-mono: 'IBM Plex Mono', monospace;
   --font-serif: 'Instrument Serif', Georgia, serif;
@@ -49,6 +56,47 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: -0.02em;
+}
+
+/* ============================================
+   Dashboard Brutalist Utilities
+   ============================================ */
+
+.brutalist-panel {
+  background: var(--panel-bg);
+  border: var(--border-thick) solid var(--ink);
+}
+
+.brutalist-sidebar {
+  background: var(--sidebar-bg);
+  border-right: var(--border-thick) solid var(--ink);
+}
+
+.brutalist-divider {
+  border-bottom: var(--border-thick) solid var(--ink);
+}
+
+.brutalist-button {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  border: var(--border-thick) solid var(--ink);
+  background: transparent;
+  transition: all 0.15s ease;
+}
+
+.brutalist-button:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.brutalist-button-primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.brutalist-button-primary:hover {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 /* ============================================

@@ -1,5 +1,5 @@
 // app/components/ChatInterface.tsx
-import { Bot, ChevronDown, Loader2, Send, Sparkles, Paperclip, StopCircle, Search } from "lucide-react";
+import { Loader2, StopCircle, Paperclip } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { userApi } from "@/lib/api-client";
@@ -249,150 +249,128 @@ export default function ChatInterface() {
   }, [setSelectedAnnotation]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-50/50 relative overflow-hidden">
-       {/* Background Pattern */}
-       <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none"
-           style={{
-             backgroundImage: 'radial-gradient(#64748b 1px, transparent 1px)',
-             backgroundSize: '24px 24px'
-           }}
-      />
-
-      {/* Error Toast */}
-      {error && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 w-[90%] max-w-md animate-in fade-in slide-in-from-top-2">
-          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl shadow-lg flex items-start gap-3">
-            <div className="p-1 bg-red-100 rounded-full">
-              <StopCircle size={16} className="text-red-600"/>
+    <div className="w-full h-full flex flex-col bg-panel-bg relative overflow-hidden">
+      {/* =====================================================
+          [004] HEADER - AI Tutor Panel
+          ===================================================== */}
+      <div className="flex-shrink-0 border-b-2 border-ink bg-panel-bg z-10">
+        <div className="flex items-center justify-between px-4 py-3">
+          {/* Left: Panel Number & AI Tutor Label */}
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs text-accent">[004]</span>
+            <div>
+              <h2 className="font-mono font-bold text-sm uppercase">AI Tutor</h2>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs px-2 py-0.5 bg-accent text-paper">[ONLINE]</span>
+              </div>
             </div>
-            <div className="flex-1 text-sm">
-              <p className="font-medium">{error}</p>
-              {!hasApiKey && (
-                <button
-                  onClick={() => router.push('/settings')}
-                  className="no-select no-tap-highlight mt-2 text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-md transition-colors font-medium min-h-[44px]"
-                >
-                  Go to Settings
-                </button>
-              )}
-            </div>
-            <button
-              onClick={() => setError(null)}
-              className="no-tap-highlight text-red-400 hover:text-red-600 min-w-[44px] min-h-[44px] flex items-center justify-center"
-            >
-              <span className="sr-only">Close</span>
-              ×
-            </button>
           </div>
-        </div>
-      )}
 
-      {/* Header / Model Selector */}
-      <div className="flex-shrink-0 px-6 py-4 border-b border-gray-100 bg-white/80 backdrop-blur-sm z-10 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-100">
-            <Bot size={18} />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-slate-800">AI Tutor</h2>
-            <p className="text-xs text-slate-500 font-medium flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-              Online
-            </p>
-          </div>
-        </div>
+          {/* Right: Model Selector & Agent Mode */}
+          <div className="flex items-center gap-4">
+            {/* Model Selector */}
+            <div className="relative" ref={modelMenuRef}>
+              <button
+                onClick={toggleModelMenu}
+                className="no-select font-mono text-xs px-3 py-1.5 border border-ink hover:bg-ink hover:text-paper transition-colors min-h-[44px] flex items-center gap-2"
+              >
+                <span>[⚡]</span>
+                <span>{getSelectedModelName()}</span>
+                <span>[{isModelMenuOpen ? '▲' : '▼'}]</span>
+              </button>
 
-        <div className="flex items-center gap-4">
-          <div className="relative" ref={modelMenuRef}>
-            <button
-              onClick={toggleModelMenu}
-              className="no-select no-tap-highlight flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors border border-slate-200 min-h-[44px]"
-            >
-              <Sparkles size={12} className="text-indigo-500"/>
-              <span>{getSelectedModelName()}</span>
-              <ChevronDown size={12} className={`transition-transform duration-200 ${isModelMenuOpen ? 'rotate-180' : ''}`}/>
-            </button>
-
-            {isModelMenuOpen && (
-            <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-20 animate-in fade-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[600px]">
-              <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Model</h3>
-                <div className="relative">
-                  <Search size={14} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-slate-400" />
+              {isModelMenuOpen && (
+              <div className="absolute top-full right-0 mt-2 w-80 bg-panel-bg border-2 border-ink z-20 overflow-hidden flex flex-col max-h-[600px]">
+                {/* Search Header */}
+                <div className="px-3 py-2 border-b-2 border-ink flex-shrink-0">
+                  <h3 className="font-mono text-xs text-accent uppercase tracking-wider mb-2">[SELECT MODEL]</h3>
                   <input
                     type="text"
-                    placeholder="Search models..."
+                    placeholder="[Search models...]"
                     value={modelSearchQuery}
                     onChange={(e) => setModelSearchQuery(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 placeholder:text-slate-400"
+                    className="w-full px-3 py-1.5 font-mono text-xs border border-ink bg-paper focus:outline-none focus:ring-2 focus:ring-accent text-ink placeholder:text-subtle"
                   />
                 </div>
-              </div>
-              <div className="overflow-y-auto p-1.5 flex-1">
-                {filteredModels.length === 0 ? (
-                  <div className="px-3 py-8 text-center text-sm text-slate-400">
-                    No models found matching &quot;{modelSearchQuery}&quot;
-                  </div>
-                ) : (
-                  filteredModels.map(model => (
-                    <button
-                      key={model.id}
-                      onClick={() => selectModel(model.id)}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg flex flex-col gap-0.5 transition-all mb-1 ${
-                        selectedModel === model.id
-                          ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
-                          : 'hover:bg-slate-50 text-slate-700'
-                      }`}
-                    >
-                      <span className="text-sm font-medium flex items-center gap-2">
-                        {model.name}
-                        {selectedModel === model.id && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
-                      </span>
-                      <span className="text-xs text-slate-400 line-clamp-1">{model.description}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-            )}
-          </div>
 
-          {/* Agent Mode Toggle */}
-          <div className="flex items-center gap-2">
-            <label className="no-tap-highlight relative inline-flex items-center cursor-pointer min-h-[44px]">
-              <input
-                type="checkbox"
-                checked={useAgent}
-                onChange={handleToggleAgent}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-1/2 after:-translate-y-1/2 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-            </label>
-            <div className="flex flex-col">
-              <span className="text-xs font-medium text-gray-700">
-                Agent Mode
-              </span>
-              {useAgent && (
-                <span className="text-[10px] text-blue-600">Advanced reasoning</span>
+                {/* Model List */}
+                <div className="overflow-y-auto p-1.5 flex-1 scrollbar-thin scrollbar-thumb-slate-200">
+                  {filteredModels.length === 0 ? (
+                    <div className="px-3 py-8 text-center font-mono text-xs text-subtle">
+                      No models found matching &quot;{modelSearchQuery}&quot;
+                    </div>
+                  ) : (
+                    filteredModels.map(model => (
+                      <button
+                        key={model.id}
+                        onClick={() => selectModel(model.id)}
+                        className={`w-full text-left px-3 py-2 border flex flex-col gap-0.5 transition-all mb-1 font-mono text-xs ${
+                          selectedModel === model.id
+                            ? 'bg-ink text-paper border-ink'
+                            : 'bg-paper text-ink border-subtle hover:bg-ink hover:text-paper hover:border-ink'
+                        }`}
+                      >
+                        <span className="font-bold flex items-center gap-2">
+                          {model.name}
+                          {selectedModel === model.id && <span>[✓]</span>}
+                        </span>
+                        <span className="text-subtle text-[10px]">{model.description}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
               )}
             </div>
-          </div>
 
-          {/* Info Tooltip */}
-          <div className="relative group">
-            <svg className="w-4 h-4 text-gray-400 cursor-help" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 w-64">
-              Agent mode uses multi-step reasoning for better quality answers
-              <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+            {/* Agent Mode Toggle */}
+            <div className="flex items-center gap-2">
+              <label className="no-tap-highlight flex items-center gap-2 cursor-pointer min-h-[44px] font-mono text-xs">
+                <input
+                  type="checkbox"
+                  checked={useAgent}
+                  onChange={handleToggleAgent}
+                  className="accent-accent w-4 h-4"
+                />
+                <span>Agent Mode [{useAgent ? 'ON' : 'OFF'}]</span>
+              </label>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Chat Messages Area */}
+      {/* =====================================================
+          ERROR TOAST - Brutalist Style
+          ===================================================== */}
+      {error && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 w-[90%] max-w-md">
+          <div className="bg-accent text-paper border-2 border-accent px-4 py-3 flex items-start gap-3">
+            <span className="font-mono text-xl">[!]</span>
+            <div className="flex-1 font-serif text-sm">
+              <p className="font-bold">{error}</p>
+              {!hasApiKey && (
+                <button
+                  onClick={() => router.push('/settings')}
+                  className="brutalist-button brutalist-button-primary font-mono text-xs px-3 py-1.5 mt-2 min-h-[44px]"
+                >
+                  [GO TO SETTINGS]
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="no-tap-highlight text-paper hover:underline min-w-[44px] min-h-[44px] flex items-center justify-center font-mono"
+            >
+              [×]
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          MESSAGES AREA
+          ===================================================== */}
       <div
         ref={messagesContainerRef}
         onClick={() => {
@@ -401,30 +379,32 @@ export default function ChatInterface() {
             textareaRef.current.blur();
           }
         }}
-        className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
+        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
       >
         {/* Workflow Progress */}
         <AgentWorkflowProgress key="workflow-progress" steps={workflowSteps} visible={showWorkflow} />
 
+        {/* Empty State - No Document */}
         {messages.length === 0 && !!!conversationId && (
-          <div key="no-document-state" className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mb-6 shadow-sm transform rotate-3">
-              <Paperclip size={32} className="text-blue-400" />
+          <div key="no-document-state" className="flex flex-col items-center justify-center h-full text-center px-6">
+            <div className="w-20 h-20 border-2 border-ink flex items-center justify-center mb-6">
+              <Paperclip size={32} className="text-subtle" />
             </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-2">No Document Selected</h3>
-            <p className="text-slate-500 max-w-xs text-sm leading-relaxed">
+            <h3 className="font-mono text-xl font-bold text-ink mb-2">[NO DOCUMENT SELECTED]</h3>
+            <p className="font-serif text-subtle max-w-xs text-sm leading-relaxed">
               Select a conversation from the sidebar or upload a new document to start chatting.
             </p>
           </div>
         )}
 
+        {/* Empty State - With Document */}
         {messages.length === 0 && !!conversationId && (
-          <div key="empty-state" className="flex flex-col items-center justify-center h-full text-center px-6 opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-200 transform -rotate-3">
-              <Bot size={40} className="text-white" />
+          <div key="empty-state" className="flex flex-col items-center justify-center h-full text-center px-6">
+            <div className="w-20 h-20 bg-ink text-paper border-2 border-ink flex items-center justify-center mb-6 font-mono text-3xl">
+              [AI]
             </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-2">How can I help?</h3>
-            <p className="text-slate-500 max-w-xs text-sm leading-relaxed mb-8">
+            <h3 className="font-mono text-xl font-bold text-ink mb-2">[HOW CAN I HELP?]</h3>
+            <p className="font-serif text-subtle max-w-xs text-sm leading-relaxed mb-8">
               Ask me anything about your document. I can summarize, explain concepts, or find specific details.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md">
@@ -435,7 +415,7 @@ export default function ChatInterface() {
                     setInputMessage(suggestion);
                     if (textareaRef.current) textareaRef.current.focus();
                   }}
-                  className="no-select no-tap-highlight text-xs text-slate-600 bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 px-4 py-3 rounded-xl transition-all text-left shadow-sm min-h-[44px]"
+                  className="no-select font-serif text-sm text-ink bg-paper border border-ink hover:bg-ink hover:text-paper px-4 py-3 transition-colors text-left min-h-[44px]"
                 >
                   &quot;{suggestion}&quot;
                 </button>
@@ -444,6 +424,7 @@ export default function ChatInterface() {
           </div>
         )}
 
+        {/* Messages */}
         {messages.map((message) => (
           <ChatMessage
             key={message.id}
@@ -452,60 +433,57 @@ export default function ChatInterface() {
           />
         ))}
 
-        {(isLoading) && (
-          <div key="loading-indicator" className="flex gap-4 justify-start animate-in fade-in slide-in-from-bottom-2">
-             <div className="w-8 h-8 rounded-lg bg-white border border-gray-100 flex-shrink-0 flex items-center justify-center shadow-sm mt-1">
-                <Bot size={16} className="text-indigo-600" />
+        {/* Loading Indicator */}
+        {isLoading && (
+          <div key="loading-indicator" className="flex gap-4 justify-start">
+             <div className="w-8 h-8 border-2 border-ink flex-shrink-0 flex items-center justify-center font-mono text-xs bg-paper">
+                [AI]
               </div>
-            <div className="bg-white border border-gray-100 px-5 py-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            <div className="bg-paper border-2 border-ink px-4 py-3 flex items-center gap-2">
+              <div className="w-2 h-2 bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
+              <div className="w-2 h-2 bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
+              <div className="w-2 h-2 bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
             </div>
           </div>
         )}
         <div key="message-end-ref" ref={messageEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="p-4 bg-white/80 backdrop-blur-md border-t border-gray-100 relative z-10">
+      {/* =====================================================
+          INPUT AREA - Brutalist Style
+          ===================================================== */}
+      <div className="border-t-2 border-ink bg-panel-bg p-4">
         <form
           onSubmit={handleSubmit}
           className="max-w-4xl mx-auto relative flex gap-3 items-end"
         >
-          <div className="relative flex-1 bg-white border border-gray-200 rounded-2xl shadow-sm focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400 transition-all overflow-hidden">
+          <div className="relative flex-1 bg-paper border-2 border-ink focus-within:ring-2 focus-within:ring-accent overflow-hidden">
             <textarea
               ref={textareaRef}
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a question..."
+              placeholder="[Ask a question about the document...]"
               rows={1}
-              className="w-full max-h-[150px] py-3 px-4 bg-transparent border-none focus:ring-0 resize-none text-sm text-slate-800 placeholder:text-slate-400"
+              className="w-full max-h-[150px] py-3 px-4 bg-transparent border-none focus:ring-0 resize-none font-serif text-sm text-ink placeholder:text-subtle"
               style={{ minHeight: '44px' }}
             />
-
-            {/* Optional: Add attachment button or similar features here later */}
           </div>
 
           <button
             type="submit"
             disabled={!inputMessage.trim() || isLoading}
-            className={`no-select no-tap-highlight p-3 rounded-xl shadow-md flex items-center justify-center transition-all duration-200 min-w-[44px] min-h-[44px] ${
+            className={`no-select font-mono text-sm px-4 py-3 min-w-[44px] min-h-[44px] flex items-center justify-center transition-all duration-150 ${
               !inputMessage.trim() || isLoading
-                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg hover:scale-105 active:scale-95'
+                ? 'bg-paper text-subtle border border-ink cursor-not-allowed'
+                : 'bg-ink text-paper border-2 border-ink hover:bg-accent hover:border-accent hover:text-paper'
             }`}
           >
-            {isLoading ? (
-              <Loader2 size={20} className="animate-spin" />
-            ) : (
-              <Send size={20} className={inputMessage.trim() ? 'ml-0.5' : ''} />
-            )}
+            [{isLoading ? '...' : 'SEND'}]
           </button>
         </form>
         <div className="text-center mt-2">
-           <p className="text-[10px] text-slate-400">
+           <p className="font-mono text-[10px] text-subtle">
              AI can make mistakes. Please review important information.
            </p>
         </div>

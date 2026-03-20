@@ -358,17 +358,17 @@ function DashboardWithSearchParams () {
   }
 
   return (
-    <div className="h-screen flex overflow-hidden">
+    <div className="h-screen flex overflow-hidden bg-paper">
       {/* Sidebar */}
       <ChatSidebar
         ref={chatSidebarRef}
       />
 
       {/* Main content Area */}
-      <div ref={containerRef} className="flex flex-1 overflow-hidden relative">
+      <div ref={containerRef} className="flex flex-1 overflow-hidden relative border-l-2 border-ink">
         {/* PDF Viewer Section */}
         <div
-          className="h-full overflow-hidden"
+          className="h-full overflow-hidden border-r-2 border-ink"
           style={{ width: `${splitPosition}%` }}
         >
           <EnhancedPDFViewer
@@ -378,23 +378,23 @@ function DashboardWithSearchParams () {
           />
         </div>
 
-        {/* Resizer */}
+        {/* Resizer - Brutalist Style */}
         <div
           onPointerDown={handlePointerDown}
-          className={`no-select no-tap-highlight absolute top-0 bottom-0 w-1 bg-gray-200 hover:bg-blue-500 cursor-col-resize transition-colors z-20 ${
-            isResizing ? 'bg-blue-500' : ''
+          className={`no-select no-tap-highlight absolute top-0 bottom-0 w-px bg-ink cursor-col-resize z-20 ${
+            isResizing ? 'bg-accent' : ''
           }`}
           style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
         >
-          <div className={`no-select no-tap-highlight absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-12 rounded-full flex items-center justify-center transition-all min-w-[44px] min-h-[44px] ${
+          <div className={`no-select no-tap-highlight absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-10 h-14 border-2 border-ink bg-panel-bg flex items-center justify-center transition-all min-w-[44px] min-h-[44px] ${
             isResizing
-              ? 'bg-blue-500 shadow-lg scale-110'
-              : 'bg-gray-200 hover:bg-blue-400 hover:shadow-md'
+              ? 'border-accent bg-accent text-paper'
+              : 'hover:border-accent'
           }`}>
             <div className="flex flex-col gap-1">
-              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
-              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
-              <div className={`w-0.5 h-1 ${isResizing ? 'bg-white' : 'bg-gray-500'}`}></div>
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
+              <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
             </div>
           </div>
         </div>

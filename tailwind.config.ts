@@ -23,6 +23,11 @@ export default {
         accent: 'var(--accent)',
         rule: 'var(--rule)',
         subtle: 'var(--subtle)',
+        // Dashboard extensions
+        'sidebar-bg': 'var(--sidebar-bg)',
+        'panel-bg': 'var(--panel-bg)',
+        'chat-user': 'var(--chat-user)',
+        'chat-ai': 'var(--chat-ai)',
       },
       borderWidth: {
         '3': '3px',
