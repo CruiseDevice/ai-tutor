@@ -4,12 +4,24 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { userApi } from "@/lib/api-client";
 import type { AnnotationReference } from "@/types/annotations";
-import AgentWorkflowProgress from "./AgentWorkflowProgress";
 import { ChatMessage } from "./Chat/ChatMessage";
 
 // Store imports for Zustand migration
-import { useChatStore, selectMessages, selectIsLoading } from '@/stores/chatStore';
+import {
+  useChatStore,
+  selectMessages,
+  selectIsLoading,
+  selectConversationId,
+  selectSelectedModel,
+  selectSendMessage,
+  selectSetSelectedModel,
+  selectSetApiKeyStatus,
+  selectHasApiKey,
+  selectUseAgent,
+  selectToggleAgent,
+} from '@/stores/chatStore';
 import { useAnnotationsStore } from '@/stores/annotationsStore';
+import { useUIStore } from '@/stores/uiStore';
 
 const AVAILABLE_MODELS = [
   // GPT-5 Series (Chat Models)
@@ -53,21 +65,20 @@ export default function ChatInterface() {
   const router = useRouter();
 
   // =====================================================
-  // STORE HOOKS
+  // STORE HOOKS - Using memoized selectors for performance
   // =====================================================
   const messages = useChatStore(selectMessages);
   const isLoading = useChatStore(selectIsLoading);
-  const conversationId = useChatStore((s) => s.conversationId);
-  const selectedModel = useChatStore((s) => s.selectedModel);
-  const sendMessage = useChatStore((s) => s.sendMessage);
-  const setSelectedModel = useChatStore((s) => s.setSelectedModel);
-  const setApiKeyStatus = useChatStore((s) => s.setApiKeyStatus);
-  const hasApiKey = useChatStore((s) => s.hasApiKey);
-  const useAgent = useChatStore((s) => s.useAgent);
-  const toggleAgent = useChatStore((s) => s.toggleAgent);
-  const workflowSteps = useChatStore((s) => s.workflowSteps);
-  const showWorkflow = useChatStore((s) => s.showWorkflow);
+  const conversationId = useChatStore(selectConversationId);
+  const selectedModel = useChatStore(selectSelectedModel);
+  const sendMessage = useChatStore(selectSendMessage);
+  const setSelectedModel = useChatStore(selectSetSelectedModel);
+  const setApiKeyStatus = useChatStore(selectSetApiKeyStatus);
+  const hasApiKey = useChatStore(selectHasApiKey);
+  const useAgent = useChatStore(selectUseAgent);
+  const toggleAgent = useChatStore(selectToggleAgent);
   const setSelectedAnnotation = useAnnotationsStore((s) => s.setSelectedAnnotation);
+  const setPdfViewerVisible = useUIStore((s) => s.setPdfViewerVisible);
 
   // Local state
   const [inputMessage, setInputMessage] = useState('');
@@ -137,6 +148,45 @@ export default function ChatInterface() {
     return () => container.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Smooth scroll to bottom with reduced motion support
+  const smoothScrollToBottom = (element: HTMLElement) => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (prefersReducedMotion) {
+      element.scrollTop = element.scrollHeight;
+      return;
+    }
+
+    const startScroll = element.scrollTop;
+    const targetScroll = element.scrollHeight;
+    const distance = targetScroll - startScroll;
+
+    // Skip animation if distance is negligible
+    if (distance < 10) {
+      element.scrollTop = targetScroll;
+      return;
+    }
+
+    const duration = Math.min(300, distance * 0.5);
+    const startTime = performance.now();
+
+    const animateScroll = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+
+      // Ease-out-quart for natural deceleration
+      const easeOut = 1 - Math.pow(1 - progress, 4);
+
+      element.scrollTop = startScroll + distance * easeOut;
+
+      if (progress < 1) {
+        requestAnimationFrame(animateScroll);
+      }
+    };
+
+    requestAnimationFrame(animateScroll);
+  };
+
   // scroll to bottom when messages change, but only if user is near bottom or new message was added
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -153,13 +203,10 @@ export default function ChatInterface() {
     // 1. User is near bottom (within 150px), OR
     // 2. This is the initial load (was empty before)
     if (shouldAutoScrollRef.current || wasEmpty) {
-      // Use requestAnimationFrame to ensure DOM is updated, then scroll container directly
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (container) {
-            container.scrollTop = container.scrollHeight;
-          }
-        });
+        if (container) {
+          smoothScrollToBottom(container);
+        }
       });
     }
   }, [messages]);
@@ -215,6 +262,32 @@ export default function ChatInterface() {
     setSelectedModel(modelId);
   }
 
+  const handleModelMenuKeyDown = (e: React.KeyboardEvent) => {
+    const visibleModels = filteredModels;
+    const currentIndex = visibleModels.findIndex(m => m.id === selectedModel);
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        const nextIndex = currentIndex < visibleModels.length - 1 ? currentIndex + 1 : 0;
+        selectModel(visibleModels[nextIndex].id);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        const prevIndex = currentIndex > 0 ? currentIndex - 1 : visibleModels.length - 1;
+        selectModel(visibleModels[prevIndex].id);
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setIsModelMenuOpen(false);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        setIsModelMenuOpen(false);
+        break;
+    }
+  };
+
   const handleToggleAgent = () => {
     toggleAgent();
   }
@@ -245,8 +318,9 @@ export default function ChatInterface() {
 
   // Handler for annotation click
   const handleAnnotationClick = useCallback((annotation: AnnotationReference) => {
+    setPdfViewerVisible(true); // Auto-expand PDF viewer
     setSelectedAnnotation(annotation.pageNumber.toString());
-  }, [setSelectedAnnotation]);
+  }, [setPdfViewerVisible, setSelectedAnnotation]);
 
   return (
     <div className="w-full h-full flex flex-col bg-panel-bg relative overflow-hidden">
@@ -272,6 +346,9 @@ export default function ChatInterface() {
             <div className="relative" ref={modelMenuRef}>
               <button
                 onClick={toggleModelMenu}
+                aria-label="Select AI model"
+                aria-expanded={isModelMenuOpen}
+                aria-haspopup="listbox"
                 className="no-select font-mono text-xs px-3 py-1.5 border border-ink hover:bg-ink hover:text-paper transition-colors min-h-[44px] flex items-center gap-2"
               >
                 <span>[⚡]</span>
@@ -280,7 +357,7 @@ export default function ChatInterface() {
               </button>
 
               {isModelMenuOpen && (
-              <div className="absolute top-full right-0 mt-2 w-80 bg-panel-bg border-2 border-ink z-20 overflow-hidden flex flex-col max-h-[600px]">
+              <div className="absolute top-full right-0 mt-2 w-80 bg-panel-bg border-2 border-ink z-20 overflow-hidden flex flex-col max-h-[600px] model-menu-enter">
                 {/* Search Header */}
                 <div className="px-3 py-2 border-b-2 border-ink flex-shrink-0">
                   <h3 className="font-mono text-xs text-accent uppercase tracking-wider mb-2">[SELECT MODEL]</h3>
@@ -290,12 +367,20 @@ export default function ChatInterface() {
                     value={modelSearchQuery}
                     onChange={(e) => setModelSearchQuery(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
+                    role="searchbox"
+                    aria-label="Search models"
                     className="w-full px-3 py-1.5 font-mono text-xs border border-ink bg-paper focus:outline-none focus:ring-2 focus:ring-accent text-ink placeholder:text-subtle"
                   />
                 </div>
 
                 {/* Model List */}
-                <div className="overflow-y-auto p-1.5 flex-1 scrollbar-thin scrollbar-thumb-slate-200">
+                <div
+                  role="listbox"
+                  aria-label="Available AI models"
+                  tabIndex={0}
+                  onKeyDown={handleModelMenuKeyDown}
+                  className="overflow-y-auto p-1.5 flex-1 scrollbar-thin scrollbar-thumb-slate-200"
+                >
                   {filteredModels.length === 0 ? (
                     <div className="px-3 py-8 text-center font-mono text-xs text-subtle">
                       No models found matching &quot;{modelSearchQuery}&quot;
@@ -305,6 +390,8 @@ export default function ChatInterface() {
                       <button
                         key={model.id}
                         onClick={() => selectModel(model.id)}
+                        role="option"
+                        aria-selected={selectedModel === model.id}
                         className={`w-full text-left px-3 py-2 border flex flex-col gap-0.5 transition-all mb-1 font-mono text-xs ${
                           selectedModel === model.id
                             ? 'bg-ink text-paper border-ink'
@@ -352,6 +439,7 @@ export default function ChatInterface() {
               {!hasApiKey && (
                 <button
                   onClick={() => router.push('/settings')}
+                  aria-label="Go to settings page"
                   className="brutalist-button brutalist-button-primary font-mono text-xs px-3 py-1.5 mt-2 min-h-[44px]"
                 >
                   [GO TO SETTINGS]
@@ -360,6 +448,7 @@ export default function ChatInterface() {
             </div>
             <button
               onClick={() => setError(null)}
+              aria-label="Dismiss error message"
               className="no-tap-highlight text-paper hover:underline min-w-[44px] min-h-[44px] flex items-center justify-center font-mono"
             >
               [×]
@@ -381,9 +470,6 @@ export default function ChatInterface() {
         }}
         className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
       >
-        {/* Workflow Progress */}
-        <AgentWorkflowProgress key="workflow-progress" steps={workflowSteps} visible={showWorkflow} />
-
         {/* Empty State - No Document */}
         {messages.length === 0 && !!!conversationId && (
           <div key="no-document-state" className="flex flex-col items-center justify-center h-full text-center px-6">
@@ -400,22 +486,25 @@ export default function ChatInterface() {
         {/* Empty State - With Document */}
         {messages.length === 0 && !!conversationId && (
           <div key="empty-state" className="flex flex-col items-center justify-center h-full text-center px-6">
-            <div className="w-20 h-20 bg-ink text-paper border-2 border-ink flex items-center justify-center mb-6 font-mono text-3xl">
+            <div className="w-20 h-20 bg-ink text-paper border-2 border-ink flex items-center justify-center mb-6 font-mono text-3xl empty-state-child empty-state-delay-1">
               [AI]
             </div>
-            <h3 className="font-mono text-xl font-bold text-ink mb-2">[HOW CAN I HELP?]</h3>
-            <p className="font-serif text-subtle max-w-xs text-sm leading-relaxed mb-8">
+            <h3 className="font-mono text-xl font-bold text-ink mb-2 empty-state-child empty-state-delay-2">
+              [HOW CAN I HELP?]
+            </h3>
+            <p className="font-serif text-subtle max-w-xs text-sm leading-relaxed mb-8 empty-state-child empty-state-delay-3">
               Ask me anything about your document. I can summarize, explain concepts, or find specific details.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md">
-              {['Summarize this document', 'What are the key points?', 'Explain the methodology', 'List the main conclusions'].map((suggestion) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md empty-state-child empty-state-delay-4">
+              {['Summarize this document', 'What are the key points?', 'Explain the methodology', 'List the main conclusions'].map((suggestion, idx) => (
                 <button
                   key={suggestion}
                   onClick={() => {
                     setInputMessage(suggestion);
                     if (textareaRef.current) textareaRef.current.focus();
                   }}
-                  className="no-select font-serif text-sm text-ink bg-paper border border-ink hover:bg-ink hover:text-paper px-4 py-3 transition-colors text-left min-h-[44px]"
+                  className={`no-select font-serif text-sm text-ink bg-paper border border-ink hover:bg-ink hover:text-paper px-4 py-3 transition-colors text-left min-h-[44px] empty-state-child`}
+                  style={{ animationDelay: `${320 + idx * 60}ms` }}
                 >
                   &quot;{suggestion}&quot;
                 </button>
@@ -425,13 +514,20 @@ export default function ChatInterface() {
         )}
 
         {/* Messages */}
-        {messages.map((message) => (
-          <ChatMessage
-            key={message.id}
-            messageId={message.id}
-            onAnnotationClick={handleAnnotationClick}
-          />
-        ))}
+        {messages.map((message, index) => {
+          const delayClass = index < 3
+            ? `message-enter-delay-${index + 1}`
+            : 'message-enter-delay-3';
+
+          return (
+            <div key={message.id} className={`message-enter ${delayClass}`}>
+              <ChatMessage
+                messageId={message.id}
+                onAnnotationClick={handleAnnotationClick}
+              />
+            </div>
+          );
+        })}
 
         {/* Loading Indicator */}
         {isLoading && (
@@ -440,9 +536,9 @@ export default function ChatInterface() {
                 [AI]
               </div>
             <div className="bg-paper border-2 border-ink px-4 py-3 flex items-center gap-2">
-              <div className="w-2 h-2 bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
-              <div className="w-2 h-2 bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
-              <div className="w-2 h-2 bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
+              <div className="w-2 h-2 bg-accent loading-dot" />
+              <div className="w-2 h-2 bg-accent loading-dot" />
+              <div className="w-2 h-2 bg-accent loading-dot" />
             </div>
           </div>
         )}

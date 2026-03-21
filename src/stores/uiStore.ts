@@ -6,6 +6,7 @@ interface UIState {
   // Layout
   splitPosition: number;
   sidebarOpen: boolean;
+  pdfViewerVisible: boolean;
 
   // PDF Viewer
   pdfPageNumber: number;
@@ -20,6 +21,8 @@ interface UIState {
   // Actions
   setSplitPosition: (position: number) => void;
   toggleSidebar: () => void;
+  setPdfViewerVisible: (visible: boolean) => void;
+  togglePdfViewer: () => void;
   setPdfPage: (page: number) => void;
   setPdfScale: (scale: number) => void;
   setPdfRotation: (rotation: number) => void;
@@ -35,6 +38,7 @@ export const useUIStore = create<UIState>()(
         // Initial State
         splitPosition: 60,
         sidebarOpen: true,
+        pdfViewerVisible: true,
         pdfPageNumber: 1,
         pdfScale: 1.0,
         pdfRotation: 0,
@@ -46,6 +50,10 @@ export const useUIStore = create<UIState>()(
         setSplitPosition: (splitPosition) => set({ splitPosition }),
 
         toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+
+        setPdfViewerVisible: (pdfViewerVisible) => set({ pdfViewerVisible }),
+
+        togglePdfViewer: () => set((state) => ({ pdfViewerVisible: !state.pdfViewerVisible })),
 
         setPdfPage: (pdfPageNumber) => set({ pdfPageNumber }),
 
@@ -71,6 +79,7 @@ export const useUIStore = create<UIState>()(
           splitPosition: state.splitPosition,
           sidebarOpen: state.sidebarOpen,
           pdfScale: state.pdfScale,
+          pdfViewerVisible: state.pdfViewerVisible,
         }),
       }
     ),
@@ -81,3 +90,4 @@ export const useUIStore = create<UIState>()(
 // Selectors
 export const selectSplitPosition = (state: UIState) => state.splitPosition;
 export const selectSidebarOpen = (state: UIState) => state.sidebarOpen;
+export const selectPdfViewerVisible = (state: UIState) => state.pdfViewerVisible;
