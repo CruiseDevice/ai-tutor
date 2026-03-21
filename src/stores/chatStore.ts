@@ -296,3 +296,9 @@ export const selectSelectedModel = (state: ChatState) => state.selectedModel;
 export const selectUseAgent = (state: ChatState) => state.useAgent;
 export const selectWorkflowSteps = (state: ChatState) => state.workflowSteps;
 export const selectShowWorkflow = (state: ChatState) => state.showWorkflow;
+
+// Action selectors - memoized for stable references
+export const selectSendMessage = (state: ChatState) => state.sendMessage;
+export const selectSetSelectedModel = (state: ChatState) => state.setSelectedModel;
+export const selectSetApiKeyStatus = (state: ChatState) => state.setApiKeyStatus;
+export const selectToggleAgent = (state: ChatState) => state.toggleAgent;

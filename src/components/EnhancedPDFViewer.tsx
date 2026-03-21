@@ -5,6 +5,9 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/TextLayer.css';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import type { PDFAnnotation, AnnotationReference } from '@/types/annotations';
+import { useThrottledCallback } from '@/hooks/useThrottledCallback';
+import { usePDFNavigation } from '@/hooks/usePDFNavigation';
+import { loadPDFState, savePDFState } from '@/utils/pdfStatePersistence';
 
 // Store imports for Zustand migration
 import { useChatStore } from '@/stores/chatStore';
@@ -23,6 +26,13 @@ interface AnnotationShapeProps {
 function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
   const { type, bounds, color } = annotation;
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick?.();
+    }
+  };
+
   const baseStyle: React.CSSProperties = {
     position: 'absolute',
     left: `${bounds.x}%`,
@@ -34,15 +44,21 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
     transition: 'all 0.2s ease',
   };
 
+  const ariaLabel = `${type} annotation${annotation.textContent ? `: ${annotation.textContent}` : ''}`;
+
   switch (type) {
     case 'highlight':
       return (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label={ariaLabel}
           style={{
             ...baseStyle,
             backgroundColor: color || 'rgba(212, 82, 0, 0.4)',
           }}
           onClick={onClick}
+          onKeyDown={handleKeyDown}
           className="hover:brightness-110"
         />
       );
@@ -50,6 +66,9 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
     case 'circle':
       return (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label={ariaLabel}
           style={{
             ...baseStyle,
             border: `3px solid ${color || 'rgba(10, 10, 10, 0.8)'}`,
@@ -57,6 +76,7 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
             backgroundColor: 'transparent',
           }}
           onClick={onClick}
+          onKeyDown={handleKeyDown}
           className="animate-pulse"
         />
       );
@@ -64,18 +84,25 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
     case 'box':
       return (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label={ariaLabel}
           style={{
             ...baseStyle,
             border: `3px solid ${color || 'rgba(10, 10, 10, 0.8)'}`,
             backgroundColor: color?.replace('0.8', '0.1') || 'rgba(10, 10, 10, 0.1)',
           }}
           onClick={onClick}
+          onKeyDown={handleKeyDown}
         />
       );
 
     case 'underline':
       return (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label={ariaLabel}
           style={{
             ...baseStyle,
             height: '3px',
@@ -83,6 +110,7 @@ function AnnotationShape({ annotation, onClick }: AnnotationShapeProps) {
             backgroundColor: color || 'rgba(212, 82, 0, 0.8)',
           }}
           onClick={onClick}
+          onKeyDown={handleKeyDown}
         />
       );
 
@@ -104,11 +132,15 @@ interface EnhancedPDFViewerProps {
 
   // Ref for file input (from parent)
   fileInputRef: React.RefObject<HTMLInputElement>;
+
+  // Optional collapse handler
+  onCollapse?: () => void;
 }
 
 const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   onFileUpload,
   fileInputRef: externalFileInputRef,
+  onCollapse,
 }, ref) => {
 
   const internalFileInputRef = useRef<HTMLInputElement>(null);
@@ -117,10 +149,12 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainerRef = useRef<HTMLDivElement>(null);
 
-  const [pageNumber, setPageNumber] = useState(1);
+  // Load saved PDF state on mount
+  const savedState = useMemo(() => loadPDFState(), []);
+
   const [numPages, setNumPages] = useState<number | null>(null);
-  const [scale, setScale] = useState(1.0);
-  const [rotation, setRotation] = useState(0);
+  const [scale, setScale] = useState(() => savedState?.scale ?? 1.0);
+  const [rotation, setRotation] = useState(() => savedState?.rotation ?? 0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [pageInputError, setPageInputError] = useState<string | null>(null);
@@ -134,10 +168,6 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
-  // Touch swipe gesture state for page navigation
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [touchEnd, setTouchEnd] = useState<number | null>(null);
-
   // =====================================================
   // STORE HOOKS - PDF data now managed by Zustand stores
   // =====================================================
@@ -148,18 +178,32 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
   // Combine external (store) and local annotations
   const allAnnotations = useMemo(() => [...storeAnnotations, ...localAnnotations], [storeAnnotations, localAnnotations]);
 
+  // =====================================================
+  // NAVIGATION HOOK - Manages page state and touch gestures
+  // =====================================================
+  const {
+    pageNumber,
+    goToPage,
+    nextPage,
+    prevPage,
+    canGoNext,
+    canGoPrev,
+    touchHandlers,
+  } = usePDFNavigation({
+    numPages,
+    onPageChange: (page) => setPageInputError(null),
+  });
+
   // Get annotations for current page
   const currentPageAnnotations = useMemo(
     () => allAnnotations.filter(a => a.pageNumber === pageNumber),
     [allAnnotations, pageNumber]
   );
 
-  const goToPage = useCallback((pageNum: number) => {
-    if(pageNum >= 1 && pageNum <= (numPages || 1)) {
-      setPageNumber(pageNum);
-      setPageInputError(null);
-    }
-  }, [numPages]);
+  // Persist zoom/rotation state to localStorage
+  useEffect(() => {
+    savePDFState({ scale, rotation });
+  }, [scale, rotation]);
 
   // Handler for annotation click - delegates to store
   const handleAnnotationClick = useCallback((annotationRef: AnnotationReference) => {
@@ -247,6 +291,9 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
     setHighlightedTextRects(rects);
   }, []);
 
+  // Throttled version to avoid excessive searches during rapid changes
+  const throttledFindText = useThrottledCallback(findTextOnPage, 300);
+
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     goToPage: (pageNum: number) => {
@@ -265,10 +312,10 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
     highlightText: (pageNum: number, textToFind: string) => {
       console.log(`[PDF Annotation] highlightText called: page ${pageNum}, text "${textToFind}"`);
       goToPage(pageNum);
-      // Text highlighting will be handled by findTextOnPage after page renders
-      setTimeout(() => findTextOnPage(textToFind), 800);
+      // Text highlighting will be handled by throttledFindText after page renders
+      setTimeout(() => throttledFindText(textToFind), 500);
     }
-  }), [goToPage, findTextOnPage]);
+  }), [goToPage, throttledFindText]);
 
   // Effect to find text when annotations change
   useEffect(() => {
@@ -284,13 +331,12 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
           textTargets.add(annotationRef.sourceText);
         }
       });
-      textTargets.forEach(text => {
-        setTimeout(() => findTextOnPage(text), 300);
-      });
+      // Use throttled version to avoid excessive searches
+      textTargets.forEach(text => throttledFindText(text));
     } else {
       setHighlightedTextRects([]);
     }
-  }, [currentPageAnnotations, showAnnotations, findTextOnPage, pageNumber]);
+  }, [currentPageAnnotations, showAnnotations, throttledFindText, pageNumber]);
 
   // Fetch PDF with credentials when currentPDF changes
   // This avoids 401 errors since PDF.js worker doesn't include credentials
@@ -365,11 +411,12 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
           textTargets.add(annotationRef.sourceText);
         }
       });
+      // Small delay for text layer to be ready, then use throttled search
       textTargets.forEach(text => {
-        setTimeout(() => findTextOnPage(text), 500);
+        setTimeout(() => throttledFindText(text), 100);
       });
     }
-  }, [currentPageAnnotations, showAnnotations, findTextOnPage]);
+  }, [currentPageAnnotations, showAnnotations, throttledFindText]);
 
   const handlePageInputChange = () => {
     if (pageInputError) setPageInputError(null);
@@ -398,11 +445,45 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
     }
 
     goToPage(pageNum);
-    // Clear input after successful jump or keep it?
-    // Usually better to keep it sync'd or clear it.
     if (pageInputRef.current) {
       pageInputRef.current.value = pageNum.toString();
       pageInputRef.current.blur();
+    }
+    // Restore focus to PDF container for keyboard users
+    // Small delay to allow page to render
+    setTimeout(() => pageContainerRef.current?.focus(), 100);
+  }
+
+  // Keyboard navigation for PDF container
+  const handleContainerKeyDown = (e: React.KeyboardEvent) => {
+    // Only handle if not in an input
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+
+    switch (e.key) {
+      case 'ArrowLeft':
+        if (pageNumber > 1) {
+          e.preventDefault();
+          goToPage(pageNumber - 1);
+        }
+        break;
+      case 'ArrowRight':
+        if (pageNumber < (numPages || 1)) {
+          e.preventDefault();
+          goToPage(pageNumber + 1);
+        }
+        break;
+      case 'Home':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          goToPage(1);
+        }
+        break;
+      case 'End':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          goToPage(numPages || 1);
+        }
+        break;
     }
   }
 
@@ -448,43 +529,11 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
 
   const onDocumentLoadSuccess = ({numPages}: {numPages: number}) => {
     setNumPages(numPages);
-    setPageNumber(1);
+    goToPage(1);
   }
 
   const rotate = () => {
     setRotation((prev) => (prev + 90) % 360);
-  };
-
-  // Touch swipe gesture handlers for page navigation
-  const minSwipeDistance = 50; // Minimum horizontal distance to trigger page change
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStart(e.touches[0].clientX);
-    setTouchEnd(null);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    setTouchEnd(e.touches[0].clientX);
-  };
-
-  const handleTouchEnd = () => {
-    if (touchStart === null || touchEnd === null) return;
-
-    const distance = touchStart - touchEnd;
-    const isLeftSwipe = distance > minSwipeDistance;
-    const isRightSwipe = distance < -minSwipeDistance;
-
-    if (isLeftSwipe && pageNumber < (numPages || 1)) {
-      // Swiped left → next page
-      goToPage(pageNumber + 1);
-    } else if (isRightSwipe && pageNumber > 1) {
-      // Swiped right → previous page
-      goToPage(pageNumber - 1);
-    }
-
-    // Reset for next gesture
-    setTouchStart(null);
-    setTouchEnd(null);
   };
 
   return (
@@ -505,6 +554,18 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
 
             {/* Right: Page Info & Actions */}
             <div className="flex items-center gap-3">
+              {/* Live region for screen readers - announces annotation changes */}
+              <div
+                role="status"
+                aria-live="polite"
+                className="sr-only"
+              >
+                {currentPageAnnotations.length > 0
+                  ? `${currentPageAnnotations.length} annotation${currentPageAnnotations.length > 1 ? 's' : ''} on this page`
+                  : 'No annotations on this page'
+                }
+              </div>
+
               <span className="font-mono text-xs text-subtle">
                 p.{pageNumber}/{numPages || '-'}
               </span>
@@ -521,6 +582,17 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                   title={showAnnotations ? 'Hide Annotations' : 'Show Annotations'}
                 >
                   {showAnnotations ? '[§ ON]' : '[§ OFF]'}
+                </button>
+              )}
+
+              {/* Collapse Button - Only show when onCollapse is provided */}
+              {onCollapse && (
+                <button
+                  onClick={onCollapse}
+                  className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  title="Hide PDF Viewer"
+                >
+                  [_]
                 </button>
               )}
 
@@ -563,8 +635,8 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
             {/* Page Navigation */}
             <div className="flex items-center gap-2">
               <button
-                onClick={() => goToPage(pageNumber - 1)}
-                disabled={pageNumber <= 1}
+                onClick={prevPage}
+                disabled={!canGoPrev}
                 className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper disabled:opacity-30 disabled:hover:bg-transparent transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
                 [◀]
@@ -586,8 +658,8 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
               </div>
 
               <button
-                onClick={() => goToPage(pageNumber + 1)}
-                disabled={pageNumber >= (numPages || 1)}
+                onClick={nextPage}
+                disabled={!canGoNext}
                 className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper disabled:opacity-30 disabled:hover:bg-transparent transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
                 [▶]
@@ -612,9 +684,33 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
         ref={containerRef}
       >
         {loadingPdf ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-3">
-            <Loader2 className="h-8 w-8 text-accent animate-spin" />
-            <span className="font-mono text-sm text-subtle">[LOADING...]</span>
+          <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
+            {/* PDF skeleton matching brutalist aesthetic */}
+            <div className="w-full max-w-md space-y-3">
+              {/* Document page skeleton */}
+              <div className="h-80 bg-paper border-2 border-ink/30 relative overflow-hidden">
+                {/* Skeleton content lines */}
+                <div className="absolute top-8 left-8 right-8 space-y-2">
+                  <div className="h-3 bg-subtle/20 animate-pulse w-3/4" />
+                  <div className="h-3 bg-subtle/20 animate-pulse delay-75 w-full" />
+                  <div className="h-3 bg-subtle/20 animate-pulse delay-100 w-5/6" />
+                </div>
+                <div className="absolute top-20 left-8 right-8 space-y-2">
+                  <div className="h-3 bg-subtle/20 animate-pulse w-full" />
+                  <div className="h-3 bg-subtle/20 animate-pulse delay-75 w-2/3" />
+                </div>
+                <div className="absolute top-32 left-8 right-8 space-y-2">
+                  <div className="h-3 bg-subtle/20 animate-pulse w-4/5" />
+                  <div className="h-3 bg-subtle/20 animate-pulse delay-75 w-full" />
+                  <div className="h-3 bg-subtle/20 animate-pulse delay-100 w-3/4" />
+                </div>
+              </div>
+              {/* Skeleton page indicator */}
+              <div className="flex justify-center">
+                <div className="h-6 w-24 bg-subtle/20 animate-pulse border border-ink/30" />
+              </div>
+            </div>
+            <span className="font-mono text-sm text-subtle">[LOADING DOCUMENT...]</span>
           </div>
         ) : pdfError ? (
           <div className="flex flex-col items-center justify-center h-64 gap-3 text-accent">
@@ -634,9 +730,17 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
               file={pdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               loading={
-                <div className="flex flex-col items-center justify-center h-64 gap-3">
-                  <Loader2 className="h-8 w-8 text-accent animate-spin" />
-                  <span className="font-mono text-sm text-subtle">[LOADING...]</span>
+                <div className="flex flex-col items-center justify-center h-64 gap-4">
+                  {/* Page skeleton */}
+                  <div className="w-64 space-y-2">
+                    <div className="h-48 bg-paper border-2 border-ink/30 p-4 space-y-2">
+                      <div className="h-2 bg-subtle/20 animate-pulse w-full" />
+                      <div className="h-2 bg-subtle/20 animate-pulse delay-75 w-4/5" />
+                      <div className="h-2 bg-subtle/20 animate-pulse delay-100 w-11/12" />
+                    </div>
+                    <div className="h-4 bg-subtle/20 animate-pulse w-20 mx-auto" />
+                  </div>
+                  <span className="font-mono text-sm text-subtle">[LOADING PAGE...]</span>
                 </div>
               }
               error={
@@ -655,10 +759,13 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
             >
               <div
                 ref={pageContainerRef}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                className="relative border-2 border-ink bg-white"
+                tabIndex={showAnnotations ? 0 : -1}
+                aria-label={`PDF page ${pageNumber} of ${numPages || '?'}${currentPageAnnotations.length > 0 ? ` with ${currentPageAnnotations.length} annotation${currentPageAnnotations.length > 1 ? 's' : ''}` : ''}`}
+                onTouchStart={touchHandlers.onTouchStart}
+                onTouchMove={touchHandlers.onTouchMove}
+                onTouchEnd={touchHandlers.onTouchEnd}
+                onKeyDown={handleContainerKeyDown}
+                className="relative border-2 border-ink bg-white focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2"
                 style={{
                   transformOrigin: 'top center'
                 }}
@@ -678,25 +785,43 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                 {showAnnotations && (
                   <div className="absolute inset-0 pointer-events-none z-10">
                     {/* Render highlight rectangles from text search */}
-                    {highlightedTextRects.map((rect, idx) => (
-                      <div
-                        key={`highlight-rect-${idx}`}
-                        className="absolute pointer-events-auto cursor-pointer transition-all duration-200 animate-pulse"
-                        style={{
-                          left: rect.x,
-                          top: rect.y,
-                          width: rect.width,
-                          height: rect.height,
-                          backgroundColor: 'rgba(212, 82, 0, 0.4)',
-                          border: '2px solid rgba(212, 82, 0, 0.8)',
-                        }}
-                        onClick={() => {
-                          if (currentPageAnnotations[0]) {
-                            handleAnnotationClick(currentPageAnnotations[0]);
-                          }
-                        }}
-                      />
-                    ))}
+                    {highlightedTextRects.map((rect, idx) => {
+                      const firstAnnotation = currentPageAnnotations[0];
+                      const ariaLabel = firstAnnotation?.sourceText
+                        ? `Annotation: ${firstAnnotation.sourceText}`
+                        : 'View annotation details';
+
+                      return (
+                        <div
+                          key={`highlight-rect-${idx}`}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={ariaLabel}
+                          className="absolute pointer-events-auto cursor-pointer transition-all duration-200 animate-pulse"
+                          style={{
+                            left: rect.x,
+                            top: rect.y,
+                            width: rect.width,
+                            height: rect.height,
+                            backgroundColor: 'rgba(212, 82, 0, 0.4)',
+                            border: '2px solid rgba(212, 82, 0, 0.8)',
+                          }}
+                          onClick={() => {
+                            if (firstAnnotation) {
+                              handleAnnotationClick(firstAnnotation);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              if (firstAnnotation) {
+                                handleAnnotationClick(firstAnnotation);
+                              }
+                            }
+                          }}
+                        />
+                      );
+                    })}
 
                     {/* Render annotation shapes from annotation data */}
                     {currentPageAnnotations.map((annotationRef) =>

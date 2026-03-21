@@ -18,6 +18,10 @@
   --rule: #0a0a0a;
   --subtle: #8a8578;
 
+  /* Semantic colors */
+  --danger: #c41e3a;
+  --success: #2d6a4f;
+
   /* Dashboard extensions */
   --sidebar-bg: #e8e4db;
   --panel-bg: #f5f2eb;
@@ -70,6 +74,40 @@ h1, h2, h3, h4, h5, h6 {
 .brutalist-sidebar {
   background: var(--sidebar-bg);
   border-right: var(--border-thick) solid var(--ink);
+}
+
+/* Brutalist texture - subtle paper grain */
+.brutalist-texture {
+  position: relative;
+}
+
+.brutalist-texture::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  z-index: 0;
+}
+
+/* Tactile hard shadow - brutalist depth without blur */
+.brutalist-shadow {
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.brutalist-shadow-sm {
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.brutalist-shadow:active {
+  box-shadow: 1px 1px 0 var(--ink);
+  transform: translate(2px, 2px);
+}
+
+.brutalist-shadow-sm:active {
+  box-shadow: 0px 0px 0 var(--ink);
+  transform: translate(1px, 1px);
 }
 
 .brutalist-divider {
@@ -187,6 +225,96 @@ html, body {
   }
 }
 
+/* Sequential collapse transitions */
+.sidebar-collapse {
+  transition: width 250ms ease-in-out;
+}
+
+.sidebar-collapse .fade-content {
+  transition: opacity 150ms ease-out;
+  transition-delay: 0ms;
+}
+
+.sidebar-collapse.collapsed .fade-content {
+  opacity: 0;
+  transition-delay: 0ms;
+}
+
+.sidebar-collapse:not(.collapsed) .fade-content {
+  opacity: 1;
+  transition-delay: 100ms;
+}
+
+.sidebar-collapse.collapsed {
+  width: 4.5rem;
+}
+
+.sidebar-collapse:not(.collapsed) {
+  width: 20rem;
+}
+
+/* ============================================
+   PDF Viewer Collapse/Expand Transitions
+   ============================================ */
+
+/* PDF panel collapse animation */
+@keyframes pdf-collapse {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+}
+
+/* PDF panel expand animation */
+@keyframes pdf-expand {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Chat panel expand when PDF is collapsed */
+@keyframes chat-expand {
+  from {
+    width: calc(100% - var(--split-position, 60%));
+  }
+  to {
+    width: calc(100% - 60px);
+  }
+}
+
+/* Chat panel collapse when PDF is visible */
+@keyframes chat-collapse {
+  from {
+    width: calc(100% - 60px);
+  }
+  to {
+    width: calc(100% - var(--split-position, 60%));
+  }
+}
+
+/* Collapsed PDF indicator hover animation */
+@keyframes indicator-pulse {
+  0%, 100% {
+    background-color: var(--panel-bg);
+  }
+  50% {
+    background-color: rgba(212, 82, 0, 0.1);
+  }
+}
+
+.pdf-collapsed-indicator:hover {
+  animation: indicator-pulse 1s ease-in-out infinite;
+}
+
 @keyframes slide-up {
   from {
     opacity: 0;
@@ -228,6 +356,17 @@ html, body {
   to {
     opacity: 1;
     transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes slide-in-stagger {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
@@ -285,8 +424,21 @@ html, body {
   animation: slide-in-left 0.4s ease-out forwards;
 }
 
+.animate-slide-in-stagger {
+  animation: slide-in-stagger 0.25s ease-out forwards;
+}
+
 .animate-blink {
   animation: blink 1s infinite;
+}
+
+/* Animation delays for skeleton loading */
+.delay-75 {
+  animation-delay: 75ms;
+}
+
+.delay-100 {
+  animation-delay: 100ms;
 }
 
 /* Document viewer styles */
@@ -481,4 +633,404 @@ html, body {
 
 .markdown-content pre::-webkit-scrollbar-thumb:hover {
   background: #64748b;
+}
+
+/* ============================================
+   Chat Interface Motion Animations
+   ============================================ */
+
+/* Message entrance animation */
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-enter {
+  animation: message-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+.message-enter-delay-1 { animation-delay: 0ms; }
+.message-enter-delay-2 { animation-delay: 50ms; }
+.message-enter-delay-3 { animation-delay: 100ms; }
+
+/* Model menu expand animation */
+@keyframes menu-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.model-menu-enter {
+  animation: menu-expand 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top right;
+}
+
+/* Loading indicator pulse animation */
+@keyframes message-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.loading-dot {
+  animation: message-pulse 0.8s ease-in-out infinite;
+}
+
+.loading-dot:nth-child(1) { animation-delay: 0ms; }
+.loading-dot:nth-child(2) { animation-delay: 150ms; }
+.loading-dot:nth-child(3) { animation-delay: 300ms; }
+
+/* Empty state fade-in animation */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.empty-state-child {
+  opacity: 0;
+  animation: fade-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.empty-state-delay-1 { animation-delay: 0ms; }
+.empty-state-delay-2 { animation-delay: 80ms; }
+.empty-state-delay-3 { animation-delay: 160ms; }
+.empty-state-delay-4 { animation-delay: 240ms; }
+.empty-state-delay-5 { animation-delay: 320ms; }
+
+/* ============================================
+   Brutalist Chat Messages
+   ============================================ */
+
+/* Message container animations */
+@keyframes message-slide-in-user {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes message-slide-in-ai {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Brutalist user message - sharp corners, heavy border */
+.brutalist-message-user {
+  background: var(--ink);
+  color: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--accent);
+  position: relative;
+}
+
+.brutalist-message-user::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: var(--accent);
+  z-index: -1;
+  transform: translate(2px, 2px);
+  transition: transform 0.15s ease;
+}
+
+.brutalist-message-user:hover::before {
+  transform: translate(1px, 1px);
+}
+
+/* Brutalist AI message - paper with ink border */
+.brutalist-message-ai {
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 rgba(10, 10, 10, 0.2);
+  position: relative;
+}
+
+.brutalist-message-ai::after {
+  content: '[AI]';
+  position: absolute;
+  top: -10px;
+  left: -1px;
+  background: var(--accent);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 6px;
+  letter-spacing: 0.05em;
+}
+
+/* Avatar badges - brutalist style */
+.brutalist-avatar-user {
+  background: var(--ink);
+  color: var(--paper);
+  border: 2px solid var(--ink);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  box-shadow: 2px 2px 0 var(--accent);
+}
+
+.brutalist-avatar-ai {
+  background: var(--accent);
+  color: var(--paper);
+  border: 2px solid var(--accent);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+/* Annotation pill - brutalist document reference */
+.brutalist-annotation-pill {
+  background: var(--paper);
+  border: 2px solid var(--accent);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 2px 2px 0 var(--accent);
+  transition: all 0.1s ease;
+}
+
+.brutalist-annotation-pill:hover {
+  box-shadow: 1px 1px 0 var(--accent);
+  transform: translate(1px, 1px);
+  background: var(--accent);
+  color: var(--paper);
+}
+
+/* Code block - brutal terminal style */
+.brutalist-code-block {
+  background: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--subtle);
+}
+
+.brutalist-code-header {
+  background: var(--accent);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 12px;
+  border-bottom: 2px solid var(--ink);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.brutalist-copy-button {
+  background: transparent;
+  border: 1px solid var(--paper);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all 0.1s ease;
+}
+
+.brutalist-copy-button:hover {
+  background: var(--paper);
+  color: var(--accent);
+}
+
+/* Inline code - brutalist highlight */
+.brutalist-inline-code {
+  background: var(--accent);
+  color: var(--paper);
+  border: 1px solid var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 2px 6px;
+  box-shadow: 2px 2px 0 rgba(212, 82, 0, 0.3);
+}
+
+/* Markdown prose overrides for brutalist chat */
+.brutalist-prose {
+  font-family: var(--font-serif);
+}
+
+.brutalist-prose h1,
+.brutalist-prose h2,
+.brutalist-prose h3,
+.brutalist-prose h4 {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 0.5em;
+}
+
+.brutalist-prose h1 { font-size: 1.25em; }
+.brutalist-prose h2 { font-size: 1.1em; }
+.brutalist-prose h3 { font-size: 1em; }
+
+.brutalist-prose p {
+  margin-bottom: 1em;
+  line-height: 1.7;
+}
+
+.brutalist-prose ul,
+.brutalist-prose ol {
+  margin: 1em 0;
+  padding-left: 1.5em;
+}
+
+.brutalist-prose li {
+  margin-bottom: 0.5em;
+  position: relative;
+}
+
+.brutalist-prose ul li::marker {
+  content: '→ ';
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.brutalist-prose ol li::marker {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.brutalist-prose a {
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
+  text-decoration: none;
+  transition: all 0.1s ease;
+}
+
+.brutalist-prose a:hover {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.brutalist-prose strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.brutalist-prose blockquote {
+  border-left: 4px solid var(--accent);
+  padding-left: 1em;
+  margin: 1em 0;
+  font-style: italic;
+  background: rgba(212, 82, 0, 0.05);
+  padding: 0.75em 1em;
+}
+
+.brutalist-prose table {
+  border: 2px solid var(--ink);
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.brutalist-prose th,
+.brutalist-prose td {
+  border: 1px solid var(--ink);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.brutalist-prose th {
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.brutalist-prose tr:nth-child(even) {
+  background: rgba(10, 10, 10, 0.03);
+}
+
+/* Annotation section header */
+.brutalist-annotation-header {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  color: var(--accent);
+  border-top: 2px dashed var(--subtle);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+/* Typing indicator for streaming responses */
+@keyframes brutalist-type {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+.brutalist-typing-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  animation: brutalist-type 0.6s ease-in-out infinite;
+}
+
+.brutalist-typing-dot:nth-child(2) { animation-delay: 0.1s; }
+.brutalist-typing-dot:nth-child(3) { animation-delay: 0.2s; }
+
+.brutalist-typing-container {
+  display: flex;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+/* Message timestamp */
+.brutalist-timestamp {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }

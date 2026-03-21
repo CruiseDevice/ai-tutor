@@ -12,6 +12,7 @@ import { authApi, documentApi, conversationApi, configApi, getPDFProxyUrl } from
 import { useChatStore } from '@/stores/chatStore';
 import { useAnnotationsStore } from '@/stores/annotationsStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useUIStore, selectPdfViewerVisible } from '@/stores/uiStore';
 
 function DashboardWithSearchParams () {
   const router = useRouter();
@@ -38,6 +39,12 @@ function DashboardWithSearchParams () {
   const storeLoadConversation = useChatStore((s) => s.loadConversation);
   const storeMaxFileSize = useAuthStore((s) => s.maxFileSize);
   const storeSetMaxFileSize = useAuthStore((s) => s.setMaxFileSize);
+
+  // =====================================================
+  // PDF VIEWER VISIBILITY STATE
+  // =====================================================
+  const pdfViewerVisible = useUIStore(selectPdfViewerVisible);
+  const setPdfViewerVisible = useUIStore((s) => s.setPdfViewerVisible);
 
   // =====================================================
   // AUTO-NAVIGATION: Watch for new annotations and navigate PDF
@@ -276,25 +283,12 @@ function DashboardWithSearchParams () {
         // update URL with the new conversation ID
         updateUrl(data.conversationId);
 
-        // a minimap conversation object to pass to the ChatSidebar
-        // This prevents needing to wait for a separate fetch
-        const newConversation = {
-          id: data.conversationId,
-          documentId: data.id,
-          title: file.name,
-          updatedAt: new Date().toISOString(),
-        }
-
-        // add it to the ChatSidebar component by passing it as a prop
+        // Refresh sidebar to show the newly uploaded document and conversation
         if (chatSidebarRef.current) {
-          const chatSidebar = chatSidebarRef.current as unknown as { addNewConversation: (conv: typeof newConversation) => void };
-          if (typeof chatSidebar.addNewConversation === 'function') {
-            chatSidebar.addNewConversation(newConversation);
-          } else {
-            fetchConversations();
+          const sidebar = chatSidebarRef.current as unknown as { refreshConversations: () => void };
+          if (typeof sidebar.refreshConversations === 'function') {
+            sidebar.refreshConversations();
           }
-        } else {
-          fetchConversations();
         }
       } else {
         console.error('No conversationId returned from server');
@@ -380,42 +374,62 @@ function DashboardWithSearchParams () {
       {/* Main content Area */}
       <div ref={containerRef} className="flex flex-1 overflow-hidden relative border-l-2 border-ink">
         {/* PDF Viewer Section */}
-        <div
-          className="h-full overflow-hidden border-r-2 border-ink"
-          style={{ width: `${splitPosition}%` }}
-        >
-          <EnhancedPDFViewer
-            ref={pdfViewerRef}
-            onFileUpload={handleFileUpload}
-            fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
-          />
-        </div>
-
-        {/* Resizer - Brutalist Style */}
-        <div
-          onPointerDown={handlePointerDown}
-          className={`no-select no-tap-highlight absolute top-0 bottom-0 w-px bg-ink cursor-col-resize z-20 ${
-            isResizing ? 'bg-accent' : ''
-          }`}
-          style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
-        >
-          <div className={`no-select no-tap-highlight absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-10 h-14 border-2 border-ink bg-panel-bg flex items-center justify-center transition-all min-w-[44px] min-h-[44px] ${
-            isResizing
-              ? 'border-accent bg-accent text-paper'
-              : 'hover:border-accent'
-          }`}>
-            <div className="flex flex-col gap-1">
-              <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
-              <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
-              <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
+        {pdfViewerVisible ? (
+          <div
+            className="h-full overflow-hidden border-r-2 border-ink transition-all duration-300"
+            style={{ width: `${splitPosition}%` }}
+          >
+            <EnhancedPDFViewer
+              ref={pdfViewerRef}
+              onFileUpload={handleFileUpload}
+              fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
+              onCollapse={() => setPdfViewerVisible(false)}
+            />
+          </div>
+        ) : (
+          /* Collapsed PDF Indicator */
+          <div
+            onClick={() => setPdfViewerVisible(true)}
+            onKeyDown={(e) => e.key === 'Enter' && setPdfViewerVisible(true)}
+            role="button"
+            aria-label="Expand PDF viewer"
+            tabIndex={0}
+            className="h-full overflow-hidden border-r-2 border-ink bg-panel-bg flex items-center justify-center cursor-pointer hover:bg-accent/10 active:bg-accent/20 transition-colors min-w-[60px]"
+            style={{ width: '60px' }}
+          >
+            <div className="font-mono text-xs text-accent rotate-90 whitespace-nowrap select-none">
+              [▶ DOCUMENT]
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Resizer - Brutalist Style (only when PDF is visible) */}
+        {pdfViewerVisible && (
+          <div
+            onPointerDown={handlePointerDown}
+            className={`no-select no-tap-highlight absolute top-0 bottom-0 w-px bg-ink cursor-col-resize z-20 ${
+              isResizing ? 'bg-accent' : ''
+            }`}
+            style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
+          >
+            <div className={`no-select no-tap-highlight absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-10 h-14 border-2 border-ink bg-panel-bg flex items-center justify-center transition-all min-w-[44px] min-h-[44px] ${
+              isResizing
+                ? 'border-accent bg-accent text-paper'
+                : 'hover:border-accent'
+            }`}>
+              <div className="flex flex-col gap-1">
+                <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
+                <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
+                <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Chat Section */}
         <div
-          className="h-full overflow-hidden"
-          style={{ width: `${100 - splitPosition}%` }}
+          className="h-full overflow-hidden transition-all duration-300"
+          style={{ width: pdfViewerVisible ? `${100 - splitPosition}%` : 'calc(100% - 60px)' }}
         >
           <ChatInterface />
         </div>
