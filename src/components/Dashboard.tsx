@@ -276,25 +276,12 @@ function DashboardWithSearchParams () {
         // update URL with the new conversation ID
         updateUrl(data.conversationId);
 
-        // a minimap conversation object to pass to the ChatSidebar
-        // This prevents needing to wait for a separate fetch
-        const newConversation = {
-          id: data.conversationId,
-          documentId: data.id,
-          title: file.name,
-          updatedAt: new Date().toISOString(),
-        }
-
-        // add it to the ChatSidebar component by passing it as a prop
+        // Refresh sidebar to show the newly uploaded document and conversation
         if (chatSidebarRef.current) {
-          const chatSidebar = chatSidebarRef.current as unknown as { addNewConversation: (conv: typeof newConversation) => void };
-          if (typeof chatSidebar.addNewConversation === 'function') {
-            chatSidebar.addNewConversation(newConversation);
-          } else {
-            fetchConversations();
+          const sidebar = chatSidebarRef.current as unknown as { refreshConversations: () => void };
+          if (typeof sidebar.refreshConversations === 'function') {
+            sidebar.refreshConversations();
           }
-        } else {
-          fetchConversations();
         }
       } else {
         console.error('No conversationId returned from server');

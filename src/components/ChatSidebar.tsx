@@ -41,6 +41,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
   const storeIsLoading = useDocumentsStore(selectIsLoadingDocs);
   const storeConversationId = useChatStore((s) => s.conversationId);
   const storeLoadConversation = useChatStore((s) => s.loadConversation);
+  const storeClearChat = useChatStore((s) => s.clearChat);
   const storeDeleteConversation = useDocumentsStore((s) => s.deleteConversation);
   const storeCreateConversation = useDocumentsStore((s) => s.createConversation);
   const storeToggleExpanded = useDocumentsStore((s) => s.toggleExpanded);
@@ -101,9 +102,18 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
   const handleDelete = useCallback(async(e: React.MouseEvent, conversationId: string, documentId: string) => {
     e.stopPropagation();
     if (confirm("Are you sure you want to delete this conversation?")) {
+      const wasCurrentConversation = conversationId === storeConversationId;
+
       await storeDeleteConversation(conversationId, documentId);
+      // Refresh document groups to update UI (handles removing empty document groups)
+      await storeFetchDocumentGroups();
+
+      // Clear the PDF viewer if we deleted the current conversation
+      if (wasCurrentConversation) {
+        storeClearChat();
+      }
     }
-  }, [storeDeleteConversation]);
+  }, [storeDeleteConversation, storeFetchDocumentGroups, storeConversationId, storeClearChat]);
 
   const handleCreateNewConversation = useCallback(async (e: React.MouseEvent, documentId: string) => {
     e.stopPropagation();
@@ -137,8 +147,8 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
 
   return (
     <div
-      className={`h-full bg-sidebar-bg text-ink border-r-2 border-ink transition-all duration-200 flex flex-col relative z-20 font-serif ${
-        isOpen ? 'w-80' : 'w-[4.5rem]'
+      className={`h-full bg-sidebar-bg text-ink border-r-2 border-ink flex flex-col relative z-20 font-serif brutalist-texture sidebar-collapse ${
+        !isOpen ? 'collapsed' : ''
       }`}
     >
       {/* =====================================================
@@ -147,19 +157,21 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
       <div className="border-b-2 border-ink">
         <div className={`flex items-center p-4 ${isOpen ? 'justify-between' : 'justify-center'}`}>
           {isOpen && (
-            <div className="flex items-center gap-3 overflow-hidden">
+            <div className="flex items-center gap-3 overflow-hidden fade-content">
               <h2 className="font-mono font-bold text-lg uppercase tracking-tight">
                 TUTOR<span className="text-accent">.AI</span>
               </h2>
-              <span className="font-mono text-xs text-accent ml-auto">[001]</span>
+              <span className="font-mono text-xs text-accent ml-auto fade-content">[001]</span>
             </div>
           )}
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="no-select p-2 border border-ink hover:bg-ink hover:text-paper transition-all duration-150 min-w-[44px] min-h-[44px] flex items-center justify-center font-mono text-sm"
+            className="no-select brutalist-shadow-sm p-2 border border-ink hover:bg-ink hover:text-paper transition-all duration-150 min-w-[44px] min-h-[44px] flex items-center justify-center font-mono text-sm"
             aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
-            {isOpen ? '[◀]' : '[▶]'}
+            <span className={`transition-transform duration-200 ${isOpen ? 'rotate-0' : 'rotate-180'}`}>
+              {isOpen ? '[◀]' : '[▶]'}
+            </span>
           </button>
         </div>
       </div>
@@ -170,11 +182,11 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
       <div className={`p-4 border-b-2 border-ink ${isOpen ? '' : 'flex justify-center'}`}>
         <button
           onClick={handleNavigateToDashboard}
-          className={`brutalist-button brutalist-button-primary w-full py-3 px-4 min-h-[44px] font-mono text-sm uppercase ${
+          className={`brutalist-button brutalist-button-primary brutalist-shadow w-full py-3 px-4 min-h-[44px] font-mono text-sm uppercase ${
             isOpen ? '' : 'w-10 justify-center p-0 min-w-[44px]'
           }`}
         >
-          {isOpen ? '[NEW STUDY SESSION]' : '[+]'}
+          <span className={isOpen ? 'fade-content' : ''}>{isOpen ? '[NEW STUDY SESSION]' : '[+]'}</span>
         </button>
       </div>
 
@@ -183,7 +195,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
           ===================================================== */}
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
         {isOpen && (
-          <div className="flex items-center gap-2 px-4 py-3 border-b-2 border-ink">
+          <div className="flex items-center gap-2 px-4 py-3 border-b-2 border-ink fade-content">
             <span className="font-mono text-xs text-accent">[002]</span>
             <span className="font-mono text-xs uppercase tracking-wider">Documents</span>
           </div>
@@ -194,9 +206,15 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
             <div className="font-mono text-xs text-subtle animate-pulse">[LOADING...]</div>
           </div>
         ) : storeDocumentGroups.length === 0 ? (
-          <div className={`text-center p-6 text-subtle text-sm ${!isOpen && 'hidden'}`}>
-            <p className="font-mono text-xs">[NO DOCUMENTS]</p>
-            <p className="font-serif text-xs mt-2">Upload a PDF to get started</p>
+          <div className={`text-center p-8 ${!isOpen && 'hidden'}`}>
+            <div className="font-mono text-subtle/40 text-4xl mb-4 animate-float fade-content">[∅]</div>
+            <p className="font-mono text-xs text-subtle mb-2 fade-content">[EMPTY LIBRARY]</p>
+            <p className="font-serif text-xs text-subtle/70 leading-relaxed fade-content">
+              Upload a PDF to begin your study session
+            </p>
+            <div className="mt-4 font-mono text-[10px] text-subtle/50 fade-content">
+              └ <span className="text-accent">[NEW STUDY SESSION]</span> to get started
+            </div>
           </div>
         ) : (
           <ul className="border-t-2 border-ink">
@@ -232,7 +250,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                       </div>
 
                       {isOpen && (
-                        <div className="overflow-hidden flex-1 min-w-0">
+                        <div className="overflow-hidden flex-1 min-w-0 fade-content">
                           <div className="truncate font-medium text-sm leading-tight mb-0.5">
                             {group.document.title}
                           </div>
@@ -253,7 +271,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                             handleCreateNewConversation(e, documentId);
                           }}
                           disabled={storeCreatingConversationDocId === documentId}
-                          className={`no-select font-mono text-xs px-2 py-1 border border-ink transition-all min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                          className={`no-select brutalist-shadow-sm font-mono text-xs px-2 py-1 border border-ink transition-all min-w-[44px] min-h-[44px] flex items-center justify-center ${
                             storeCreatingConversationDocId === documentId
                               ? 'text-accent opacity-100 cursor-not-allowed'
                               : 'text-subtle hover:bg-ink hover:text-paper opacity-70 group-hover/document:opacity-100'
@@ -273,7 +291,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                             e.stopPropagation();
                             toggleDocumentExpansion(documentId);
                           }}
-                          className="no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                          className="no-select brutalist-shadow-sm font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                           title={isExpanded ? "Collapse" : "Expand"}
                         >
                           {isExpanded ? '[▲]' : '[▼]'}
@@ -285,11 +303,15 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                   {/* Conversations List (when expanded) */}
                   {isOpen && isExpanded && (
                     <div className="ml-4 mt-1 space-y-1 border-l-2 border-ink pl-3 pb-2 bg-sidebar-bg/50">
-                      {group.conversations.map((conversation) => (
-                        <div key={conversation.id} className="group/conversation relative">
+                      {group.conversations.map((conversation, index) => (
+                        <div
+                          key={`${documentId}-${conversation.id}`}
+                          className="group/conversation relative animate-slide-in-stagger"
+                          style={{ animationDelay: `${index * 60}ms` }}
+                        >
                           <button
                             onClick={() => handleSelectConversation(conversation.id, documentId)}
-                            className={`no-select w-full text-left border transition-all duration-150 flex items-center group/item min-h-[44px] p-2.5 ${
+                            className={`no-select brutalist-shadow-sm w-full text-left border transition-all duration-150 flex items-center group/item min-h-[44px] p-2.5 ${
                               storeConversationId === conversation.id
                                 ? 'bg-ink text-paper border-ink'
                                 : 'bg-paper text-ink border-subtle hover:bg-ink hover:text-paper hover:border-ink'
@@ -303,7 +325,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                               </span>
                             </div>
 
-                            <div className="overflow-hidden flex-1 min-w-0">
+                            <div className="overflow-hidden flex-1 min-w-0 fade-content">
                               <div className="truncate font-medium text-xs leading-tight mb-0.5">
                                 {conversation.title || 'New Chat'}
                               </div>
@@ -319,8 +341,8 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                           <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/conversation:opacity-100 transition-opacity">
                             <button
                               onClick={(e) => handleDelete(e, conversation.id, documentId)}
-                              className={`no-select font-mono text-xs px-2 py-1 border border-ink hover:bg-accent hover:border-accent hover:text-paper transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                                storeDeletingConversationId === conversation.id ? 'text-accent opacity-100' : 'text-subtle'
+                              className={`no-select brutalist-shadow-sm font-mono text-xs px-2 py-1 border border-ink hover:bg-[var(--danger)] hover:border-[var(--danger)] hover:text-[var(--paper)] transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                                storeDeletingConversationId === conversation.id ? 'text-[var(--danger)] opacity-100' : 'text-subtle'
                               }`}
                               title="Delete conversation"
                               disabled={storeDeletingConversationId === conversation.id}
@@ -350,7 +372,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
         <div className="relative">
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className={`no-tap-highlight w-full flex items-center border hover:bg-ink hover:text-paper transition-colors min-h-[44px] ${
+            className={`no-tap-highlight brutalist-shadow-sm w-full flex items-center border hover:bg-ink hover:text-paper transition-colors min-h-[44px] ${
               isOpen ? 'p-3 justify-between' : 'p-3 justify-center'
             } ${isMenuOpen ? 'bg-ink text-paper' : 'border-ink'}`}
           >
@@ -359,7 +381,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                 {storeUserId ? storeUserId.substring(0, 2).toUpperCase() : 'U'}
               </div>
               {isOpen && (
-                <div className="text-left">
+                <div className="text-left fade-content">
                   <div className="font-serif text-xs truncate w-32">
                     {storeUserEmail || storeUserId || 'User'}
                   </div>
@@ -367,7 +389,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
               )}
             </div>
             {isOpen && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 fade-content">
                 <span className="font-mono text-xs px-2 py-1 border border-ink text-subtle">[PRO PLAN]</span>
                 <span className={`font-mono text-xs transition-transform duration-200 ${isMenuOpen ? 'rotate-180' : ''}`}>[▼]</span>
               </div>
@@ -385,7 +407,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
               <div className="border-b border-ink">
                 <Link
                   href="/settings"
-                  className="no-select flex items-center px-4 py-3 font-mono text-xs text-ink hover:bg-ink hover:text-paper transition-colors gap-3 min-h-[44px] border-b border-ink"
+                  className="no-select brutalist-shadow-sm flex items-center px-4 py-3 font-mono text-xs text-ink hover:bg-ink hover:text-paper transition-colors gap-3 min-h-[44px] border-b border-ink"
                 >
                   <span>[⚙]</span>
                   <span>Settings</span>
@@ -394,7 +416,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
               <div>
                 <button
                   onClick={handleLogout}
-                  className="no-select w-full flex items-center px-4 py-3 font-mono text-xs text-accent hover:bg-accent hover:text-paper transition-colors gap-3 min-h-[44px]"
+                  className="no-select w-full flex items-center px-4 py-3 font-mono text-xs text-[var(--danger)] hover:bg-[var(--danger)] hover:text-[var(--paper)] transition-colors gap-3 min-h-[44px]"
                 >
                   <span>[←]</span>
                   <span>Logout</span>

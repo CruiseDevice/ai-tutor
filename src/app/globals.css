@@ -18,6 +18,10 @@
   --rule: #0a0a0a;
   --subtle: #8a8578;
 
+  /* Semantic colors */
+  --danger: #c41e3a;
+  --success: #2d6a4f;
+
   /* Dashboard extensions */
   --sidebar-bg: #e8e4db;
   --panel-bg: #f5f2eb;
@@ -70,6 +74,40 @@ h1, h2, h3, h4, h5, h6 {
 .brutalist-sidebar {
   background: var(--sidebar-bg);
   border-right: var(--border-thick) solid var(--ink);
+}
+
+/* Brutalist texture - subtle paper grain */
+.brutalist-texture {
+  position: relative;
+}
+
+.brutalist-texture::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  z-index: 0;
+}
+
+/* Tactile hard shadow - brutalist depth without blur */
+.brutalist-shadow {
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.brutalist-shadow-sm {
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.brutalist-shadow:active {
+  box-shadow: 1px 1px 0 var(--ink);
+  transform: translate(2px, 2px);
+}
+
+.brutalist-shadow-sm:active {
+  box-shadow: 0px 0px 0 var(--ink);
+  transform: translate(1px, 1px);
 }
 
 .brutalist-divider {
@@ -187,6 +225,34 @@ html, body {
   }
 }
 
+/* Sequential collapse transitions */
+.sidebar-collapse {
+  transition: width 250ms ease-in-out;
+}
+
+.sidebar-collapse .fade-content {
+  transition: opacity 150ms ease-out;
+  transition-delay: 0ms;
+}
+
+.sidebar-collapse.collapsed .fade-content {
+  opacity: 0;
+  transition-delay: 0ms;
+}
+
+.sidebar-collapse:not(.collapsed) .fade-content {
+  opacity: 1;
+  transition-delay: 100ms;
+}
+
+.sidebar-collapse.collapsed {
+  width: 4.5rem;
+}
+
+.sidebar-collapse:not(.collapsed) {
+  width: 20rem;
+}
+
 @keyframes slide-up {
   from {
     opacity: 0;
@@ -228,6 +294,17 @@ html, body {
   to {
     opacity: 1;
     transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes slide-in-stagger {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
@@ -283,6 +360,10 @@ html, body {
 
 .animate-slide-in-left {
   animation: slide-in-left 0.4s ease-out forwards;
+}
+
+.animate-slide-in-stagger {
+  animation: slide-in-stagger 0.25s ease-out forwards;
 }
 
 .animate-blink {
