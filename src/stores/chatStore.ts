@@ -238,7 +238,9 @@ export const useChatStore = create<ChatState>()(
             (error) => {
               batcher.destroy();
               set((state) => ({
-                messages: state.messages.filter(m => m.id !== userMsgId && m.id !== assistantMsgId),
+                // Keep the user message so they don't lose their work
+                // Remove only the empty assistant placeholder
+                messages: state.messages.filter(m => m.id !== assistantMsgId),
                 error,
                 isLoading: false,
                 showWorkflow: false,
@@ -248,7 +250,8 @@ export const useChatStore = create<ChatState>()(
         } catch (error) {
           batcher.destroy();
           set((state) => ({
-            messages: state.messages.filter(m => m.id !== userMsgId && m.id !== assistantMsgId),
+            // Keep the user message so they don't lose their work
+            messages: state.messages.filter(m => m.id !== assistantMsgId),
             error: error instanceof Error ? error.message : 'Failed to send message',
             isLoading: false,
             showWorkflow: false,

@@ -177,7 +177,17 @@ export const chatApi = {
                 onDone(data);
                 return;
               } else if (data.type === 'error') {
-                onError(data.message || data.content || data.error || 'Unknown error occurred');
+                const rawError = data.message || data.content || data.error || 'Unknown error occurred';
+                // Clean up technical error messages for user-friendly display
+                let userError = rawError;
+                if (userError.includes('Incorrect API key') || userError.includes('invalid_api_key')) {
+                  userError = 'Invalid OpenAI API key. Please check your API key in Settings.';
+                } else if (userError.includes('Rate limit')) {
+                  userError = 'OpenAI rate limit exceeded. Please wait a moment and try again.';
+                } else if (userError.includes('Answer generation failed')) {
+                  userError = userError.replace('Answer generation failed: ', '');
+                }
+                onError(userError);
                 return;
               }
             } catch (e) {

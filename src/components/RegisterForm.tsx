@@ -36,8 +36,6 @@ export default function RegisterForm () {
     // Password validation
     if (!formData.password) {
       newErrors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters long';
     }
 
     // Confirm password validation
@@ -149,19 +147,6 @@ export default function RegisterForm () {
               </button>
             </div>
           )}
-
-          {/* Info Box - Password Requirements */}
-          <div className="border-2 border-ink bg-accent/5 px-4 py-3">
-            <div className="flex items-start gap-2">
-              <span className="font-mono text-accent text-sm">[ℹ]</span>
-              <div>
-                <p className="font-mono text-xs font-bold text-ink uppercase">Password requirements</p>
-                <ul className="mt-1.5 font-serif text-sm text-subtle">
-                  <li>• At least 8 characters</li>
-                </ul>
-              </div>
-            </div>
-          </div>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
             {/* Email Field */}

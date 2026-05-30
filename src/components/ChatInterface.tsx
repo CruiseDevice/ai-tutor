@@ -77,12 +77,24 @@ export default function ChatInterface() {
   const hasApiKey = useChatStore(selectHasApiKey);
   const useAgent = useChatStore(selectUseAgent);
   const toggleAgent = useChatStore(selectToggleAgent);
+  // Subscribe to store error state so errors from sendMessage are displayed
+  const storeError = useChatStore((s) => s.error);
+
   const setSelectedAnnotation = useAnnotationsStore((s) => s.setSelectedAnnotation);
   const setPdfViewerVisible = useUIStore((s) => s.setPdfViewerVisible);
 
   // Local state
   const [inputMessage, setInputMessage] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  // Combine local error with store error (store error takes precedence)
+  const [localError, setLocalError] = useState<string | null>(null);
+  const storeSetError = useChatStore((s) => s.setError);
+  const error = storeError || localError;
+  // setError only clears the local error + store error for explicit user dismiss
+  // It should NOT be called before sending (use setLocalError(null) instead)
+  const setError = (err: string | null) => {
+    setLocalError(err);
+    storeSetError(null);
+  };
   const errorTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
@@ -233,13 +245,17 @@ export default function ChatInterface() {
     // Reset height
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-    setError(null);
+    // Only clear local error (not store error, which may be set during streaming)
+    setLocalError(null);
+    storeSetError(null);
 
     try {
       await sendMessage(messageToSend);
+      // After sendMessage completes, check if store has an error from the stream
+      // (sendMessage handles errors via internal callbacks, not exceptions)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to send message. Please try again.';
-      setError(errorMessage);
+      setLocalError(errorMessage);
     }
   }
 
