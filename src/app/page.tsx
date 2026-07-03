@@ -3,6 +3,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import { authApi } from "@/lib/api-client";
 
 // Animated Demo Component
@@ -391,9 +392,9 @@ export default function Home() {
       <nav className="fixed w-full z-50 bg-paper border-b-2 border-ink">
         <div className="flex justify-between items-center px-6 py-4">
           <div className="flex items-center gap-6">
-            <a href="/" className="font-mono text-xl font-bold tracking-tight">
+            <Link href="/" className="font-mono text-xl font-bold tracking-tight">
               STUDYFETCH<span className="text-accent">.</span>AI
-            </a>
+            </Link>
             <div className="hidden md:flex items-center gap-1 font-mono text-xs">
               <span className="text-subtle">[</span>
               <a href="#features" className="px-3 py-2 hover:text-accent transition-colors">FEATURES</a>
@@ -504,7 +505,7 @@ export default function Home() {
                 <span className="font-mono text-6xl font-bold text-accent/20 group-hover:text-accent/40">03</span>
                 <div>
                   <h3 className="font-mono text-xl font-bold mb-2">Smart Document Search</h3>
-                  <p className="font-serif text-subtle">Advanced vector search finds relevant content even when you don't remember exact keywords.</p>
+                  <p className="font-serif text-subtle">Advanced vector search finds relevant content even when you don&apos;t remember exact keywords.</p>
                 </div>
               </div>
             </div>
