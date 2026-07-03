@@ -43,10 +43,6 @@ function ResetPasswordFormWithParams() {
     const newErrors: FormErrors = {};
     if (!formData.password) {
       newErrors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters long';
-    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
-      newErrors.password = 'Password must contain at least one lowercase letter, one uppercase letter, and one number';
     }
 
     if (!formData.confirmPassword) {
@@ -71,7 +67,7 @@ function ResetPasswordFormWithParams() {
     e.preventDefault();
     setErrors({});
     setSuccess('');
-    
+
     if(!validateForm()) return;
 
     if (!token) {
@@ -84,7 +80,7 @@ function ResetPasswordFormWithParams() {
 
     setIsLoading(true);
 
-    try { 
+    try {
       const response = await authApi.confirmPasswordReset(token, formData.password);
 
       const data = await response.json();
@@ -167,7 +163,7 @@ function ResetPasswordFormWithParams() {
                 disabled={isLoading}
               />
             </div>
-            
+
             <div>
               <label htmlFor="confirmPassword" className="sr-only">
                 Confirm Password

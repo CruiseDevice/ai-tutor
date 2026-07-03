@@ -2,6 +2,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { ChevronRight } from "lucide-react";
 import EnhancedPDFViewer, { PDFViewerRef } from "./EnhancedPDFViewer";
 import ChatInterface from "./ChatInterface";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -39,6 +40,7 @@ function DashboardWithSearchParams () {
   const storeLoadConversation = useChatStore((s) => s.loadConversation);
   const storeMaxFileSize = useAuthStore((s) => s.maxFileSize);
   const storeSetMaxFileSize = useAuthStore((s) => s.setMaxFileSize);
+  const storeCurrentPDF = useChatStore((s) => s.currentPDF);
 
   // =====================================================
   // PDF VIEWER VISIBILITY STATE
@@ -361,7 +363,16 @@ function DashboardWithSearchParams () {
   }, [isResizing]);
 
   if (error) {
-    return <div className="p-4 text-red-500">{error}</div>
+    return (
+      <div className="h-screen flex items-center justify-center bg-paper p-6">
+        <div className="max-w-md text-center">
+          <p className="text-danger mb-4">{error}</p>
+          <button onClick={() => setError(null)} className="btn btn-quiet">
+            Dismiss
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -372,11 +383,11 @@ function DashboardWithSearchParams () {
       />
 
       {/* Main content Area */}
-      <div ref={containerRef} className="flex flex-1 overflow-hidden relative border-l-2 border-ink">
+      <div ref={containerRef} className="flex flex-1 overflow-hidden relative border-l border-hair">
         {/* PDF Viewer Section */}
         {pdfViewerVisible ? (
           <div
-            className="h-full overflow-hidden border-r-2 border-ink transition-all duration-300"
+            className="h-full overflow-hidden border-r border-hair transition-all duration-300 ease-desk"
             style={{ width: `${splitPosition}%` }}
           >
             <EnhancedPDFViewer
@@ -387,49 +398,54 @@ function DashboardWithSearchParams () {
             />
           </div>
         ) : (
-          /* Collapsed PDF Indicator */
+          /* Collapsed PDF Indicator — quiet strip with a chevron + rotated doc name */
           <div
             onClick={() => setPdfViewerVisible(true)}
             onKeyDown={(e) => e.key === 'Enter' && setPdfViewerVisible(true)}
             role="button"
             aria-label="Expand PDF viewer"
             tabIndex={0}
-            className="h-full overflow-hidden border-r-2 border-ink bg-panel-bg flex items-center justify-center cursor-pointer hover:bg-accent/10 active:bg-accent/20 transition-colors min-w-[60px]"
-            style={{ width: '60px' }}
+            className="group h-full overflow-hidden border-r border-hair bg-desk flex items-center justify-center cursor-pointer hover:bg-desk-2 transition-colors ease-desk min-w-[44px]"
+            style={{ width: '48px' }}
           >
-            <div className="font-mono text-xs text-accent rotate-90 whitespace-nowrap select-none">
-              [▶ DOCUMENT]
+            <div
+              className="text-subtle group-hover:text-accent transition-colors ease-desk select-none flex flex-col items-center gap-3"
+              style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+            >
+              <ChevronRight className="h-4 w-4" style={{ writingMode: 'horizontal-tb', transform: 'none' }} />
+              <span className="font-mono text-[11px] tracking-wider uppercase truncate max-h-[40vh]">
+                {storeCurrentPDF ? 'Document' : 'Document'}
+              </span>
             </div>
           </div>
         )}
 
-        {/* Resizer - Brutalist Style (only when PDF is visible) */}
+        {/* Resizer — 1px hairline with a subtle grab handle that highlights on hover */}
         {pdfViewerVisible && (
           <div
             onPointerDown={handlePointerDown}
-            className={`no-select no-tap-highlight absolute top-0 bottom-0 w-px bg-ink cursor-col-resize z-20 ${
-              isResizing ? 'bg-accent' : ''
+            className={`no-select no-tap-highlight absolute top-0 bottom-0 w-px cursor-col-resize z-20 transition-colors ease-desk ${
+              isResizing ? 'bg-accent' : 'bg-hair hover:bg-accent/60'
             }`}
             style={{ left: `${splitPosition}%`, transform: 'translateX(-50%)' }}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panels"
           >
-            <div className={`no-select no-tap-highlight absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-10 h-14 border-2 border-ink bg-panel-bg flex items-center justify-center transition-all min-w-[44px] min-h-[44px] ${
-              isResizing
-                ? 'border-accent bg-accent text-paper'
-                : 'hover:border-accent'
-            }`}>
-              <div className="flex flex-col gap-1">
-                <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
-                <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
-                <div className={`w-0.5 h-1 ${isResizing ? 'bg-paper' : 'bg-ink'}`}></div>
-              </div>
-            </div>
+            <div
+              className={`no-select no-tap-highlight absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1.5 h-10 rounded-xs flex items-center justify-center transition-colors ease-desk min-w-[44px] min-h-[44px] ${
+                isResizing
+                  ? 'bg-accent'
+                  : 'bg-faint/40 hover:bg-accent'
+              }`}
+            />
           </div>
         )}
 
         {/* Chat Section */}
         <div
-          className="h-full overflow-hidden transition-all duration-300"
-          style={{ width: pdfViewerVisible ? `${100 - splitPosition}%` : 'calc(100% - 60px)' }}
+          className="h-full overflow-hidden transition-all duration-300 ease-desk"
+          style={{ width: pdfViewerVisible ? `${100 - splitPosition}%` : 'calc(100% - 48px)' }}
         >
           <ChatInterface />
         </div>

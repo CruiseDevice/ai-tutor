@@ -1,5 +1,5 @@
 // app/components/ChatInterface.tsx
-import { Loader2, StopCircle, Paperclip } from "lucide-react";
+import { Paperclip, Send, AlertCircle, X, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { userApi } from "@/lib/api-client";
@@ -339,25 +339,42 @@ export default function ChatInterface() {
   }, [setPdfViewerVisible, setSelectedAnnotation]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-panel-bg relative overflow-hidden">
+    <div className="w-full h-full flex flex-col bg-paper relative overflow-hidden">
       {/* =====================================================
-          [004] HEADER - AI Tutor Panel
+          HEADER — tutor avatar + grounded status + model pill
           ===================================================== */}
-      <div className="flex-shrink-0 border-b-2 border-ink bg-panel-bg z-10">
+      <div className="flex-shrink-0 border-b border-hair bg-paper z-10">
         <div className="flex items-center justify-between px-4 py-3">
-          {/* Left: Panel Number & AI Tutor Label */}
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-accent">[004]</span>
-            <div>
-              <h2 className="font-mono font-bold text-sm uppercase">AI Tutor</h2>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs px-2 py-0.5 bg-accent text-paper">[ONLINE]</span>
-              </div>
+          {/* Left: avatar + label + grounding status */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="tutor-avatar">A</div>
+            <div className="min-w-0">
+              <h2 className="text-sm font-medium text-ink leading-tight">AI Tutor</h2>
+              {conversationId ? (
+                <p className="text-xs text-subtle leading-tight mt-0.5 truncate">
+                  Grounded in this document
+                </p>
+              ) : (
+                <p className="text-xs text-faint leading-tight mt-0.5 truncate">
+                  No document selected
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Right: Model Selector & Agent Mode */}
-          <div className="flex items-center gap-4">
+          {/* Right: model pill + agent toggle */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Agent Mode Toggle */}
+            <label className="no-tap-highlight hidden sm:flex items-center gap-2 cursor-pointer min-h-[44px] text-xs text-subtle">
+              <input
+                type="checkbox"
+                checked={useAgent}
+                onChange={handleToggleAgent}
+                className="accent-accent w-3.5 h-3.5"
+              />
+              <span>Agent mode</span>
+            </label>
+
             {/* Model Selector */}
             <div className="relative" ref={modelMenuRef}>
               <button
@@ -365,27 +382,26 @@ export default function ChatInterface() {
                 aria-label="Select AI model"
                 aria-expanded={isModelMenuOpen}
                 aria-haspopup="listbox"
-                className="no-select font-mono text-xs px-3 py-1.5 border border-ink hover:bg-ink hover:text-paper transition-colors min-h-[44px] flex items-center gap-2"
+                className="no-select inline-flex items-center gap-1.5 rounded-full border border-hair bg-surface px-3 py-1.5 text-xs text-ink hover:border-subtle hover:shadow-card transition-all ease-desk min-h-[36px]"
               >
-                <span>[⚡]</span>
                 <span>{getSelectedModelName()}</span>
-                <span>[{isModelMenuOpen ? '▲' : '▼'}]</span>
+                <ChevronDown className="h-3 w-3 text-subtle" />
               </button>
 
               {isModelMenuOpen && (
-              <div className="absolute top-full right-0 mt-2 w-80 bg-panel-bg border-2 border-ink z-20 overflow-hidden flex flex-col max-h-[600px] model-menu-enter">
+              <div className="absolute top-full right-0 mt-2 w-80 bg-surface border border-hair rounded-sm shadow-page z-20 overflow-hidden flex flex-col max-h-[600px] model-menu-enter">
                 {/* Search Header */}
-                <div className="px-3 py-2 border-b-2 border-ink flex-shrink-0">
-                  <h3 className="font-mono text-xs text-accent uppercase tracking-wider mb-2">[SELECT MODEL]</h3>
+                <div className="px-3 py-2 border-b border-hair flex-shrink-0">
+                  <h3 className="font-mono text-[10px] uppercase tracking-wider text-faint mb-2">Select model</h3>
                   <input
                     type="text"
-                    placeholder="[Search models...]"
+                    placeholder="Search models…"
                     value={modelSearchQuery}
                     onChange={(e) => setModelSearchQuery(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     role="searchbox"
                     aria-label="Search models"
-                    className="w-full px-3 py-1.5 font-mono text-xs border border-ink bg-paper focus:outline-none focus:ring-2 focus:ring-accent text-ink placeholder:text-subtle"
+                    className="w-full px-3 py-1.5 font-mono text-xs border border-hair rounded-xs bg-paper focus:outline-none focus:border-accent text-ink placeholder:text-faint"
                   />
                 </div>
 
@@ -395,10 +411,10 @@ export default function ChatInterface() {
                   aria-label="Available AI models"
                   tabIndex={0}
                   onKeyDown={handleModelMenuKeyDown}
-                  className="overflow-y-auto p-1.5 flex-1 scrollbar-thin scrollbar-thumb-slate-200"
+                  className="overflow-y-auto p-1.5 flex-1 scrollbar-thin"
                 >
                   {filteredModels.length === 0 ? (
-                    <div className="px-3 py-8 text-center font-mono text-xs text-subtle">
+                    <div className="px-3 py-8 text-center text-xs text-subtle">
                       No models found matching &quot;{modelSearchQuery}&quot;
                     </div>
                   ) : (
@@ -408,17 +424,19 @@ export default function ChatInterface() {
                         onClick={() => selectModel(model.id)}
                         role="option"
                         aria-selected={selectedModel === model.id}
-                        className={`w-full text-left px-3 py-2 border flex flex-col gap-0.5 transition-all mb-1 font-mono text-xs ${
+                        className={`w-full text-left px-3 py-2 rounded-xs flex flex-col gap-0.5 transition-colors ease-desk mb-0.5 ${
                           selectedModel === model.id
-                            ? 'bg-ink text-paper border-ink'
-                            : 'bg-paper text-ink border-subtle hover:bg-ink hover:text-paper hover:border-ink'
+                            ? 'bg-accent-soft text-ink'
+                            : 'text-ink hover:bg-desk'
                         }`}
                       >
-                        <span className="font-bold flex items-center gap-2">
+                        <span className="text-sm font-medium flex items-center gap-2">
                           {model.name}
-                          {selectedModel === model.id && <span>[✓]</span>}
+                          {selectedModel === model.id && (
+                            <span className="text-accent text-[10px]">●</span>
+                          )}
                         </span>
-                        <span className="text-subtle text-[10px]">{model.description}</span>
+                        <span className="font-mono text-[10px] text-faint">{model.description}</span>
                       </button>
                     ))
                   )}
@@ -426,48 +444,35 @@ export default function ChatInterface() {
               </div>
               )}
             </div>
-
-            {/* Agent Mode Toggle */}
-            <div className="flex items-center gap-2">
-              <label className="no-tap-highlight flex items-center gap-2 cursor-pointer min-h-[44px] font-mono text-xs">
-                <input
-                  type="checkbox"
-                  checked={useAgent}
-                  onChange={handleToggleAgent}
-                  className="accent-accent w-4 h-4"
-                />
-                <span>Agent Mode [{useAgent ? 'ON' : 'OFF'}]</span>
-              </label>
-            </div>
           </div>
         </div>
       </div>
 
       {/* =====================================================
-          ERROR TOAST - Brutalist Style
+          ERROR TOAST — refined accent-soft alert
           ===================================================== */}
       {error && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 w-[90%] max-w-md">
-          <div className="bg-accent text-paper border-2 border-accent px-4 py-3 flex items-start gap-3">
-            <span className="font-mono text-xl">[!]</span>
-            <div className="flex-1 font-serif text-sm">
-              <p className="font-bold">{error}</p>
+          <div className="bg-accent-soft border border-hair rounded-sm px-4 py-3 flex items-start gap-3 shadow-card">
+            <AlertCircle className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm text-ink">
+              <p>{error}</p>
               {!hasApiKey && (
                 <button
                   onClick={() => router.push('/settings')}
                   aria-label="Go to settings page"
-                  className="brutalist-button brutalist-button-primary font-mono text-xs px-3 py-1.5 mt-2 min-h-[44px]"
+                  className="btn btn-primary text-xs mt-2"
                 >
-                  [GO TO SETTINGS]
+                  Go to settings
                 </button>
               )}
             </div>
             <button
               onClick={() => setError(null)}
               aria-label="Dismiss error message"
-              className="no-tap-highlight text-paper hover:underline min-w-[44px] min-h-[44px] flex items-center justify-center font-mono"
+              className="no-tap-highlight text-subtle hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center"
             >
-              [×]
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -484,16 +489,18 @@ export default function ChatInterface() {
             textareaRef.current.blur();
           }
         }}
-        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
+        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scrollbar-thin"
       >
         {/* Empty State - No Document */}
         {messages.length === 0 && !!!conversationId && (
           <div key="no-document-state" className="flex flex-col items-center justify-center h-full text-center px-6">
-            <div className="w-20 h-20 border-2 border-ink flex items-center justify-center mb-6">
-              <Paperclip size={32} className="text-subtle" />
+            <div className="w-16 h-16 rounded-full bg-desk flex items-center justify-center mb-5 empty-state-child empty-state-delay-1">
+              <Paperclip className="h-6 w-6 text-faint" />
             </div>
-            <h3 className="font-mono text-xl font-bold text-ink mb-2">[NO DOCUMENT SELECTED]</h3>
-            <p className="font-serif text-subtle max-w-xs text-sm leading-relaxed">
+            <h3 className="text-xl font-medium text-ink mb-2 empty-state-child empty-state-delay-2">
+              No document selected
+            </h3>
+            <p className="text-subtle max-w-xs text-sm leading-relaxed empty-state-child empty-state-delay-3">
               Select a conversation from the sidebar or upload a new document to start chatting.
             </p>
           </div>
@@ -502,16 +509,16 @@ export default function ChatInterface() {
         {/* Empty State - With Document */}
         {messages.length === 0 && !!conversationId && (
           <div key="empty-state" className="flex flex-col items-center justify-center h-full text-center px-6">
-            <div className="w-20 h-20 bg-ink text-paper border-2 border-ink flex items-center justify-center mb-6 font-mono text-3xl empty-state-child empty-state-delay-1">
-              [AI]
+            <div className="tutor-avatar !w-16 !h-16 !text-2xl mb-5 empty-state-child empty-state-delay-1">
+              A
             </div>
-            <h3 className="font-mono text-xl font-bold text-ink mb-2 empty-state-child empty-state-delay-2">
-              [HOW CAN I HELP?]
+            <h3 className="text-xl font-medium text-ink mb-2 empty-state-child empty-state-delay-2">
+              How can I help?
             </h3>
-            <p className="font-serif text-subtle max-w-xs text-sm leading-relaxed mb-8 empty-state-child empty-state-delay-3">
+            <p className="text-subtle max-w-xs text-sm leading-relaxed mb-8 empty-state-child empty-state-delay-3">
               Ask me anything about your document. I can summarize, explain concepts, or find specific details.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md empty-state-child empty-state-delay-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-md empty-state-child empty-state-delay-4">
               {['Summarize this document', 'What are the key points?', 'Explain the methodology', 'List the main conclusions'].map((suggestion, idx) => (
                 <button
                   key={suggestion}
@@ -519,10 +526,10 @@ export default function ChatInterface() {
                     setInputMessage(suggestion);
                     if (textareaRef.current) textareaRef.current.focus();
                   }}
-                  className={`no-select font-serif text-sm text-ink bg-paper border border-ink hover:bg-ink hover:text-paper px-4 py-3 transition-colors text-left min-h-[44px] empty-state-child`}
+                  className={`no-select text-sm text-ink bg-surface border border-hair hover:border-accent hover:shadow-card rounded-sm px-4 py-3 transition-all ease-desk text-left min-h-[44px] empty-state-child`}
                   style={{ animationDelay: `${320 + idx * 60}ms` }}
                 >
-                  &quot;{suggestion}&quot;
+                  {suggestion}
                 </button>
               ))}
             </div>
@@ -547,14 +554,12 @@ export default function ChatInterface() {
 
         {/* Loading Indicator */}
         {isLoading && (
-          <div key="loading-indicator" className="flex gap-4 justify-start">
-             <div className="w-8 h-8 border-2 border-ink flex-shrink-0 flex items-center justify-center font-mono text-xs bg-paper">
-                [AI]
-              </div>
-            <div className="bg-paper border-2 border-ink px-4 py-3 flex items-center gap-2">
-              <div className="w-2 h-2 bg-accent loading-dot" />
-              <div className="w-2 h-2 bg-accent loading-dot" />
-              <div className="w-2 h-2 bg-accent loading-dot" />
+          <div key="loading-indicator" className="flex gap-3 justify-start">
+            <div className="tutor-avatar !w-8 !h-8 flex-shrink-0">A</div>
+            <div className="bg-desk rounded-sm px-4 py-3 flex items-center gap-2">
+              <div className="w-1.5 h-1.5 bg-faint loading-dot" />
+              <div className="w-1.5 h-1.5 bg-faint loading-dot" />
+              <div className="w-1.5 h-1.5 bg-faint loading-dot" />
             </div>
           </div>
         )}
@@ -562,22 +567,22 @@ export default function ChatInterface() {
       </div>
 
       {/* =====================================================
-          INPUT AREA - Brutalist Style
+          INPUT AREA
           ===================================================== */}
-      <div className="border-t-2 border-ink bg-panel-bg p-4">
+      <div className="border-t border-hair bg-paper p-4">
         <form
           onSubmit={handleSubmit}
-          className="max-w-4xl mx-auto relative flex gap-3 items-end"
+          className="max-w-4xl mx-auto relative flex gap-2 items-end"
         >
-          <div className="relative flex-1 bg-paper border-2 border-ink focus-within:ring-2 focus-within:ring-accent overflow-hidden">
+          <div className="relative flex-1 bg-surface border border-hair focus-within:border-accent focus-within:shadow-card rounded-sm overflow-hidden transition-all ease-desk">
             <textarea
               ref={textareaRef}
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="[Ask a question about the document...]"
+              placeholder="Ask about this document…"
               rows={1}
-              className="w-full max-h-[150px] py-3 px-4 bg-transparent border-none focus:ring-0 resize-none font-serif text-sm text-ink placeholder:text-subtle"
+              className="w-full max-h-[150px] py-3 px-4 bg-transparent border-none focus:ring-0 resize-none text-sm text-ink placeholder:text-faint placeholder:italic"
               style={{ minHeight: '44px' }}
             />
           </div>
@@ -585,18 +590,16 @@ export default function ChatInterface() {
           <button
             type="submit"
             disabled={!inputMessage.trim() || isLoading}
-            className={`no-select font-mono text-sm px-4 py-3 min-w-[44px] min-h-[44px] flex items-center justify-center transition-all duration-150 ${
-              !inputMessage.trim() || isLoading
-                ? 'bg-paper text-subtle border border-ink cursor-not-allowed'
-                : 'bg-ink text-paper border-2 border-ink hover:bg-accent hover:border-accent hover:text-paper'
-            }`}
+            className="btn btn-primary !px-4 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+            aria-label={isLoading ? 'Sending' : 'Send message'}
           >
-            [{isLoading ? '...' : 'SEND'}]
+            <Send className="h-4 w-4" />
+            <span className="hidden sm:inline">{isLoading ? '…' : 'Send'}</span>
           </button>
         </form>
         <div className="text-center mt-2">
-           <p className="font-mono text-[10px] text-subtle">
-             AI can make mistakes. Please review important information.
+           <p className="text-[11px] text-faint">
+             Answers cite the source. Click a number to jump to it.
            </p>
         </div>
       </div>

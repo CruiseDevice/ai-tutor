@@ -1,611 +1,398 @@
-/* app/globals.css */
+/* app/globals.css — "Quiet Desk" academic system.
+   Light-only. Hairlines instead of walls. Newsreader does the talking;
+   JetBrains Mono is reserved for apparatus (folios, eyebrows, page counters).
+   The citation is the design signature. See UI_REFACTOR_PLAN.md. */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ============================================
-   Academic Brutalist - Typography & Colors
+   Tokens — the "Quiet Desk" palette
    ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
-
 :root {
-  /* Brutalist color palette */
-  --ink: #0a0a0a;
-  --paper: #f5f2eb;
-  --accent: #d45200;
-  --rule: #0a0a0a;
-  --subtle: #8a8578;
+  /* Grounds */
+  --paper:    #FBFAF6;   /* page ground */
+  --surface:  #FFFFFF;   /* the PDF page / cards */
+  --desk:     #F4F2EB;   /* around the PDF */
+  --desk-2:   #EFEDE5;
 
-  /* Semantic colors */
-  --danger: #c41e3a;
-  --success: #2d6a4f;
+  /* Ink */
+  --ink:      #23231F;   /* soft black body */
+  --ink-2:    #3A3A35;
+  --subtle:   #75726A;   /* metadata */
+  --faint:    #A6A399;   /* placeholder / disabled */
 
-  /* Dashboard extensions */
-  --sidebar-bg: #e8e4db;
-  --panel-bg: #f5f2eb;
-  --chat-user: #0a0a0a;
-  --chat-ai: #ffffff;
-  --border-thick: 2px;
+  /* Lines */
+  --hair:     #E7E4DC;   /* hairline borders (replaces 2px ink walls) */
+  --hair-soft:#F0EEE7;
 
-  /* Font families */
-  --font-mono: 'IBM Plex Mono', monospace;
-  --font-serif: 'Instrument Serif', Georgia, serif;
+  /* Accent — ink blue */
+  --accent:      #3D5A80;   /* links, citations, active */
+  --accent-ink:  #2F4768;
+  --accent-soft: #EDF0F5;
 
-  /* Legacy variables (for compatibility) */
-  --background: #f5f2eb;
-  --foreground: #0a0a0a;
-}
+  /* The highlighter (citation signature) */
+  --mark:      #FBF0CE;
+  --mark-edge: #E8D89A;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Semantic */
+  --danger:  #9B3A3A;
+  --success: #4A7A52;
+
+  /* Faces */
+  --font-serif: var(--font-serif), Georgia, 'Times New Roman', serif;
+  --font-mono:  var(--font-mono-apparatus), ui-monospace, SFMono-Regular, monospace;
+
+  /* Radius scale */
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r:    9px;
+  --r-lg: 12px;
+
+  /* Shadows — soft, layered (the page on the desk) */
+  --shadow-page: 0 1px 2px rgba(35, 35, 31, 0.04),
+                  0 8px 24px rgba(35, 35, 31, 0.06);
+  --shadow-card: 0 1px 2px rgba(35, 35, 31, 0.04),
+                  0 2px 8px rgba(35, 35, 31, 0.04);
+
+  /* Motion */
+  --ease: cubic-bezier(.2, .7, .2, 1);
 }
 
 /* ============================================
-   Brutalist Base Styles
+   Base
    ============================================ */
 
 body {
   font-family: var(--font-serif);
   background: var(--paper);
   color: var(--ink);
+  font-feature-settings: "onum" 1;          /* oldstyle figures by default */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+/* Headings stay in the serif family now (was mono uppercase) — the document
+   and the conversation ARE the content; chrome shouldn't shout. */
 h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-mono);
+  font-family: var(--font-serif);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
-/* ============================================
-   Dashboard Brutalist Utilities
-   ============================================ */
-
-.brutalist-panel {
-  background: var(--panel-bg);
-  border: var(--border-thick) solid var(--ink);
-}
-
-.brutalist-sidebar {
-  background: var(--sidebar-bg);
-  border-right: var(--border-thick) solid var(--ink);
-}
-
-/* Brutalist texture - subtle paper grain */
-.brutalist-texture {
-  position: relative;
-}
-
-.brutalist-texture::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.03;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-  z-index: 0;
-}
-
-/* Tactile hard shadow - brutalist depth without blur */
-.brutalist-shadow {
-  box-shadow: 3px 3px 0 var(--ink);
-}
-
-.brutalist-shadow-sm {
-  box-shadow: 2px 2px 0 var(--ink);
-}
-
-.brutalist-shadow:active {
-  box-shadow: 1px 1px 0 var(--ink);
-  transform: translate(2px, 2px);
-}
-
-.brutalist-shadow-sm:active {
-  box-shadow: 0px 0px 0 var(--ink);
-  transform: translate(1px, 1px);
-}
-
-.brutalist-divider {
-  border-bottom: var(--border-thick) solid var(--ink);
-}
-
-.brutalist-button {
+/* Apparatus — genuinely metadata-like runs only. Use .apparatus or the mono
+   utility directly on folios / eyebrows / counters, never on headings. */
+.apparatus,
+.font-mono {
   font-family: var(--font-mono);
-  text-transform: uppercase;
-  border: var(--border-thick) solid var(--ink);
-  background: transparent;
-  transition: all 0.15s ease;
-}
-
-.brutalist-button:hover {
-  background: var(--ink);
-  color: var(--paper);
-}
-
-.brutalist-button-primary {
-  background: var(--ink);
-  color: var(--paper);
-}
-
-.brutalist-button-primary:hover {
-  background: var(--accent);
-  border-color: var(--accent);
+  font-feature-settings: "tnum" 1;           /* tabular figures for counters */
+  letter-spacing: 0.02em;
 }
 
 /* ============================================
-   Touch / Mobile Support
+   Touch / Mobile
+   (moved off `*` — apply to interactive elements explicitly)
    ============================================ */
 
-/* ============================================
-   Touch / Mobile Support
-   ============================================ */
-
-/* Prevent text selection on interactive elements during touch */
 .no-select {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
 }
 
-/* Remove tap highlight color on iOS */
 .no-tap-highlight {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ============================================ */
-/*   Touch / Mobile Support
+/* ============================================
+   "Quiet Desk" utility set
+   (authored by the plan; the mockup uses inline styles, these are the spec)
    ============================================ */
 
-/* Disable iOS tap delay for faster touch response */
-* {
-  touch-action: manipulation;
+.hairline {
+  border: 1px solid var(--hair);
 }
 
-/* Smooth scrolling for iOS - native momentum scrolling */
-html, body {
-  -webkit-overflow-scrolling: touch;
+.desk {
+  background: var(--desk);
 }
 
-/* ============================================ */
-
-
-/* Add these to your global.css or equivalent */
-
-/* Better styling for blockquotes (direct document quotes) */
-.prose blockquote {
-  background-color: #f3f4f6;
-  border-left: 4px solid #3b82f6;
-  padding: 0.75rem 1rem;
-  margin: 1rem 0;
-  font-style: italic;
+/* The page itself — white lifted off the desk ground */
+.surface-card {
+  background: var(--surface);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-card);
 }
 
-/* Highlight page references */
-.prose p strong {
-  color: #2563eb;
+/* Page-only paper grain — applied to the PDF render area, not the whole app */
+.paper-grain {
+  position: relative;
+}
+.paper-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  z-index: 0;
+  border-radius: inherit;
 }
 
-/* Make code blocks look nice */
-.prose code {
-  background-color: #f1f5f9;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
+/* Buttons — paper / ink-accent with a hover lift */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hair);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: box-shadow 0.2s var(--ease), transform 0.2s var(--ease),
+              border-color 0.2s var(--ease), background 0.2s var(--ease);
+  text-decoration: none;
+}
+.btn:hover {
+  box-shadow: var(--shadow-card);
+  transform: translateY(-1px);
+  border-color: var(--subtle);
 }
 
-/* Style for warnings with emoji */
-.prose p:has(span:first-child:contains("⚠️")) {
-  background-color: #fffbeb;
-  border-left: 4px solid #f59e0b;
-  padding: 0.75rem 1rem;
-  margin: 0.5rem 0;
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
 }
 
-/* Make page numbers stand out */
-.prose:has(code:contains("[Page")) {
+.btn-quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--subtle);
+}
+.btn-quiet:hover {
+  background: var(--desk);
+  border-color: var(--hair);
+  color: var(--ink);
+  transform: none;
+  box-shadow: none;
+}
+
+/* Tutor avatar — small accent gradient circle */
+.tutor-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-ink) 100%);
+  color: #fff;
+  font-family: var(--font-serif);
   font-weight: 600;
-  color: #4b5563;
-  background-color: #f3f4f6;
-  border-radius: 0.25rem;
-  padding: 0.125rem 0.25rem;
-}
-
-/* Brutalist animations */
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px) rotate(0deg);
-  }
-  50% {
-    transform: translateY(-20px) rotate(5deg);
-  }
-}
-
-/* Sequential collapse transitions */
-.sidebar-collapse {
-  transition: width 250ms ease-in-out;
-}
-
-.sidebar-collapse .fade-content {
-  transition: opacity 150ms ease-out;
-  transition-delay: 0ms;
-}
-
-.sidebar-collapse.collapsed .fade-content {
-  opacity: 0;
-  transition-delay: 0ms;
-}
-
-.sidebar-collapse:not(.collapsed) .fade-content {
-  opacity: 1;
-  transition-delay: 100ms;
-}
-
-.sidebar-collapse.collapsed {
-  width: 4.5rem;
-}
-
-.sidebar-collapse:not(.collapsed) {
-  width: 20rem;
+  font-size: 0.85rem;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
 }
 
 /* ============================================
-   PDF Viewer Collapse/Expand Transitions
+   Citations — the design signature
    ============================================ */
 
-/* PDF panel collapse animation */
-@keyframes pdf-collapse {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(-100%);
-  }
+/* Inline superscript citation (Phase 8 / Option A target) */
+.citation {
+  font-family: var(--font-mono);
+  font-size: 0.7em;
+  vertical-align: super;
+  line-height: 0;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0 0.1em;
+  text-decoration: none;
+  transition: color 0.15s var(--ease);
+}
+.citation:hover {
+  color: var(--accent-ink);
+  text-decoration: underline;
 }
 
-/* PDF panel expand animation */
-@keyframes pdf-expand {
-  from {
-    opacity: 0;
-    transform: translateX(-100%);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-/* Chat panel expand when PDF is collapsed */
-@keyframes chat-expand {
-  from {
-    width: calc(100% - var(--split-position, 60%));
-  }
-  to {
-    width: calc(100% - 60px);
-  }
-}
-
-/* Chat panel collapse when PDF is visible */
-@keyframes chat-collapse {
-  from {
-    width: calc(100% - 60px);
-  }
-  to {
-    width: calc(100% - var(--split-position, 60%));
-  }
-}
-
-/* Collapsed PDF indicator hover animation */
-@keyframes indicator-pulse {
-  0%, 100% {
-    background-color: var(--panel-bg);
-  }
-  50% {
-    background-color: rgba(212, 82, 0, 0.1);
-  }
-}
-
-.pdf-collapsed-indicator:hover {
-  animation: indicator-pulse 1s ease-in-out infinite;
-}
-
-@keyframes slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slide-in-right {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes slide-in-left {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes slide-in {
-  from {
-    opacity: 0;
-    transform: translateX(100%) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-
-@keyframes slide-in-stagger {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes blink {
-  0%, 50% {
-    opacity: 1;
-  }
-  51%, 100% {
-    opacity: 0;
-  }
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: -1000px 0;
-  }
-  100% {
-    background-position: 1000px 0;
-  }
-}
-
-/* Brutalist animations */
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
-
-.animate-slide-up {
-  animation: slide-up 0.6s ease-out forwards;
-}
-
-.animate-slide-in {
-  animation: slide-in 0.3s ease-out forwards;
-}
-
-.animate-scale-in {
-  animation: scale-in 0.2s ease-out forwards;
-}
-
-.animate-slide-in-right {
-  animation: slide-in-right 0.4s ease-out forwards;
-}
-
-.animate-slide-in-left {
-  animation: slide-in-left 0.4s ease-out forwards;
-}
-
-.animate-slide-in-stagger {
-  animation: slide-in-stagger 0.25s ease-out forwards;
-}
-
-.animate-blink {
-  animation: blink 1s infinite;
-}
-
-/* Animation delays for skeleton loading */
-.delay-75 {
-  animation-delay: 75ms;
-}
-
-.delay-100 {
-  animation-delay: 100ms;
-}
-
-/* Document viewer styles */
-.prose {
-  font-family: 'Georgia', 'Times New Roman', serif;
-}
-
-.prose h1 {
-  font-size: 1.25rem;
-  line-height: 1.4;
-  margin-bottom: 0.5rem;
-}
-
-.prose h2 {
-  font-size: 0.875rem;
+/* Bibliography footer (Phase 2 / Option B target) — hanging indent rows */
+.bibliography {
+  font-size: 0.85rem;
   line-height: 1.5;
-  margin-top: 1rem;
-  margin-bottom: 0.5rem;
+}
+.bibliography-row {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--hair-soft);
+  cursor: pointer;
+  transition: background 0.15s var(--ease);
+}
+.bibliography-row:first-child {
+  border-top: none;
+}
+.bibliography-row:hover {
+  background: var(--accent-soft);
+}
+.bibliography-num {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-feature-settings: "tnum" 1;
 }
 
-.prose p {
-  font-size: 0.75rem;
-  line-height: 1.6;
-  margin-bottom: 0.75rem;
-  text-align: justify;
-  hyphens: auto;
+/* The citation highlight sweep — the calm version of the brutalist pulse.
+   Applied when a citation is clicked and the PDF jumps + highlights. */
+@keyframes mark-fade {
+  0%   { background-color: var(--mark); }
+  60%  { background-color: var(--mark); }
+  100% { background-color: transparent; }
+}
+.mark-fade {
+  animation: mark-fade 2.4s var(--ease) forwards;
 }
 
-/* Custom Scrollbar */
-.scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ============================================
+   Academic prose (AI answers)
+   ============================================ */
+
+.academic-prose {
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--ink);
+  font-feature-settings: "onum" 1;
+}
+.academic-prose p { margin: 0 0 1em; }
+.academic-prose em { color: var(--ink-2); }
+.academic-prose strong { font-weight: 600; color: var(--ink); }
+
+.academic-prose h1, .academic-prose h2, .academic-prose h3, .academic-prose h4 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  text-transform: none;                       /* NOT uppercase */
+  letter-spacing: -0.01em;
+  margin: 1.5em 0 0.6em;
+  line-height: 1.3;
+}
+.academic-prose h1 { font-size: 1.3em; }
+.academic-prose h2 { font-size: 1.15em; }
+.academic-prose h3 { font-size: 1em; }
+
+.academic-prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+.academic-prose a:hover { color: var(--accent-ink); }
+
+.academic-prose blockquote {
+  border-left: 2px solid var(--accent);
+  padding: 0.25em 0 0.25em 1em;
+  margin: 1em 0;
+  font-style: italic;
+  color: var(--ink-2);
 }
 
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
+.academic-prose ul, .academic-prose ol {
+  margin: 1em 0;
+  padding-left: 1.4em;
+}
+.academic-prose li { margin-bottom: 0.4em; }
+
+.academic-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--desk);
+  padding: 0.1em 0.4em;
+  border-radius: var(--r-xs);
 }
 
-.scrollbar-thumb-slate-200::-webkit-scrollbar-thumb {
-  background: #e2e8f0;
+.academic-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+.academic-prose th, .academic-prose td {
+  border: 1px solid var(--hair);
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+.academic-prose th {
+  background: var(--desk);
+  font-weight: 600;
+}
+
+/* Drop cap — opt-in via .drop-cap on a prose container or first paragraph */
+.drop-cap::first-letter {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  float: left;
+  font-size: 3.4em;
+  line-height: 0.82;
+  padding: 0.05em 0.1em 0 0;
+  color: var(--ink);
+}
+
+/* ============================================
+   Custom Scrollbar (kept, rethemed)
+   ============================================ */
+
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--hair);
   border-radius: 3px;
 }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 
-.scrollbar-thumb-slate-200::-webkit-scrollbar-thumb:hover {
-  background: #cbd5e1;
-}
+/* ============================================
+   KaTeX Math Rendering (kept, rethemed)
+   ============================================ */
 
-/* PDF Annotation Styles */
-@keyframes annotation-pulse {
-  0%, 100% {
-    opacity: 0.4;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.7;
-    transform: scale(1.02);
-  }
-}
-
-@keyframes annotation-glow {
-  0%, 100% {
-    box-shadow: 0 0 10px rgba(255, 235, 59, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 25px rgba(255, 235, 59, 0.8), 0 0 40px rgba(255, 235, 59, 0.4);
-  }
-}
-
-@keyframes circle-draw {
-  0% {
-    stroke-dashoffset: 1000;
-    opacity: 0;
-  }
-  100% {
-    stroke-dashoffset: 0;
-    opacity: 1;
-  }
-}
-
-.annotation-highlight {
-  animation: annotation-pulse 2s ease-in-out infinite;
-}
-
-.annotation-glow {
-  animation: annotation-glow 1.5s ease-in-out infinite;
-}
-
-.annotation-circle {
-  animation: annotation-pulse 2s ease-in-out infinite;
-}
-
-/* Page navigation indicator */
-@keyframes page-jump {
-  0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
-  }
-  70% {
-    transform: scale(1.05);
-    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
-  }
-}
-
-.animate-page-jump {
-  animation: page-jump 0.5s ease-out;
-}
-
-/* KaTeX Math Rendering Styles */
-.markdown-content .katex {
-  font-size: 1.1em;
-}
-
+.markdown-content .katex { font-size: 1.1em; }
 .markdown-content .katex-display {
   margin: 1em 0;
   overflow-x: auto;
   overflow-y: hidden;
 }
-
 .markdown-content .katex-display > .katex {
   text-align: left;
   padding: 0.5em 0;
 }
+.markdown-content .katex-html { display: inline-block; }
+.markdown-content .katex-display { scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
+.markdown-content .katex-display::-webkit-scrollbar { height: 6px; }
+.markdown-content .katex-display::-webkit-scrollbar-track { background: transparent; }
+.markdown-content .katex-display::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 3px; }
 
-/* Ensure inline math doesn't break layout */
-.markdown-content .katex-html {
-  display: inline-block;
-}
+/* ============================================
+   Markdown code blocks (kept, rethemed)
+   ============================================ */
 
-/* Better scrolling for long equations */
-.markdown-content .katex-display {
-  scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
-}
-
-.markdown-content .katex-display::-webkit-scrollbar {
-  height: 6px;
-}
-
-.markdown-content .katex-display::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.markdown-content .katex-display::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
-}
-
-.markdown-content .katex-display::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* Code block styling */
 .markdown-content pre {
   overflow-x: auto !important;
   max-width: 100% !important;
 }
-
 .markdown-content pre > div {
   overflow-x: auto !important;
   width: 100% !important;
 }
-
-/* Syntax highlighter specific */
 .markdown-content pre code {
   background: transparent !important;
   padding: 0 !important;
@@ -615,105 +402,85 @@ html, body {
   word-wrap: normal !important;
   display: block !important;
 }
-
-/* Ensure code blocks scroll horizontally when needed */
-.markdown-content pre::-webkit-scrollbar {
-  height: 8px;
-}
-
-.markdown-content pre::-webkit-scrollbar-track {
-  background: #1e293b;
-  border-radius: 0 0 0.5rem 0.5rem;
-}
-
-.markdown-content pre::-webkit-scrollbar-thumb {
-  background: #475569;
-  border-radius: 4px;
-}
-
-.markdown-content pre::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
-}
+.markdown-content pre::-webkit-scrollbar { height: 8px; }
+.markdown-content pre::-webkit-scrollbar-track { background: transparent; }
+.markdown-content pre::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 4px; }
 
 /* ============================================
-   Chat Interface Motion Animations
+   Motion (kept & rethemed)
    ============================================ */
 
-/* Message entrance animation */
-@keyframes message-enter {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Sequential sidebar collapse — kept verbatim, used by ChatSidebar */
+.sidebar-collapse { transition: width 250ms var(--ease); }
+.sidebar-collapse .fade-content {
+  transition: opacity 150ms var(--ease);
+  transition-delay: 0ms;
 }
+.sidebar-collapse.collapsed .fade-content { opacity: 0; transition-delay: 0ms; }
+.sidebar-collapse:not(.collapsed) .fade-content { opacity: 1; transition-delay: 100ms; }
+.sidebar-collapse.collapsed { width: 4.5rem; }
+.sidebar-collapse:not(.collapsed) { width: 20rem; }
 
+/* PDF panel collapse/expand — kept, geometry unchanged */
+@keyframes pdf-collapse { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-100%); } }
+@keyframes pdf-expand { from { opacity: 0; transform: translateX(-100%); } to { opacity: 1; transform: translateX(0); } }
+
+/* Generic entrances — kept, softened to --ease */
+@keyframes slide-up { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slide-in-right { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slide-in-left { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slide-in { from { opacity: 0; transform: translateX(100%) scale(0.95); } to { opacity: 1; transform: translateX(0) scale(1); } }
+@keyframes slide-in-stagger { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes scale-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+.animate-slide-up { animation: slide-up 0.6s var(--ease) forwards; }
+.animate-slide-in { animation: slide-in 0.3s var(--ease) forwards; }
+.animate-scale-in { animation: scale-in 0.2s var(--ease) forwards; }
+.animate-slide-in-right { animation: slide-in-right 0.4s var(--ease) forwards; }
+.animate-slide-in-left { animation: slide-in-left 0.4s var(--ease) forwards; }
+.animate-slide-in-stagger { animation: slide-in-stagger 0.25s var(--ease) forwards; }
+.animate-blink { animation: blink 1s infinite; }
+
+.delay-75 { animation-delay: 75ms; }
+.delay-100 { animation-delay: 100ms; }
+
+/* Message entrance — kept, softened */
+@keyframes message-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 .message-enter {
-  animation: message-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: message-enter 0.3s var(--ease) forwards;
   opacity: 0;
 }
-
 .message-enter-delay-1 { animation-delay: 0ms; }
 .message-enter-delay-2 { animation-delay: 50ms; }
 .message-enter-delay-3 { animation-delay: 100ms; }
 
-/* Model menu expand animation */
-@keyframes menu-expand {
-  from {
-    opacity: 0;
-    transform: translateY(-8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
+/* Model menu expand — kept */
+@keyframes menu-expand { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .model-menu-enter {
-  animation: menu-expand 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: menu-expand 0.2s var(--ease) forwards;
   transform-origin: top right;
 }
 
-/* Loading indicator pulse animation */
-@keyframes message-pulse {
-  0%, 100% {
-    opacity: 0.4;
-    transform: scale(0.9);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.1);
-  }
-}
-
-.loading-dot {
-  animation: message-pulse 0.8s ease-in-out infinite;
-}
-
+/* Typing / loading dots — kept, rethemed to faint/accent */
+@keyframes message-pulse { 0%, 100% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
+.loading-dot { animation: message-pulse 0.8s ease-in-out infinite; }
 .loading-dot:nth-child(1) { animation-delay: 0ms; }
 .loading-dot:nth-child(2) { animation-delay: 150ms; }
 .loading-dot:nth-child(3) { animation-delay: 300ms; }
 
-/* Empty state fade-in animation */
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+/* Message slide-ins for chat (kept, used by message-slide-in-user/ai) */
+@keyframes message-slide-in-user { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes message-slide-in-ai { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+.animate-message-slide-in-user { animation: message-slide-in-user 0.35s var(--ease) forwards; }
+.animate-message-slide-in-ai { animation: message-slide-in-ai 0.35s var(--ease) forwards; }
 
+/* Empty state staggered fade — kept */
+@keyframes fade-in-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 .empty-state-child {
   opacity: 0;
-  animation: fade-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fade-in-up 0.4s var(--ease) forwards;
 }
-
 .empty-state-delay-1 { animation-delay: 0ms; }
 .empty-state-delay-2 { animation-delay: 80ms; }
 .empty-state-delay-3 { animation-delay: 160ms; }
@@ -721,316 +488,20 @@ html, body {
 .empty-state-delay-5 { animation-delay: 320ms; }
 
 /* ============================================
-   Brutalist Chat Messages
+   Accessibility
    ============================================ */
 
-/* Message container animations */
-@keyframes message-slide-in-user {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes message-slide-in-ai {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-/* Brutalist user message - sharp corners, heavy border */
-.brutalist-message-user {
-  background: var(--ink);
-  color: var(--paper);
-  border: 2px solid var(--ink);
-  box-shadow: 4px 4px 0 var(--accent);
-  position: relative;
-}
-
-.brutalist-message-user::before {
-  content: '';
-  position: absolute;
-  top: -2px;
-  left: -2px;
-  right: -2px;
-  bottom: -2px;
-  background: var(--accent);
-  z-index: -1;
-  transform: translate(2px, 2px);
-  transition: transform 0.15s ease;
-}
-
-.brutalist-message-user:hover::before {
-  transform: translate(1px, 1px);
-}
-
-/* Brutalist AI message - paper with ink border */
-.brutalist-message-ai {
-  background: var(--paper);
-  color: var(--ink);
-  border: 2px solid var(--ink);
-  box-shadow: 3px 3px 0 rgba(10, 10, 10, 0.2);
-  position: relative;
-}
-
-.brutalist-message-ai::after {
-  content: '[AI]';
-  position: absolute;
-  top: -10px;
-  left: -1px;
-  background: var(--accent);
-  color: var(--paper);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 0 6px;
-  letter-spacing: 0.05em;
-}
-
-/* Avatar badges - brutalist style */
-.brutalist-avatar-user {
-  background: var(--ink);
-  color: var(--paper);
-  border: 2px solid var(--ink);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  box-shadow: 2px 2px 0 var(--accent);
-}
-
-.brutalist-avatar-ai {
-  background: var(--accent);
-  color: var(--paper);
-  border: 2px solid var(--accent);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  box-shadow: 2px 2px 0 var(--ink);
-}
-
-/* Annotation pill - brutalist document reference */
-.brutalist-annotation-pill {
-  background: var(--paper);
-  border: 2px solid var(--accent);
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  box-shadow: 2px 2px 0 var(--accent);
-  transition: all 0.1s ease;
-}
-
-.brutalist-annotation-pill:hover {
-  box-shadow: 1px 1px 0 var(--accent);
-  transform: translate(1px, 1px);
-  background: var(--accent);
-  color: var(--paper);
-}
-
-/* Code block - brutal terminal style */
-.brutalist-code-block {
-  background: var(--ink);
-  border: 2px solid var(--ink);
-  box-shadow: 3px 3px 0 var(--subtle);
-}
-
-.brutalist-code-header {
-  background: var(--accent);
-  color: var(--paper);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 6px 12px;
-  border-bottom: 2px solid var(--ink);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.brutalist-copy-button {
-  background: transparent;
-  border: 1px solid var(--paper);
-  color: var(--paper);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 4px 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  transition: all 0.1s ease;
-}
-
-.brutalist-copy-button:hover {
-  background: var(--paper);
-  color: var(--accent);
-}
-
-/* Inline code - brutalist highlight */
-.brutalist-inline-code {
-  background: var(--accent);
-  color: var(--paper);
-  border: 1px solid var(--accent);
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  padding: 2px 6px;
-  box-shadow: 2px 2px 0 rgba(212, 82, 0, 0.3);
-}
-
-/* Markdown prose overrides for brutalist chat */
-.brutalist-prose {
-  font-family: var(--font-serif);
-}
-
-.brutalist-prose h1,
-.brutalist-prose h2,
-.brutalist-prose h3,
-.brutalist-prose h4 {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
-  margin-top: 1.5em;
-  margin-bottom: 0.75em;
-  border-bottom: 2px solid var(--ink);
-  padding-bottom: 0.5em;
-}
-
-.brutalist-prose h1 { font-size: 1.25em; }
-.brutalist-prose h2 { font-size: 1.1em; }
-.brutalist-prose h3 { font-size: 1em; }
-
-.brutalist-prose p {
-  margin-bottom: 1em;
-  line-height: 1.7;
-}
-
-.brutalist-prose ul,
-.brutalist-prose ol {
-  margin: 1em 0;
-  padding-left: 1.5em;
-}
-
-.brutalist-prose li {
-  margin-bottom: 0.5em;
-  position: relative;
-}
-
-.brutalist-prose ul li::marker {
-  content: '→ ';
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.brutalist-prose ol li::marker {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.brutalist-prose a {
-  color: var(--accent);
-  border-bottom: 2px solid var(--accent);
-  text-decoration: none;
-  transition: all 0.1s ease;
-}
-
-.brutalist-prose a:hover {
-  background: var(--accent);
-  color: var(--paper);
-}
-
-.brutalist-prose strong {
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.brutalist-prose blockquote {
-  border-left: 4px solid var(--accent);
-  padding-left: 1em;
-  margin: 1em 0;
-  font-style: italic;
-  background: rgba(212, 82, 0, 0.05);
-  padding: 0.75em 1em;
-}
-
-.brutalist-prose table {
-  border: 2px solid var(--ink);
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-}
-
-.brutalist-prose th,
-.brutalist-prose td {
-  border: 1px solid var(--ink);
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.brutalist-prose th {
-  background: var(--ink);
-  color: var(--paper);
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.brutalist-prose tr:nth-child(even) {
-  background: rgba(10, 10, 10, 0.03);
-}
-
-/* Annotation section header */
-.brutalist-annotation-header {
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 11px;
-  color: var(--accent);
-  border-top: 2px dashed var(--subtle);
-  padding-top: 1rem;
-  margin-top: 1rem;
-}
-
-/* Typing indicator for streaming responses */
-@keyframes brutalist-type {
-  0%, 100% {
-    opacity: 0.2;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.2);
-  }
-}
-
-.brutalist-typing-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--accent);
-  animation: brutalist-type 0.6s ease-in-out infinite;
-}
-
-.brutalist-typing-dot:nth-child(2) { animation-delay: 0.1s; }
-.brutalist-typing-dot:nth-child(3) { animation-delay: 0.2s; }
-
-.brutalist-typing-container {
-  display: flex;
-  gap: 6px;
-  padding: 4px 0;
-}
-
-/* Message timestamp */
-.brutalist-timestamp {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--subtle);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }

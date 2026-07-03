@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from "react";
+import { PanelLeftClose, PanelLeftOpen, Plus, ChevronDown, ChevronUp, ChevronRight, X, Settings, LogOut, FileText, MessageSquare } from "lucide-react";
 import { authApi } from "@/lib/api-client";
 
 // Store imports for Zustand migration
@@ -147,77 +148,67 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
 
   return (
     <div
-      className={`h-full bg-sidebar-bg text-ink border-r-2 border-ink flex flex-col relative z-20 font-serif brutalist-texture sidebar-collapse ${
+      className={`h-full bg-desk text-ink border-r border-hair flex flex-col relative z-20 font-serif sidebar-collapse ${
         !isOpen ? 'collapsed' : ''
       }`}
     >
       {/* =====================================================
-          [001] HEADER - TUTOR.AI branding
+          HEADER — TUTOR.AI wordmark
           ===================================================== */}
-      <div className="border-b-2 border-ink">
+      <div className="border-b border-hair">
         <div className={`flex items-center p-4 ${isOpen ? 'justify-between' : 'justify-center'}`}>
           {isOpen && (
-            <div className="flex items-center gap-3 overflow-hidden fade-content">
-              <h2 className="font-mono font-bold text-lg uppercase tracking-tight">
-                TUTOR<span className="text-accent">.AI</span>
-              </h2>
-              <span className="font-mono text-xs text-accent ml-auto fade-content">[001]</span>
-            </div>
+            <h2 className="font-serif font-semibold text-xl tracking-tight fade-content">
+              TUTOR<span className="text-accent">.</span>AI
+            </h2>
           )}
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="no-select brutalist-shadow-sm p-2 border border-ink hover:bg-ink hover:text-paper transition-all duration-150 min-w-[44px] min-h-[44px] flex items-center justify-center font-mono text-sm"
+            className="no-select text-subtle hover:text-ink hover:bg-paper rounded-sm p-2 transition-colors ease-desk min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
-            <span className={`transition-transform duration-200 ${isOpen ? 'rotate-0' : 'rotate-180'}`}>
-              {isOpen ? '[◀]' : '[▶]'}
-            </span>
+            {isOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
           </button>
         </div>
       </div>
 
       {/* =====================================================
-          [NEW STUDY SESSION] button
+          New study session button
           ===================================================== */}
-      <div className={`p-4 border-b-2 border-ink ${isOpen ? '' : 'flex justify-center'}`}>
+      <div className={`p-3 border-b border-hair ${isOpen ? '' : 'flex justify-center'}`}>
         <button
           onClick={handleNavigateToDashboard}
-          className={`brutalist-button brutalist-button-primary brutalist-shadow w-full py-3 px-4 min-h-[44px] font-mono text-sm uppercase ${
-            isOpen ? '' : 'w-10 justify-center p-0 min-w-[44px]'
-          }`}
+          className={`btn btn-primary w-full ${isOpen ? '' : '!w-11 !p-0 justify-center'}`}
         >
-          <span className={isOpen ? 'fade-content' : ''}>{isOpen ? '[NEW STUDY SESSION]' : '[+]'}</span>
+          <Plus className="h-4 w-4" />
+          {isOpen && <span className="fade-content">New study session</span>}
         </button>
       </div>
 
       {/* =====================================================
-          [002] DOCUMENTS section
+          DOCUMENTS section
           ===================================================== */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
         {isOpen && (
-          <div className="flex items-center gap-2 px-4 py-3 border-b-2 border-ink fade-content">
-            <span className="font-mono text-xs text-accent">[002]</span>
-            <span className="font-mono text-xs uppercase tracking-wider">Documents</span>
+          <div className="px-4 pt-4 pb-2 fade-content">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-faint">Documents</span>
           </div>
         )}
 
         {storeIsLoading ? (
           <div className="flex justify-center items-center h-20">
-            <div className="font-mono text-xs text-subtle animate-pulse">[LOADING...]</div>
+            <div className="text-xs text-faint animate-pulse fade-content">Loading…</div>
           </div>
         ) : storeDocumentGroups.length === 0 ? (
           <div className={`text-center p-8 ${!isOpen && 'hidden'}`}>
-            <div className="font-mono text-subtle/40 text-4xl mb-4 animate-float fade-content">[∅]</div>
-            <p className="font-mono text-xs text-subtle mb-2 fade-content">[EMPTY LIBRARY]</p>
-            <p className="font-serif text-xs text-subtle/70 leading-relaxed fade-content">
+            <FileText className="h-7 w-7 text-faint mx-auto mb-3 fade-content" />
+            <p className="text-sm text-subtle mb-1 fade-content">Your library is empty</p>
+            <p className="text-xs text-faint leading-relaxed fade-content">
               Upload a PDF to begin your study session
             </p>
-            <div className="mt-4 font-mono text-[10px] text-subtle/50 fade-content">
-              └ <span className="text-accent">[NEW STUDY SESSION]</span> to get started
-            </div>
           </div>
         ) : (
-          <ul className="border-t-2 border-ink">
+          <ul className="px-2">
             {storeDocumentGroups
               .filter((group) => group.document != null)
               .map((group) => {
@@ -227,42 +218,35 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
               const hasCurrentConversation = group.conversations.some(c => c.id === storeConversationId);
 
               return (
-                <li key={documentId} className="group/document border-b border-ink last:border-b-0">
+                <li key={documentId} className="group/document">
                   {/* Document Header */}
                   <div
-                    className={`w-full transition-colors duration-150 flex items-center justify-between group/item ${
-                        hasCurrentConversation && !isExpanded
-                          ? 'bg-accent/10'
-                          : 'hover:bg-accent/5'
-                      } ${isOpen ? 'p-3' : 'p-3 justify-center'}`}
+                    className={`w-full rounded-sm transition-colors ease-desk flex items-center justify-between group/item ${
+                      hasCurrentConversation && !isExpanded
+                        ? 'bg-accent-soft'
+                        : 'hover:bg-paper'
+                    } ${isOpen ? 'p-2.5' : 'p-2.5 justify-center'}`}
                   >
                     <button
                       onClick={() => toggleDocumentExpansion(documentId)}
-                      className="no-select flex items-center gap-3 flex-1 min-w-0 text-left min-h-[44px]"
+                      className="no-select flex items-center gap-2.5 flex-1 min-w-0 text-left min-h-[44px]"
                     >
-                      <div className="relative flex-shrink-0">
-                        <span className={`font-mono text-xs ${hasCurrentConversation ? 'text-accent' : 'text-subtle group-hover/item:text-ink'}`}>
-                          [PDF]
-                        </span>
-                        {hasCurrentConversation && (
-                          <span className="absolute -right-1 -top-0.5 w-1.5 h-1.5 bg-accent" />
-                        )}
-                      </div>
+                      <FileText className={`h-4 w-4 flex-shrink-0 ${hasCurrentConversation ? 'text-accent' : 'text-faint group-hover/item:text-subtle'}`} />
 
                       {isOpen && (
                         <div className="overflow-hidden flex-1 min-w-0 fade-content">
-                          <div className="truncate font-medium text-sm leading-tight mb-0.5">
+                          <div className="truncate text-sm leading-tight text-ink">
                             {group.document.title}
                           </div>
-                          <div className="font-mono text-[10px] text-subtle">
-                            └ [{conversationCount} chat{conversationCount !== 1 ? 's' : ''}]
+                          <div className="font-mono text-[10px] text-faint mt-0.5">
+                            {conversationCount} chat{conversationCount !== 1 ? 's' : ''}
                           </div>
                         </div>
                       )}
                     </button>
 
                     {isOpen && (
-                      <div className="flex items-center gap-1 flex-shrink-0">
+                      <div className="flex items-center gap-0.5 flex-shrink-0">
                         {/* New Chat Button */}
                         <button
                           onClick={(e) => {
@@ -271,17 +255,14 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                             handleCreateNewConversation(e, documentId);
                           }}
                           disabled={storeCreatingConversationDocId === documentId}
-                          className={`no-select brutalist-shadow-sm font-mono text-xs px-2 py-1 border border-ink transition-all min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                            storeCreatingConversationDocId === documentId
-                              ? 'text-accent opacity-100 cursor-not-allowed'
-                              : 'text-subtle hover:bg-ink hover:text-paper opacity-70 group-hover/document:opacity-100'
-                          }`}
-                          title="New Chat"
+                          className="no-select text-subtle hover:text-accent hover:bg-paper rounded-xs p-1.5 transition-colors ease-desk min-w-[44px] min-h-[44px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="New chat"
+                          aria-label="New chat"
                         >
                           {storeCreatingConversationDocId === documentId ? (
-                            <span className="animate-pulse">[...]</span>
+                            <span className="font-mono text-[10px] animate-pulse">…</span>
                           ) : (
-                            '[+]'
+                            <Plus className="h-3.5 w-3.5" />
                           )}
                         </button>
                         {/* Expand/Collapse Button */}
@@ -291,10 +272,11 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                             e.stopPropagation();
                             toggleDocumentExpansion(documentId);
                           }}
-                          className="no-select brutalist-shadow-sm font-mono text-xs px-2 py-1 border border-ink hover:bg-ink hover:text-paper transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                          className="no-select text-subtle hover:text-ink hover:bg-paper rounded-xs p-1.5 transition-colors ease-desk min-w-[44px] min-h-[44px] flex items-center justify-center"
                           title={isExpanded ? "Collapse" : "Expand"}
+                          aria-label={isExpanded ? "Collapse document" : "Expand document"}
                         >
-                          {isExpanded ? '[▲]' : '[▼]'}
+                          {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                         </button>
                       </div>
                     )}
@@ -302,7 +284,7 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
 
                   {/* Conversations List (when expanded) */}
                   {isOpen && isExpanded && (
-                    <div className="ml-4 mt-1 space-y-1 border-l-2 border-ink pl-3 pb-2 bg-sidebar-bg/50">
+                    <div className="ml-4 mt-0.5 mb-1 space-y-px border-l border-hair pl-2">
                       {group.conversations.map((conversation, index) => (
                         <div
                           key={`${documentId}-${conversation.id}`}
@@ -311,46 +293,39 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
                         >
                           <button
                             onClick={() => handleSelectConversation(conversation.id, documentId)}
-                            className={`no-select brutalist-shadow-sm w-full text-left border transition-all duration-150 flex items-center group/item min-h-[44px] p-2.5 ${
+                            className={`no-select w-full text-left rounded-sm transition-colors ease-desk flex items-center gap-2 min-h-[40px] p-2 ${
                               storeConversationId === conversation.id
-                                ? 'bg-ink text-paper border-ink'
-                                : 'bg-paper text-ink border-subtle hover:bg-ink hover:text-paper hover:border-ink'
+                                ? 'bg-accent-soft text-ink'
+                                : 'text-subtle hover:bg-paper hover:text-ink'
                             }`}
                           >
-                            <div className="relative flex-shrink-0 mr-2">
-                              <span className={`font-mono text-xs ${
-                                storeConversationId === conversation.id ? 'text-paper' : 'text-subtle group-hover/item:text-paper'
-                              }`}>
-                                [§]
-                              </span>
-                            </div>
+                            <MessageSquare className={`h-3 w-3 flex-shrink-0 ${storeConversationId === conversation.id ? 'text-accent' : 'text-faint'}`} />
 
                             <div className="overflow-hidden flex-1 min-w-0 fade-content">
-                              <div className="truncate font-medium text-xs leading-tight mb-0.5">
-                                {conversation.title || 'New Chat'}
+                              <div className={`truncate text-xs leading-tight ${storeConversationId === conversation.id ? 'text-ink' : ''}`}>
+                                {conversation.title || 'New chat'}
                               </div>
-                              <div className={`font-mono text-[10px] ${
-                                storeConversationId === conversation.id ? 'text-subtle/70' : 'text-subtle'
-                              }`}>
+                              <div className="font-mono text-[10px] text-faint mt-0.5">
                                 {formatDate(conversation.updated_at)}
                               </div>
                             </div>
                           </button>
 
                           {/* Delete Button */}
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/conversation:opacity-100 transition-opacity">
+                          <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/conversation:opacity-100 transition-opacity">
                             <button
                               onClick={(e) => handleDelete(e, conversation.id, documentId)}
-                              className={`no-select brutalist-shadow-sm font-mono text-xs px-2 py-1 border border-ink hover:bg-[var(--danger)] hover:border-[var(--danger)] hover:text-[var(--paper)] transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                                storeDeletingConversationId === conversation.id ? 'text-[var(--danger)] opacity-100' : 'text-subtle'
+                              className={`no-select hover:bg-accent-soft rounded-xs p-1.5 transition-colors ease-desk min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                                storeDeletingConversationId === conversation.id ? 'text-danger opacity-100' : 'text-faint hover:text-danger'
                               }`}
                               title="Delete conversation"
+                              aria-label="Delete conversation"
                               disabled={storeDeletingConversationId === conversation.id}
                             >
                               {storeDeletingConversationId === conversation.id ? (
-                                <span className="animate-pulse">[×]</span>
+                                <span className="font-mono text-[10px] animate-pulse">…</span>
                               ) : (
-                                '[×]'
+                                <X className="h-3.5 w-3.5" />
                               )}
                             </button>
                           </div>
@@ -366,59 +341,56 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({}, ref) => {
       </div>
 
       {/* =====================================================
-          FOOTER - User section with [PRO PLAN] badge
+          FOOTER — user section (no fake PRO PLAN badge)
           ===================================================== */}
-      <div className="border-t-2 border-ink p-4">
+      <div className="border-t border-hair p-3">
         <div className="relative">
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className={`no-tap-highlight brutalist-shadow-sm w-full flex items-center border hover:bg-ink hover:text-paper transition-colors min-h-[44px] ${
-              isOpen ? 'p-3 justify-between' : 'p-3 justify-center'
-            } ${isMenuOpen ? 'bg-ink text-paper' : 'border-ink'}`}
+            className={`no-tap-highlight w-full flex items-center gap-2.5 rounded-sm transition-colors ease-desk min-h-[44px] ${
+              isOpen ? 'p-2 justify-between hover:bg-paper' : 'p-2 justify-center hover:bg-paper'
+            } ${isMenuOpen ? 'bg-paper' : ''}`}
+            aria-label="Open user menu"
+            aria-expanded={isMenuOpen}
           >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-ink text-paper flex items-center justify-center font-mono text-xs border border-ink">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="tutor-avatar !w-8 !h-8 !text-xs">
                 {storeUserId ? storeUserId.substring(0, 2).toUpperCase() : 'U'}
               </div>
               {isOpen && (
-                <div className="text-left fade-content">
-                  <div className="font-serif text-xs truncate w-32">
+                <div className="text-left fade-content min-w-0">
+                  <div className="text-xs text-ink truncate w-32">
                     {storeUserEmail || storeUserId || 'User'}
                   </div>
                 </div>
               )}
             </div>
             {isOpen && (
-              <div className="flex items-center gap-2 fade-content">
-                <span className="font-mono text-xs px-2 py-1 border border-ink text-subtle">[PRO PLAN]</span>
-                <span className={`font-mono text-xs transition-transform duration-200 ${isMenuOpen ? 'rotate-180' : ''}`}>[▼]</span>
-              </div>
+              <ChevronRight className={`h-3.5 w-3.5 text-faint transition-transform duration-200 fade-content ${isMenuOpen ? 'rotate-90' : ''}`} />
             )}
           </button>
 
-          {/* Popup Menu - Brutalist Style */}
+          {/* Popup Menu */}
           {isMenuOpen && (
             <div
               ref={menuRef}
-              className={`absolute bottom-full left-0 bg-paper border-2 border-ink shadow-none overflow-hidden z-50 mb-2 ${
-                isOpen ? 'w-full min-w-[200px]' : 'left-10 w-48'
-              }`}
+              className="absolute bottom-full left-0 right-0 mb-2 bg-surface border border-hair rounded-sm shadow-card overflow-hidden z-50 model-menu-enter"
             >
-              <div className="border-b border-ink">
+              <div className="border-b border-hair-soft">
                 <Link
                   href="/settings"
-                  className="no-select brutalist-shadow-sm flex items-center px-4 py-3 font-mono text-xs text-ink hover:bg-ink hover:text-paper transition-colors gap-3 min-h-[44px] border-b border-ink"
+                  className="no-select flex items-center px-3 py-2.5 text-sm text-ink hover:bg-desk transition-colors ease-desk gap-2.5 min-h-[44px]"
                 >
-                  <span>[⚙]</span>
+                  <Settings className="h-4 w-4 text-subtle" />
                   <span>Settings</span>
                 </Link>
               </div>
               <div>
                 <button
                   onClick={handleLogout}
-                  className="no-select w-full flex items-center px-4 py-3 font-mono text-xs text-[var(--danger)] hover:bg-[var(--danger)] hover:text-[var(--paper)] transition-colors gap-3 min-h-[44px]"
+                  className="no-select w-full flex items-center px-3 py-2.5 text-sm text-danger hover:bg-accent-soft transition-colors ease-desk gap-2.5 min-h-[44px]"
                 >
-                  <span>[←]</span>
+                  <LogOut className="h-4 w-4" />
                   <span>Logout</span>
                 </button>
               </div>
