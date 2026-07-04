@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     CACHE_CHUNK_TTL: int = 259200  # 72 hours (increased from 24h - vector results are stable)
     CACHE_SIMILARITY_THRESHOLD: float = 0.85  # 85% similarity for response cache
     CACHE_COMPRESSION_THRESHOLD: int = 1024  # Compress cache values larger than 1KB
+    CACHE_KEY_PREFIX: str = "sft:cache:"  # Namespace for cache keys; must end with a colon
 
     # Environment
     NODE_ENV: str = "development"
