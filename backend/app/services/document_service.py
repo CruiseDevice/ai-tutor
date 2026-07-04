@@ -19,6 +19,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import uuid
 import nltk
 from functools import lru_cache
+import re
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -808,30 +810,97 @@ class DocumentService:
 
         return chunk_data
 
+def _sanitize_filename(filename: str) -> str:
+    """
+    Remove control characters, quotes, angle brackets, and unsafe whitespace
+    from a filename so it can safely be used in a Content-Disposition header
+    or stored in the database.
+    """
+    if not filename:
+        return "document.pdf"
+    # Strip CR/LF, tabs, quotes, angle brackets, and non-printable characters.
+    sanitized = re.sub(r'[\r\n\t\"\x00-\x1f\x7f<>]', '', filename)
+    # Collapse multiple spaces and trim.
+    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+    return sanitized or "document.pdf"
+
+
+class DocumentService:
+    """Service for uploading, processing, and managing PDF documents."""
+
+    # PDF magic numbers we accept.
+    ALLOWED_PDF_MAGICS = {
+        b'%PDF',
+        b'\x1a\x45\xdf\xa3',  # Encrypted PDF / some binary containers; kept permissive
+    }
+
+    def __init__(self):
+        """Initialize S3 client and bucket name."""
+        self.s3_client = boto3.client(
+            's3',
+            region_name=settings.AWS_REGION,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+        )
+        self.bucket_name = settings.S3_PDFBUCKET_NAME
+
+    def _check_pdf_magic_bytes(self, content: bytes) -> bool:
+        """Verify that the first bytes look like a PDF."""
+        if not content:
+            return False
+        header = content[:8]
+        return header.startswith(b'%PDF')
+
+    async def _read_upload_stream(
+        self,
+        file: UploadFile,
+        max_size: int
+    ) -> bytes:
+        """
+        Read the upload in chunks, aborting early if the max size is exceeded.
+
+        This avoids buffering an arbitrarily large file into memory before
+        validation.
+        """
+        content = bytearray()
+        chunk_size = 64 * 1024  # 64 KB chunks
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            content.extend(chunk)
+            if len(content) > max_size:
+                # Continue reading a small amount so the client sees a clean
+                # rejection, but cap memory usage.
+                await file.read(chunk_size)
+                raise ValidationError(
+                    f"File size exceeds maximum allowed size ({max_size / (1024 * 1024):.0f}MB)"
+                )
+        return bytes(content)
+
     async def upload_to_s3(self, file: UploadFile, user_id: str) -> tuple[str, str]:
         """Upload PDF to S3 and return the URL and blob path."""
-        file_extension = os.path.splitext(file.filename)[1]
-        unique_filename = f"{user_id}/{uuid.uuid4()}{file_extension}"
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        if file_extension != '.pdf':
+            raise ValidationError("Only PDF files are supported")
+
+        unique_filename = f"{user_id}/{uuid.uuid4()}.pdf"
 
         try:
-            # Read file content
-            content = await file.read()
-
-            # Validate file size after reading
+            # Stream the upload and enforce size limit before buffering whole file.
+            content = await self._read_upload_stream(file, settings.MAX_FILE_SIZE)
             file_size = len(content)
-            if file_size > settings.MAX_FILE_SIZE:
-                raise ValidationError(
-                    f"File size ({file_size / (1024 * 1024):.2f}MB) exceeds maximum allowed size ({settings.MAX_FILE_SIZE / (1024 * 1024)}MB)"
-                )
 
-            await file.seek(0)  # Reset file pointer (though we already read it)
+            # Validate magic bytes (first bytes of a real PDF).
+            if not self._check_pdf_magic_bytes(content):
+                raise ValidationError("Uploaded file does not appear to be a valid PDF")
 
             # Upload to S3
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=unique_filename,
                 Body=content,
-                ContentType=file.content_type or 'application/pdf'
+                ContentType='application/pdf'
             )
 
             # Generate URL
@@ -840,7 +909,7 @@ class DocumentService:
             return url, unique_filename
         except ValidationError:
             raise
-        except ClientError as e:
+        except ClientError:
             raise ExternalServiceError("Failed to upload to S3")
 
     def get_signed_url(self, blob_path: str, expiration: int = 3600) -> str:
@@ -863,12 +932,7 @@ class DocumentService:
         create_conversation: bool = True
     ) -> tuple[Document, Optional[Conversation]]:
         """Upload a document and create database records."""
-        # Validate file type
-        if not file.filename.lower().endswith('.pdf'):
-            raise ValidationError("Only PDF files are supported")
-
-        # File size validation happens in upload_to_s3 after reading content
-        # Upload to S3
+        # Upload to S3 (file type, magic-byte, and size checks happen inside)
         url, blob_path = await self.upload_to_s3(file, user_id)
 
         # Get current timestamp
@@ -877,7 +941,7 @@ class DocumentService:
         # Create document record
         document = Document(
             user_id=user_id,
-            title=file.filename,
+            title=_sanitize_filename(file.filename),
             url=url,
             blob_path=blob_path,
             updated_at=now

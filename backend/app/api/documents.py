@@ -14,8 +14,9 @@ from ..schemas.document import (
     DocumentProcessQueueResponse,
     DocumentProcessStatusResponse
 )
-from ..services.document_service import DocumentService
+from ..services.document_service import DocumentService, _sanitize_filename
 from ..workers.arq_config import ARQ_REDIS_SETTINGS
+from urllib.parse import quote
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,11 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 # Initialize document service
 document_service = DocumentService()
+
+
+def _sanitize_content_disposition_filename(filename: str) -> str:
+    """Header-safe filename for Content-Disposition (kept in API layer)."""
+    return _sanitize_filename(filename)
 
 
 @router.post("", response_model=dict)
@@ -230,12 +236,14 @@ async def get_document_pdf(
 
         logger.info(f"Serving PDF proxy for document {document_id} to user {user.id}")
 
+        safe_title = _sanitize_content_disposition_filename(document.title)
+
         return StreamingResponse(
             iterfile(),
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'inline; filename="{document.title}"',
-                "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+                "Content-Disposition": f"inline; filename=\"{safe_title}\"; filename*=UTF-8''{quote(safe_title, safe='')}",
+                "Cache-Control": "private, max-age=3600",
             }
         )
 
