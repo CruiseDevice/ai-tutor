@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Enum
+from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Enum, CheckConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -32,14 +32,17 @@ class User(Base):
     anthropic_api_key = Column(String, nullable=True)
     ollama_api_key = Column(String, nullable=True)
     role = Column(
-        Enum(
-            UserRole,
-            name="userrole",
-            values_callable=lambda enum_cls: [e.value for e in enum_cls]
-        ),
-        default=UserRole.USER,
+        String,
         nullable=False,
-        server_default=UserRole.USER.value
+        server_default=UserRole.USER.value,
+        default=UserRole.USER,
+    )
+    # CHECK constraint enforces the allowed Python enum values.
+    __table_args__ = (
+        CheckConstraint(
+            f"role IN ({', '.join(repr(e.value) for e in UserRole)}",
+            name="ck_users_role_allowed",
+        ),
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

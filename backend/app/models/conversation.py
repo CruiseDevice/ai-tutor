@@ -15,7 +15,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), name="userId", nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True)  # Smart title generated from first message
     created_at = Column(DateTime(timezone=True), server_default=func.now())
