@@ -633,3 +633,45 @@ def add_hierarchical_chunking_schema(engine):
         # Log error but don't crash the backend
         logger.error(f"Migration error (non-fatal) - add_hierarchical_chunking_schema: {e}", exc_info=True)
         logger.warning("Backend will continue to start, but hierarchical chunking may not work")
+
+
+def add_user_api_key_columns(engine):
+    """
+    Add per-provider API key columns to the 'users' table.
+
+    Adds:
+    - openai_api_key: Encrypted OpenAI API key
+    - anthropic_api_key: Encrypted Anthropic API key
+    - ollama_api_key: Encrypted Ollama Cloud API key
+
+    The legacy 'api_key' column is retained and read as a fallback for OpenAI
+    so existing users keep working until they re-save a key.
+    """
+    try:
+        inspector = inspect(engine)
+
+        table_names = inspector.get_table_names()
+        if 'users' not in table_names:
+            logger.info("users table does not exist, will be created by create_all()")
+            return
+
+        existing_columns = {col['name'] for col in inspector.get_columns('users')}
+
+        with engine.begin() as conn:
+            for column in ('openai_api_key', 'anthropic_api_key', 'ollama_api_key'):
+                if column not in existing_columns:
+                    logger.info(f"Adding '{column}' column to 'users' table...")
+                    conn.execute(text(f"""
+                        ALTER TABLE users
+                        ADD COLUMN {column} VARCHAR
+                    """))
+                    logger.info(f"Successfully added '{column}' column to 'users' table")
+                else:
+                    logger.debug(f"'{column}' column already exists in 'users' table")
+
+        logger.info("User API key columns migration completed successfully")
+
+    except Exception as e:
+        # Log error but don't crash the backend
+        logger.error(f"Migration error (non-fatal) - add_user_api_key_columns: {e}", exc_info=True)
+        logger.warning("Backend will continue to start, but multi-provider keys may not work")

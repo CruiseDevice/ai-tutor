@@ -28,6 +28,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from ..config import settings
 from ..models.conversation import Message
 from .chat_service import ChatService
+from .llm import Provider, resolve_provider, pick_helper_model, get_llm_client
 from .query_expansion_service import get_query_expansion_service
 from .rerank_service import get_rerank_service
 from .cache_service import get_cache_service
@@ -155,6 +156,8 @@ class AgentState(TypedDict):
     user_id: str
     db_session: Session
     user_api_key: str
+    model: Optional[str]  # User-selected chat model (None → provider smart default)
+    provider: Optional[str]  # Resolved provider name ("openai"|"anthropic"|"ollama")
 
     # Query Understanding (from _classify_query_type)
     query_type: Optional[str]  # "factual", "analytical", "comparative", "follow-up", "clarification"
@@ -236,6 +239,14 @@ class RAGAgentService:
         }
         return limits.get(complexity, settings.MAX_COMPLETION_TOKENS_MODERATE)
 
+    def _smart_model_for(self, provider: Provider) -> str:
+        """Return the configured smart model id for a provider."""
+        if provider == Provider.ANTHROPIC:
+            return settings.ANTHROPIC_SMART_MODEL
+        if provider == Provider.OLLAMA:
+            return settings.OLLAMA_MODELS[0]
+        return settings.OPENAI_SMART_MODEL
+
     def _build_workflow(self) -> StateGraph:
         """
         Build the LangGraph workflow with conditional routing.
@@ -293,6 +304,7 @@ class RAGAgentService:
         """
         start_time = time.time()
         logger.info(f"[Agent] Understanding query: {state['user_query'][:100]}")
+        provider = Provider(state.get("provider") or Provider.OPENAI.value)
 
         # Initialize metrics if not already present
         if state.get("metrics") is None:
@@ -318,7 +330,8 @@ class RAGAgentService:
                 # Use existing classification logic from ChatService
                 classification = await self.chat_service._classify_query_type(
                     query=state["user_query"],
-                    user_api_key=state["user_api_key"]
+                    user_api_key=state["user_api_key"],
+                    provider=Provider(state.get("provider") or Provider.OPENAI.value)
                 )
 
                 # Cache the classification (expires in 1 hour)
@@ -336,7 +349,7 @@ class RAGAgentService:
                 AgentMetrics.track_token_usage(
                     state["metrics"],
                     "query_classification",
-                    settings.QUERY_CLASSIFICATION_MODEL,
+                    pick_helper_model(provider),
                     prompt_tokens=100,
                     completion_tokens=50
                 )
@@ -395,7 +408,7 @@ class RAGAgentService:
 
         return strategy
 
-    async def _decompose_complex_query(self, query: str, user_api_key: str) -> List[str]:
+    async def _decompose_complex_query(self, query: str, user_api_key: str, provider: Provider = Provider.OPENAI) -> List[str]:
         """
         Decompose a complex query into sub-questions for multi-step reasoning.
 
@@ -404,13 +417,15 @@ class RAGAgentService:
 
         Args:
             query: The complex user query
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
+            provider: LLM provider to use
 
         Returns:
             List of sub-questions (including the original query)
         """
         try:
-            client = AsyncOpenAI(api_key=user_api_key)
+            client = get_llm_client(provider, user_api_key)
+            model = pick_helper_model(provider)
 
             decomposition_prompt = f"""You are a query decomposition assistant. Break down this complex query into 2-4 simpler sub-questions that, when answered together, would fully address the original query.
 
@@ -428,17 +443,14 @@ Output: ["What is photosynthesis?", "What is cellular respiration?", "How are ph
 
 Output (JSON array only):"""
 
-            completion = await client.chat.completions.create(
-                model="gpt-4o-mini",  # Use cheaper model for decomposition
-                messages=[
-                    {"role": "system", "content": "You are a query decomposition assistant that outputs only valid JSON arrays."},
-                    {"role": "user", "content": decomposition_prompt}
-                ],
+            response_text = await client.complete(
+                system_prompt="You are a query decomposition assistant that outputs only valid JSON arrays.",
+                messages=[{"role": "user", "content": decomposition_prompt}],
+                model=model,
                 temperature=0.3,
-                max_completion_tokens=200
+                max_tokens=200,
             )
-
-            response_text = completion.choices[0].message.content.strip()
+            response_text = response_text.strip()
 
             # Parse JSON response
             sub_questions = json.loads(response_text)
@@ -471,6 +483,7 @@ Output (JSON array only):"""
         try:
             strategy = state.get("retrieval_strategy", "fast_path")
             complexity = state.get("complexity", "simple")
+            provider = Provider(state.get("provider") or Provider.OPENAI.value)
 
             # Adaptive chunk limits based on strategy
             if strategy == "fast_path":
@@ -490,7 +503,8 @@ Output (JSON array only):"""
                 # Decompose query into sub-questions
                 sub_questions = await self._decompose_complex_query(
                     query=state["user_query"],
-                    user_api_key=state["user_api_key"]
+                    user_api_key=state["user_api_key"],
+                    provider=Provider(state.get("provider") or Provider.OPENAI.value)
                 )
 
                 # Retrieve chunks for each sub-question
@@ -505,7 +519,8 @@ Output (JSON array only):"""
                         document_id=state["document_id"],
                         query=sub_question,
                         user_api_key=state["user_api_key"],
-                        limit=max(3, limit // len(sub_questions))  # Distribute limit across sub-questions
+                        limit=max(3, limit // len(sub_questions)),  # Distribute limit across sub-questions
+                        provider=provider
                     )
 
                     # Deduplicate chunks (based on page number + content hash)
@@ -526,7 +541,8 @@ Output (JSON array only):"""
                     document_id=state["document_id"],
                     query=state["user_query"],
                     user_api_key=state["user_api_key"],
-                    limit=limit
+                    limit=limit,
+                    provider=provider
                 )
                 # TODO(human): Diagnostic logging for agent chunk retrieval
                 logger.info(f"[Agent DEBUG] Standard retrieval returned {len(chunks)} chunks for document {state['document_id']}")
@@ -589,12 +605,14 @@ Output (JSON array only):"""
 
     async def _generate_answer(self, state: AgentState) -> AgentState:
         """
-        Node 3: Generate answer using existing _build_system_prompt and OpenAI.
+        Node 3: Generate answer using _build_system_prompt and the user's
+        selected model (routed through the provider-agnostic LLM client).
 
         Leverages ChatService._build_system_prompt() for adaptive prompting
         and ChatService._parse_annotations() for annotation extraction.
 
-        Now includes conversation history for context-aware responses.
+        The user's selected model is honored. If unset, falls back to the
+        provider's smart model. Includes conversation history for context.
         """
         logger.info(f"[Agent] Generating answer")
 
@@ -607,16 +625,18 @@ Output (JSON array only):"""
                 requires_cot=state.get("requires_cot", False)
             )
 
-            # Select model and token limit based on complexity
+            # Resolve provider + model: honor the user's selection; only fall
+            # back to a provider default when none was supplied.
+            provider = Provider(state.get("provider") or Provider.OPENAI.value)
+            model = state.get("model") or self._smart_model_for(provider)
             complexity = state.get("complexity", "simple")
-            if complexity == "complex":
-                model = "gpt-4o"  # Better model for complex queries
-            else:
-                model = settings.AGENT_DEFAULT_MODEL  # gpt-4o-mini for simple/moderate
 
             # Get adaptive token limit based on complexity
             max_tokens = self._get_adaptive_token_limit(complexity)
-            logger.info(f"[Agent] Using {max_tokens} max completion tokens for {complexity} query")
+            logger.info(
+                f"[Agent] Using model={model} provider={provider.value} "
+                f"with {max_tokens} max tokens for {complexity} query"
+            )
 
             # Fetch conversation history for context-aware responses
             history_messages = self._fetch_conversation_history(
@@ -628,33 +648,30 @@ Output (JSON array only):"""
             # Store conversation history in state for debugging/analysis
             state["conversation_history"] = history_messages
 
-            # Build messages list with conversation history
-            messages = [{"role": "system", "content": system_prompt}]
-
-            # Add conversation history (excluding the current user message if already in history)
-            # The history includes previous exchanges, providing context for follow-up questions
+            # Build messages list with conversation history (system prompt is
+            # passed separately to the LLM client).
+            chat_messages = []
             for msg in history_messages:
                 # Skip if this is the same as the current user query (avoid duplication)
                 if msg["role"] == "user" and msg["content"] == state["user_query"]:
                     continue
-                messages.append(msg)
+                chat_messages.append(msg)
 
             # Add current user message
-            messages.append({"role": "user", "content": state["user_query"]})
+            chat_messages.append({"role": "user", "content": state["user_query"]})
 
-            logger.debug(f"[Agent] Sending {len(messages)} messages to OpenAI (including history)")
+            logger.debug(f"[Agent] Sending {len(chat_messages)} messages to LLM (including history)")
 
-            # Generate answer
-            client = AsyncOpenAI(api_key=state["user_api_key"])
+            # Generate answer via the provider-agnostic client
+            client = get_llm_client(provider, state["user_api_key"])
 
-            completion = await client.chat.completions.create(
+            raw_answer = await client.complete(
+                system_prompt=system_prompt,
+                messages=chat_messages,
                 model=model,
-                messages=messages,
                 temperature=0.7,
-                max_completion_tokens=max_tokens
+                max_tokens=max_tokens,
             )
-
-            raw_answer = completion.choices[0].message.content
             state["answer"] = raw_answer
 
             # Parse annotations using existing logic
@@ -835,7 +852,8 @@ Output (JSON array only):"""
         document_id: str,
         user_id: str,
         db_session: Session,
-        user_api_key: str
+        user_api_key: str,
+        model: Optional[str] = None
     ) -> Dict:
         """
         Main entry point for agent-based query processing.
@@ -846,7 +864,8 @@ Output (JSON array only):"""
             document_id: Document identifier
             user_id: User identifier
             db_session: Database session
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
+            model: User-selected chat model id (None → provider smart default)
 
         Returns:
             Dict matching ChatResponse schema with metadata
@@ -855,6 +874,7 @@ Output (JSON array only):"""
             Exception: If workflow execution fails (should be caught by caller for fallback)
         """
         logger.info(f"[Agent] Processing query: {user_query[:100]}")
+        provider = resolve_provider(model) if model else Provider.OPENAI
 
         # Initialize state
         initial_state: AgentState = {
@@ -864,6 +884,8 @@ Output (JSON array only):"""
             "user_id": user_id,
             "db_session": db_session,
             "user_api_key": user_api_key,
+            "model": model,
+            "provider": provider.value,
             # All other fields initialized to None
             "query_type": None,
             "complexity": None,
@@ -913,7 +935,8 @@ Output (JSON array only):"""
         document_id: str,
         user_id: str,
         db_session: Session,
-        user_api_key: str
+        user_api_key: str,
+        model: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         Stream agent workflow execution with intermediate step updates.
@@ -927,7 +950,8 @@ Output (JSON array only):"""
             document_id: Document identifier
             user_id: User identifier
             db_session: Database session
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
+            model: User-selected chat model id (None → provider smart default)
 
         Yields:
             str: JSON-encoded Server-Sent Events (SSE) with step updates
@@ -943,6 +967,7 @@ Output (JSON array only):"""
         import json
 
         logger.info(f"[Agent Stream] Starting streaming workflow for query: {user_query[:100]}")
+        provider = resolve_provider(model) if model else Provider.OPENAI
 
         # Initialize state (same as process_query)
         initial_state: AgentState = {
@@ -952,6 +977,8 @@ Output (JSON array only):"""
             "user_id": user_id,
             "db_session": db_session,
             "user_api_key": user_api_key,
+            "model": model,
+            "provider": provider.value,
             "query_type": None,
             "complexity": None,
             "requires_cot": None,

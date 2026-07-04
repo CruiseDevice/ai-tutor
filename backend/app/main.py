@@ -77,7 +77,8 @@ async def startup_event():
             add_processing_time_columns,
             add_audit_logs_table,
             add_chunk_type_column,
-            add_hierarchical_chunking_schema
+            add_hierarchical_chunking_schema,
+            add_user_api_key_columns
         )
         add_title_column_if_missing(engine)
         remove_unique_constraint_from_document_id(engine)
@@ -90,6 +91,7 @@ async def startup_event():
         add_audit_logs_table(engine)
         add_chunk_type_column(engine)
         add_hierarchical_chunking_schema(engine) # Hierarchical parent-child chunking
+        add_user_api_key_columns(engine)  # Per-provider API keys (openai/anthropic/ollama)
         logger.info("Database initialization complete")
     except Exception as e:
         logger.error(f"Database initialization error: {e}", exc_info=True)

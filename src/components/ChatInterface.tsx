@@ -24,41 +24,18 @@ import { useAnnotationsStore } from '@/stores/annotationsStore';
 import { useUIStore } from '@/stores/uiStore';
 
 const AVAILABLE_MODELS = [
-  // GPT-5 Series (Chat Models)
-  { id: "gpt-5.1", name: "GPT-5.1", description: "Latest GPT-5 model • $1.25/$0.125 per 1M tokens" },
-  { id: "gpt-5", name: "GPT-5", description: "GPT-5 base model • $1.25/$0.125 per 1M tokens" },
-  { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Compact GPT-5 • $0.25/$0.025 per 1M tokens" },
-  { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra-lightweight • $0.05/$0.005 per 1M tokens" },
-  { id: "gpt-5.1-chat-latest", name: "GPT-5.1 Chat Latest", description: "Latest chat variant • $1.25/$0.125 per 1M tokens" },
-  { id: "gpt-5-chat-latest", name: "GPT-5 Chat Latest", description: "Chat optimized • $1.25/$0.125 per 1M tokens" },
-  { id: "gpt-5-pro", name: "GPT-5 Pro", description: "Premium performance • $15.00/$120.00 per 1M tokens" },
+  // OpenAI
+  { id: "gpt-5.1", name: "GPT-5.1", description: "OpenAI • Smart • Most capable", provider: "openai" },
+  { id: "gpt-4o-mini", name: "GPT-4o mini", description: "OpenAI • Fast • Cost-efficient", provider: "openai" },
 
-  // GPT-4.1 Series (Chat Models)
-  { id: "gpt-4.1", name: "GPT-4.1", description: "Enhanced GPT-4 • $2.00/$0.50 per 1M tokens" },
-  { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", description: "Compact GPT-4.1 • $0.40/$0.10 per 1M tokens" },
-  { id: "gpt-4.1-nano", name: "GPT-4.1 Nano", description: "Ultra-light GPT-4.1 • $0.10/$0.025 per 1M tokens" },
+  // Anthropic
+  { id: "claude-sonnet-5", name: "Claude Sonnet", description: "Anthropic • Smart • Balanced & capable", provider: "anthropic" },
+  { id: "claude-haiku-4-5", name: "Claude Haiku", description: "Anthropic • Fast • Lightweight", provider: "anthropic" },
 
-  // GPT-4o Series (Chat Models)
-  { id: "gpt-4o", name: "GPT-4o", description: "Optimized GPT-4 • $2.50/$1.25 per 1M tokens" },
-  { id: "gpt-4o-2024-05-13", name: "GPT-4o (2024-05-13)", description: "Snapshot version • $5.00/$15.00 per 1M tokens" },
-  { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Lightweight GPT-4o • $0.15/$0.075 per 1M tokens" },
-
-  // Realtime Series (Chat Models)
-  { id: "gpt-realtime", name: "GPT Realtime", description: "Real-time responses • $4.00/$0.40 per 1M tokens" },
-  { id: "gpt-realtime-mini", name: "GPT Realtime Mini", description: "Lightweight realtime • $0.60/$0.06 per 1M tokens" },
-  { id: "gpt-4o-realtime-preview", name: "GPT-4o Realtime Preview", description: "Preview realtime • $5.00/$2.50 per 1M tokens" },
-  { id: "gpt-4o-mini-realtime-preview", name: "GPT-4o Mini Realtime", description: "Mini realtime preview • $0.60/$0.30 per 1M tokens" },
-
-  // O-Series (Reasoning Models - Chat Compatible)
-  { id: "o1", name: "O1", description: "Reasoning model • $15.00/$7.50 per 1M tokens" },
-  { id: "o1-pro", name: "O1 Pro", description: "Advanced reasoning • $150.00/$600.00 per 1M tokens" },
-  { id: "o1-mini", name: "O1 Mini", description: "Lightweight reasoning • $1.10/$0.55 per 1M tokens" },
-  { id: "o3", name: "O3", description: "Next-gen reasoning • $2.00/$0.50 per 1M tokens" },
-  { id: "o3-pro", name: "O3 Pro", description: "Premium reasoning • $20.00/$80.00 per 1M tokens" },
-  { id: "o3-mini", name: "O3 Mini", description: "Compact reasoning • $1.10/$0.55 per 1M tokens" },
-  { id: "o3-deep-research", name: "O3 Deep Research", description: "Deep research mode • $10.00/$2.50 per 1M tokens" },
-  { id: "o4-mini", name: "O4 Mini", description: "Latest mini reasoning • $1.10/$0.275 per 1M tokens" },
-  { id: "o4-mini-deep-research", name: "O4 Mini Deep Research", description: "Mini deep research • $2.00/$0.50 per 1M tokens" },
+  // Ollama Cloud
+  { id: "glm-5.2:cloud", name: "GLM-5.2 (Ollama)", description: "Ollama Cloud • Z.ai flagship • 1M context", provider: "ollama" },
+  { id: "kimi-k2.7-code:cloud", name: "Kimi K2.7 Code (Ollama)", description: "Ollama Cloud • Moonshot • Coding-tuned", provider: "ollama" },
+  { id: "gpt-oss:20b", name: "gpt-oss:20b (Ollama)", description: "Ollama Cloud • Open-weight • Configurable", provider: "ollama" },
 ]
 
 export default function ChatInterface() {
@@ -116,7 +93,9 @@ export default function ChatInterface() {
         }
 
         const data = await response.json();
-        setApiKeyStatus(data.hasApiKey);
+        // New shape: { openai, anthropic, ollama } booleans. Old shape had hasApiKey.
+        const hasAny = Boolean(data.openai || data.anthropic || data.ollama || data.hasApiKey);
+        setApiKeyStatus(hasAny);
       } catch (error) {
         console.error('Error checking API key:', error);
         setApiKeyStatus(false);

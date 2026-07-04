@@ -18,6 +18,13 @@ from .cache_service import get_cache_service
 from .query_expansion_service import get_query_expansion_service
 from .query_decomposition_service import get_query_decomposition_service
 from .token_service import TokenService
+from .llm import (
+    Provider,
+    resolve_provider,
+    pick_helper_model,
+    get_llm_client,
+    LLMClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +32,25 @@ logger = logging.getLogger(__name__)
 class ChatService:
     def __init__(self):
         self.embedding_service = get_embedding_service()
+
+    def _resolve_provider_for_model(self, model: str) -> Provider:
+        """Resolve the LLM provider for a chat model id."""
+        return resolve_provider(model)
+
+    def _get_llm_client(
+        self,
+        model: str,
+        api_key: str,
+        provider: Provider | None = None,
+    ) -> tuple[LLMClient, Provider]:
+        """Construct a uniform LLM client for `model` using `api_key`.
+
+        Returns the client and the resolved provider, so callers can pick a
+        provider-appropriate helper model for background tasks.
+        """
+        prov = provider or self._resolve_provider_for_model(model)
+        client = get_llm_client(prov, api_key)
+        return client, prov
 
     def _get_adaptive_token_limit(self, complexity: str) -> int:
         """
@@ -44,13 +70,15 @@ class ChatService:
         }
         return limits.get(complexity, settings.MAX_COMPLETION_TOKENS_MODERATE)
 
-    async def _generate_conversation_title(self, user_message: str, user_api_key: str) -> str:
+    async def _generate_conversation_title(self, user_message: str, user_api_key: str, provider: Provider | None = None) -> str:
         """
         Generate a smart, concise title for the conversation based on the first user message.
         Uses LLM to create a title that's 3-6 words.
         """
         try:
-            client = AsyncOpenAI(api_key=user_api_key)
+            prov = provider or Provider.OPENAI
+            client = get_llm_client(prov, user_api_key)
+            model = pick_helper_model(prov)
 
             prompt = f"""Generate a concise, descriptive title for this conversation based on the user's question.
 The title should be 3-6 words and capture the main topic or question.
@@ -66,26 +94,23 @@ Examples:
 
 Title:"""
 
-            # Use async retry logic for OpenAI API call
             async def _create_completion():
-                return await client.chat.completions.create(
-                    model="gpt-4o-mini",  # Use cheaper model for title generation
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that generates concise conversation titles."},
-                        {"role": "user", "content": prompt}
-                    ],
+                return await client.complete(
+                    system_prompt="You are a helpful assistant that generates concise conversation titles.",
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model,
                     temperature=0.7,
-                    max_completion_tokens=20
+                    max_tokens=20,
                 )
 
-            completion = await async_retry_openai_call(
+            title = await async_retry_openai_call(
                 _create_completion,
                 max_attempts=3,  # Fewer retries for title generation (non-critical)
                 initial_wait=1.0,
                 max_wait=30.0
             )
 
-            title = completion.choices[0].message.content.strip()
+            title = title.strip()
             # Remove quotes if present
             title = title.strip('"\'')
             # Limit to 50 characters
@@ -741,7 +766,8 @@ Title:"""
         query: str,
         document_id: str,
         limit: int = 5,
-        user_api_key: Optional[str] = None
+        user_api_key: Optional[str] = None,
+        provider: Provider = Provider.OPENAI
     ) -> List[Dict]:
         """
         Find similar document chunks using hybrid search (semantic + keyword).
@@ -860,7 +886,8 @@ Title:"""
                     query_decomposition_service = get_query_decomposition_service()
                     sub_queries = await query_decomposition_service.decompose_query(
                         query=query,
-                        user_api_key=user_api_key
+                        user_api_key=user_api_key,
+                        provider=provider
                     )
 
                     # If decomposition produced multiple sub-queries, use them instead of expansion
@@ -973,7 +1000,8 @@ Title:"""
                     query_expansion_service = get_query_expansion_service()
                     query_variations = await query_expansion_service.generate_query_variations(
                         query=query,
-                        user_api_key=user_api_key
+                        user_api_key=user_api_key,
+                        provider=provider
                     )
                     logger.info(f"Generated {len(query_variations)} query variations (including original)")
 
@@ -1507,7 +1535,7 @@ Title:"""
 
         return selected_chunks, stats
 
-    async def _classify_query_type(self, query: str, user_api_key: str) -> Dict:
+    async def _classify_query_type(self, query: str, user_api_key: str, provider: Provider | None = None) -> Dict:
         """
         Classify query type and complexity to enable adaptive prompting.
 
@@ -1527,7 +1555,9 @@ Title:"""
             }
 
         try:
-            client = AsyncOpenAI(api_key=user_api_key)
+            prov = provider or Provider.OPENAI
+            client = get_llm_client(prov, user_api_key)
+            model = pick_helper_model(prov)
 
             classification_prompt = """Analyze this query and classify it.
 
@@ -1557,24 +1587,22 @@ Requires chain-of-thought (COT):
 - false: For simple queries with straightforward answers""".format(query=query)
 
             async def _create_completion():
-                return await client.chat.completions.create(
-                    model=settings.QUERY_CLASSIFICATION_MODEL,
-                    messages=[
-                        {"role": "system", "content": "You are a query classification assistant that outputs only valid JSON."},
-                        {"role": "user", "content": classification_prompt}
-                    ],
+                return await client.complete(
+                    system_prompt="You are a query classification assistant that outputs only valid JSON.",
+                    messages=[{"role": "user", "content": classification_prompt}],
+                    model=model,
                     temperature=0.3,  # Low temperature for consistent classification
-                    max_completion_tokens=100
+                    max_tokens=100,
                 )
 
-            completion = await async_retry_openai_call(
+            response_text = await async_retry_openai_call(
                 _create_completion,
                 max_attempts=3,
                 initial_wait=1.0,
                 max_wait=30.0
             )
 
-            response_text = completion.choices[0].message.content.strip()
+            response_text = response_text.strip()
 
             # Parse JSON response
             result = json.loads(response_text)
@@ -2006,7 +2034,8 @@ concepts into practical implementations when requested.
         query: str,
         answer: str,
         context_chunks: List[Dict],
-        user_api_key: str
+        user_api_key: str,
+        provider: Provider | None = None
     ) -> Dict[str, any]:
         """
         Evaluate answer quality using LLM scoring on multiple dimensions.
@@ -2042,7 +2071,9 @@ concepts into practical implementations when requested.
             }
 
         try:
-            client = AsyncOpenAI(api_key=user_api_key)
+            prov = provider or Provider.OPENAI
+            client = get_llm_client(prov, user_api_key)
+            model = pick_helper_model(prov)
 
             # Create context summary (first 500 chars of each chunk)
             context_summary = "\n\n".join([
@@ -2077,24 +2108,22 @@ Respond with ONLY a JSON object in this exact format:
 }}"""
 
             async def _create_completion():
-                return await client.chat.completions.create(
-                    model=settings.QUALITY_SCORING_MODEL,
-                    messages=[
-                        {"role": "system", "content": "You are an answer quality evaluator that outputs only valid JSON."},
-                        {"role": "user", "content": scoring_prompt}
-                    ],
+                return await client.complete(
+                    system_prompt="You are an answer quality evaluator that outputs only valid JSON.",
+                    messages=[{"role": "user", "content": scoring_prompt}],
+                    model=model,
                     temperature=0.3,  # Low temperature for consistent scoring
-                    max_completion_tokens=200
+                    max_tokens=200,
                 )
 
-            completion = await async_retry_openai_call(
+            response_text = await async_retry_openai_call(
                 _create_completion,
                 max_attempts=2,  # Fewer retries for non-critical scoring
                 initial_wait=1.0,
                 max_wait=20.0
             )
 
-            response_text = completion.choices[0].message.content.strip()
+            response_text = response_text.strip()
 
             # Parse JSON response
             scores = json.loads(response_text)
@@ -2165,11 +2194,15 @@ Respond with ONLY a JSON object in this exact format:
 
         # Linear pipeline (existing implementation)
         try:
-            # Get decrypted API key
-            api_key = user.get_decrypted_api_key()
+            # Get decrypted API key for the resolved provider
+            provider = self._resolve_provider_for_model(model)
+            api_key = user.get_decrypted_key(provider.value)
             if not api_key:
-                logger.error(f"User {user.id} has no OpenAI API key configured")
-                raise ValueError("User has no OpenAI API key configured. Please configure your API key in settings.")
+                logger.error(f"User {user.id} has no {provider.value} API key configured")
+                raise ValueError(
+                    f"User has no {provider.value} API key configured. "
+                    "Please configure your API key in settings."
+                )
 
             logger.debug(f"Generating chat response for user {user.id}, conversation {conversation_id}")
 
@@ -2233,8 +2266,9 @@ Respond with ONLY a JSON object in this exact format:
                         }
                     }
 
-            # Initialize OpenAI client
-            client = AsyncOpenAI(api_key=api_key)
+            # Initialize LLM client (provider resolved from the selected model)
+            provider = self._resolve_provider_for_model(model)
+            client = get_llm_client(provider, api_key)
 
             # Get configuration
             from ..config import settings
@@ -2243,7 +2277,7 @@ Respond with ONLY a JSON object in this exact format:
 
             # Find relevant chunks (retrieve more for token-based selection)
             logger.debug(f"Finding similar chunks for document {document_id}")
-            candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key)
+            candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key, provider=provider)
             # TODO(human): Add diagnostic logging to understand why chunks might be empty
             logger.info(f"[DEBUG CHAT] Retrieved {len(candidate_chunks)} candidate chunks for document {document_id}")
 
@@ -2254,7 +2288,7 @@ Respond with ONLY a JSON object in this exact format:
             ).order_by(Message.created_at).limit(10).all()
 
             # Classify query type for adaptive prompting
-            query_classification = await self._classify_query_type(content, api_key)
+            query_classification = await self._classify_query_type(content, api_key, provider)
             logger.info(
                 f"Query classification: type={query_classification['query_type']}, "
                 f"complexity={query_classification['complexity']}, "
@@ -2393,39 +2427,43 @@ say you don't have enough information from the document and suggest looking at o
             logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query")
 
             try:
+                # messages[0] is the system message; LLMClient takes system separately.
+                chat_messages = messages[1:]
+
                 async def _create_completion():
-                    return await client.chat.completions.create(
+                    return await client.complete(
+                        system_prompt=system_prompt_content,
+                        messages=chat_messages,
                         model=model,
-                        messages=messages,
                         temperature=0.7,
-                        max_completion_tokens=max_tokens
+                        max_tokens=max_tokens,
                     )
 
-                completion = await async_retry_openai_call(
+                raw_assistant_content = await async_retry_openai_call(
                     _create_completion,
                     max_attempts=5,  # More retries for main chat completion
                     initial_wait=1.0,
                     max_wait=60.0
                 )
             except APIError as e:
-                logger.error(f"OpenAI API error after retries: {str(e)}", exc_info=True)
+                logger.error(f"LLM API error after retries: {str(e)}", exc_info=True)
                 # Provide more specific error messages
                 status_code = getattr(e, 'status_code', None)
                 if status_code:
                     if status_code == 429:
                         raise ValueError("Rate limit exceeded. Please wait a moment and try again.")
                     elif status_code == 401:
-                        raise ValueError("Invalid API key. Please check your OpenAI API key in settings.")
+                        raise ValueError("Invalid API key. Please check your API key in settings.")
                     elif status_code == 403:
-                        raise ValueError("API access forbidden. Please check your OpenAI API key permissions.")
+                        raise ValueError("API access forbidden. Please check your API key permissions.")
                     elif status_code in [500, 502, 503, 504]:
-                        raise ValueError("OpenAI service is temporarily unavailable. Please try again later.")
-                raise ValueError(f"OpenAI API error: {str(e)}")
+                        raise ValueError("The LLM service is temporarily unavailable. Please try again later.")
+                raise ValueError(f"LLM API error: {str(e)}")
             except Exception as e:
-                logger.error(f"Unexpected error calling OpenAI API: {str(e)}", exc_info=True)
+                logger.error(f"Unexpected error calling LLM API: {str(e)}", exc_info=True)
                 raise ValueError(f"Failed to generate response: {str(e)}")
 
-            raw_assistant_content = completion.choices[0].message.content
+            raw_assistant_content = raw_assistant_content or ""
             logger.info(f"[Annotations] Raw OpenAI response: {raw_assistant_content[:500]}...")
 
             # Extract token usage from completion
@@ -2470,7 +2508,8 @@ say you don't have enough information from the document and suggest looking at o
                 query=content,
                 answer=assistant_content,
                 context_chunks=relevant_chunks,
-                user_api_key=api_key
+                user_api_key=api_key,
+                provider=provider
             )
 
             # Check if this is the first message in the conversation (for title generation)
@@ -2515,7 +2554,7 @@ say you don't have enough information from the document and suggest looking at o
                     ).first()
 
                     if conversation and not conversation.title:
-                        title = await self._generate_conversation_title(content, user.api_key)
+                        title = await self._generate_conversation_title(content, api_key, provider)
                         conversation.title = title
                         logger.info(f"Set conversation title to: {title}")
                 except Exception as e:
@@ -2609,11 +2648,15 @@ say you don't have enough information from the document and suggest looking at o
             )
 
         try:
-            # Get decrypted API key
-            api_key = user.get_decrypted_api_key()
+            # Get decrypted API key for the resolved provider
+            provider = self._resolve_provider_for_model(model)
+            api_key = user.get_decrypted_key(provider.value)
             if not api_key:
-                logger.error(f"User {user.id} has no OpenAI API key configured")
-                raise ValueError("User has no OpenAI API key configured. Please configure your API key in settings.")
+                logger.error(f"User {user.id} has no {provider.value} API key configured")
+                raise ValueError(
+                    f"User has no {provider.value} API key configured. "
+                    "Please configure your API key in settings."
+                )
 
             logger.info(f"[Agent] Processing query with agent workflow for user {user.id}")
 
@@ -2627,7 +2670,8 @@ say you don't have enough information from the document and suggest looking at o
                 document_id=document_id,
                 user_id=str(user.id),
                 db_session=db,
-                user_api_key=api_key
+                user_api_key=api_key,
+                model=model
             )
 
             # Extract data from agent response
@@ -2691,7 +2735,7 @@ say you don't have enough information from the document and suggest looking at o
                     ).first()
 
                     if conversation and not conversation.title:
-                        title = await self._generate_conversation_title(content, api_key)
+                        title = await self._generate_conversation_title(content, api_key, provider)
                         conversation.title = title
                         logger.info(f"Set conversation title to: {title}")
                 except Exception as e:
@@ -2789,13 +2833,14 @@ say you don't have enough information from the document and suggest looking at o
             return
 
         try:
-            # Get decrypted API key
-            api_key = user.get_decrypted_api_key()
+            # Get decrypted API key for the resolved provider
+            provider = self._resolve_provider_for_model(model)
+            api_key = user.get_decrypted_key(provider.value)
             if not api_key:
-                logger.error(f"User {user.id} has no OpenAI API key configured")
+                logger.error(f"User {user.id} has no {provider.value} API key configured")
                 error_data = json.dumps({
                     'type': 'error',
-                    'content': 'User has no OpenAI API key configured. Please configure your API key in settings.'
+                    'content': f'User has no {provider.value} API key configured. Please configure your API key in settings.'
                 })
                 yield f"data: {error_data}\n\n"
                 return
@@ -2815,7 +2860,8 @@ say you don't have enough information from the document and suggest looking at o
                 document_id=document_id,
                 user_id=str(user.id),
                 db_session=db,
-                user_api_key=api_key
+                user_api_key=api_key,
+                model=model
             ):
                 # Forward agent events to client
                 yield event_data
@@ -2888,7 +2934,7 @@ say you don't have enough information from the document and suggest looking at o
                             ).first()
 
                             if conversation and not conversation.title:
-                                title = await self._generate_conversation_title(content, api_key)
+                                title = await self._generate_conversation_title(content, api_key, provider)
                                 conversation.title = title
                                 logger.info(f"Set conversation title to: {title}")
                         except Exception as e:
@@ -2944,11 +2990,12 @@ say you don't have enough information from the document and suggest looking at o
         relevant_chunks = []
 
         try:
-            # Get decrypted API key
-            api_key = user.get_decrypted_api_key()
+            # Get decrypted API key for the resolved provider
+            provider = self._resolve_provider_for_model(model)
+            api_key = user.get_decrypted_key(provider.value)
             if not api_key:
-                logger.error(f"User {user.id} has no OpenAI API key configured")
-                yield f"data: {json.dumps({'type': 'error', 'content': 'User has no OpenAI API key configured. Please configure your API key in settings.'})}\n\n"
+                logger.error(f"User {user.id} has no {provider.value} API key configured")
+                yield f"data: {json.dumps({'type': 'error', 'content': f'User has no {provider.value} API key configured. Please configure your API key in settings.'})}\n\n"
                 return
 
             logger.debug(f"Generating streaming chat response for user {user.id}, conversation {conversation_id}")
@@ -3021,8 +3068,9 @@ say you don't have enough information from the document and suggest looking at o
                     yield f"data: {json.dumps(final_data)}\n\n"
                     return
 
-            # Initialize OpenAI client
-            client = AsyncOpenAI(api_key=api_key)
+            # Initialize LLM client (provider resolved from the selected model)
+            provider = self._resolve_provider_for_model(model)
+            client = get_llm_client(provider, api_key)
 
             # Get configuration
             from ..config import settings
@@ -3031,7 +3079,7 @@ say you don't have enough information from the document and suggest looking at o
 
             # Find relevant chunks (retrieve more for token-based selection)
             logger.debug(f"Finding similar chunks for document {document_id}")
-            candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key)
+            candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key, provider=provider)
             # TODO(human): Add diagnostic logging to understand why chunks might be empty
             logger.info(f"[DEBUG CHAT] Retrieved {len(candidate_chunks)} candidate chunks for document {document_id}")
 
@@ -3042,7 +3090,7 @@ say you don't have enough information from the document and suggest looking at o
             ).order_by(Message.created_at).limit(10).all()
 
             # Classify query type for adaptive prompting
-            query_classification = await self._classify_query_type(content, api_key)
+            query_classification = await self._classify_query_type(content, api_key, provider)
             logger.info(
                 f"Query classification: type={query_classification['query_type']}, "
                 f"complexity={query_classification['complexity']}, "
@@ -3197,49 +3245,39 @@ say you don't have enough information from the document and suggest looking at o
             logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query (streaming)")
 
             try:
-                async def _create_stream():
-                    return await client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        temperature=0.7,
-                        max_completion_tokens=max_tokens,
-                        stream=True
-                    )
+                # messages[0] is the system message; LLMClient takes system separately.
+                chat_messages = messages[1:]
 
-                stream = await async_retry_openai_call(
-                    _create_stream,
-                    max_attempts=5,
-                    initial_wait=1.0,
-                    max_wait=60.0
-                )
-
-                # Stream chunks
-                async for chunk in stream:
-                    if chunk.choices and len(chunk.choices) > 0:
-                        delta = chunk.choices[0].delta
-                        if delta and delta.content:
-                            content_chunk = delta.content
-                            accumulated_content += content_chunk
-                            # Send chunk to client
-                            yield f"data: {json.dumps({'type': 'chunk', 'content': content_chunk})}\n\n"
+                # Stream tokens directly from the provider-agnostic client.
+                async for content_chunk in client.stream(
+                    system_prompt=system_prompt_content,
+                    messages=chat_messages,
+                    model=model,
+                    temperature=0.7,
+                    max_tokens=max_tokens,
+                ):
+                    if content_chunk:
+                        accumulated_content += content_chunk
+                        # Send chunk to client
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': content_chunk})}\n\n"
 
             except APIError as e:
-                logger.error(f"OpenAI API error after retries: {str(e)}", exc_info=True)
-                error_msg = f"OpenAI API error: {str(e)}"
+                logger.error(f"LLM API error during streaming: {str(e)}", exc_info=True)
+                error_msg = f"LLM API error: {str(e)}"
                 status_code = getattr(e, 'status_code', None)
                 if status_code:
                     if status_code == 429:
                         error_msg = "Rate limit exceeded. Please wait a moment and try again."
                     elif status_code == 401:
-                        error_msg = "Invalid API key. Please check your OpenAI API key in settings."
+                        error_msg = "Invalid API key. Please check your API key in settings."
                     elif status_code == 403:
-                        error_msg = "API access forbidden. Please check your OpenAI API key permissions."
+                        error_msg = "API access forbidden. Please check your API key permissions."
                     elif status_code in [500, 502, 503, 504]:
-                        error_msg = "OpenAI service is temporarily unavailable. Please try again later."
+                        error_msg = "The LLM service is temporarily unavailable. Please try again later."
                 yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
                 return
             except Exception as e:
-                logger.error(f"Unexpected error calling OpenAI API: {str(e)}", exc_info=True)
+                logger.error(f"Unexpected error calling LLM API: {str(e)}", exc_info=True)
                 yield f"data: {json.dumps({'type': 'error', 'content': f'Failed to generate response: {str(e)}'})}\n\n"
                 return
 
@@ -3263,7 +3301,8 @@ say you don't have enough information from the document and suggest looking at o
                 query=content,
                 answer=assistant_content,
                 context_chunks=relevant_chunks,
-                user_api_key=api_key
+                user_api_key=api_key,
+                provider=provider
             )
 
             # Estimate token usage for streaming response (OpenAI doesn't provide usage in streams)
@@ -3322,7 +3361,7 @@ say you don't have enough information from the document and suggest looking at o
                     ).first()
 
                     if conversation and not conversation.title:
-                        title = await self._generate_conversation_title(content, user.api_key)
+                        title = await self._generate_conversation_title(content, api_key, provider)
                         conversation.title = title
                         logger.info(f"Set conversation title to: {title}")
                 except Exception as e:

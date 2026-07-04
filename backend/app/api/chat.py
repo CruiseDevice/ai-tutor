@@ -10,6 +10,7 @@ from ..models.user import User
 from ..models.conversation import Conversation
 from ..schemas.chat import MessageCreate, ChatResponse
 from ..services.chat_service import ChatService
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ async def send_message(
             content=message_data.content,
             conversation_id=message_data.conversation_id,
             document_id=message_data.document_id,
-            model=message_data.model or "gpt-4",
+            model=message_data.model or settings.DEFAULT_CHAT_MODEL,
             use_agent=message_data.use_agent or False
         )
 
@@ -112,7 +113,7 @@ async def send_message_stream(
                         content=message_data.content,
                         conversation_id=message_data.conversation_id,
                         document_id=message_data.document_id,
-                        model=message_data.model or "gpt-4"
+                        model=message_data.model or settings.DEFAULT_CHAT_MODEL
                     ):
                         yield chunk
                 else:
@@ -123,7 +124,7 @@ async def send_message_stream(
                         content=message_data.content,
                         conversation_id=message_data.conversation_id,
                         document_id=message_data.document_id,
-                        model=message_data.model or "gpt-4"
+                        model=message_data.model or settings.DEFAULT_CHAT_MODEL
                     ):
                         yield chunk
             except Exception as e:

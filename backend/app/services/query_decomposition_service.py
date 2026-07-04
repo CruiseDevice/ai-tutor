@@ -3,6 +3,7 @@ from typing import List, Optional
 import logging
 import json
 from app.config import settings
+from app.services.llm import Provider, get_llm_client, pick_helper_model
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ class QueryDecompositionService:
         self,
         query: str,
         user_api_key: str,
-        max_sub_queries: int = 5
+        max_sub_queries: int = 5,
+        provider: Provider = Provider.OPENAI
     ) -> List[str]:
         """
         Decompose complex query into atomic sub-queries.
@@ -63,7 +65,8 @@ class QueryDecompositionService:
             sub_queries = await self._decompose_with_llm(
                 query=query,
                 user_api_key=user_api_key,
-                max_sub_queries=max_sub_queries
+                max_sub_queries=max_sub_queries,
+                provider=provider
             )
 
             if not sub_queries:
@@ -121,20 +124,23 @@ class QueryDecompositionService:
         self,
         query: str,
         user_api_key: str,
-        max_sub_queries: int
+        max_sub_queries: int,
+        provider: Provider = Provider.OPENAI
     ) -> List[str]:
         """
-        Decompose query using OpenAI LLM.
+        Decompose query using an LLM.
 
         Args:
             query: Original complex query
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
             max_sub_queries: Maximum number of sub-queries to generate
+            provider: LLM provider to use
 
         Returns:
             List of atomic sub-query strings
         """
-        client = AsyncOpenAI(api_key=user_api_key)
+        client = get_llm_client(provider, user_api_key)
+        model = pick_helper_model(provider)
 
         # Craft prompt for query decomposition
         system_prompt = """You are an expert at breaking down complex questions into simpler sub-questions.
@@ -164,19 +170,16 @@ Return ONLY a JSON array of sub-questions.
 Format: ["sub-question 1", "sub-question 2", ...]"""
 
         try:
-            response = await client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+            content = await client.complete(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                model=model,
                 temperature=self.temperature,
                 max_tokens=500,
-                response_format={"type": "json_object"} if "gpt-4" in self.model or "gpt-3.5" in self.model else None
             )
 
             # Parse response
-            content = response.choices[0].message.content.strip()
+            content = content.strip()
 
             # Try to parse as JSON
             try:

@@ -10,7 +10,7 @@ class MessageBase(BaseModel):
 class MessageCreate(MessageBase):
     conversation_id: str
     document_id: str
-    model: Optional[str] = "gpt-4"
+    model: Optional[str] = None  # User-selected model; provider resolved server-side
     use_agent: Optional[bool] = False  # Enable LangGraph agent workflow (default: False)
 
 

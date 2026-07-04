@@ -191,6 +191,29 @@ class Settings(BaseSettings):
     # Image extraction settings
     IMAGE_MIN_SIZE: int = 100  # Minimum image size in pixels (width/height)
 
+    # =====================================================
+    # LLM Provider Catalog (single source of truth for model IDs)
+    # One smart + one less-smart model per provider, plus Ollama Cloud.
+    # To rename a model, edit the ID here only.
+    # =====================================================
+    OPENAI_SMART_MODEL: str = "gpt-5.1"
+    OPENAI_LESS_SMART_MODEL: str = "gpt-4o-mini"
+
+    ANTHROPIC_SMART_MODEL: str = "claude-sonnet-5"
+    ANTHROPIC_LESS_SMART_MODEL: str = "claude-haiku-4-5"
+
+    # Ollama Cloud uses an OpenAI-compatible API; the user picks the model id.
+    # The ":cloud" suffix routes the request to Ollama Cloud.
+    OLLAMA_CLOUD_BASE_URL: str = "https://ollama.com/v1"
+    OLLAMA_MODELS: List[str] = [
+        "glm-5.2:cloud",         # Z.ai GLM-5.2 flagship (1M-token context)
+        "kimi-k2.7-code:cloud",  # Moonshot Kimi K2.7 coding model
+        "gpt-oss:20b",           # open-weight default
+    ]
+
+    # Default model for the chat request when none is supplied
+    DEFAULT_CHAT_MODEL: str = "gpt-5.1"
+
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
