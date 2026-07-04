@@ -4,6 +4,7 @@
 import Link from "next/link";
 import React, { useState } from "react"
 import { useRouter } from "next/navigation";
+import { X } from "lucide-react";
 import { authApi } from "@/lib/api-client";
 
 interface FormErrors {
@@ -108,42 +109,34 @@ export default function RegisterForm () {
   return (
     <div className="min-h-screen flex items-center justify-center bg-paper px-4">
       <div className="w-full max-w-md">
-        {/* =====================================================
-            HEADER - TUTOR.AI branding
-            ===================================================== */}
+        {/* ===== Brand wordmark ===== */}
         <header className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="font-mono font-bold text-2xl uppercase tracking-tight">
-              TUTOR<span className="text-accent">.AI</span>
-            </h1>
-            <span className="font-mono text-xs text-accent">[002]</span>
-          </div>
-          <p className="font-serif text-ink">
-            Create your account
-          </p>
+          <h1 className="font-serif text-2xl font-semibold tracking-tight">
+            TUTOR<span className="text-accent">.AI</span>
+          </h1>
+          <p className="font-serif text-subtle mt-1">Create your account</p>
         </header>
 
-        {/* =====================================================
-            FORM CARD - Brutalist Style
-            ===================================================== */}
-        <div className="bg-panel-bg border-2 border-ink p-6 sm:p-8 space-y-5">
+        {/* ===== Form card ===== */}
+        <div className="surface-card p-6 sm:p-8 space-y-5">
           {/* Error Alert */}
           {errors.general && (
             <div
-              className="flex items-start gap-3 border-2 border-accent bg-accent/10 px-4 py-3"
+              className="flex items-start gap-3 bg-accent-soft border border-hair rounded-sm px-4 py-3"
               role="alert"
             >
-              <span className="font-mono text-accent text-lg">[!]</span>
+              <span className="text-accent font-semibold leading-none mt-0.5">!</span>
               <div className="flex-1">
-                <p className="font-mono text-xs font-bold text-accent uppercase">Couldn&apos;t create account</p>
+                <p className="font-serif text-xs font-semibold text-accent">Couldn&apos;t create account</p>
                 <p className="font-serif text-sm text-ink mt-1">{errors.general}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setErrors(prev => ({ ...prev, general: undefined }))}
-                className="font-mono text-accent hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="text-subtle hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors ease-desk"
+                aria-label="Dismiss error"
               >
-                [×]
+                <X className="h-4 w-4" />
               </button>
             </div>
           )}
@@ -153,7 +146,7 @@ export default function RegisterForm () {
             <div className="space-y-2">
               <label
                 htmlFor="email"
-                className="block font-mono text-xs uppercase tracking-wider text-ink"
+                className="block font-mono text-xs text-faint"
               >
                 Email
               </label>
@@ -163,17 +156,15 @@ export default function RegisterForm () {
                 name="email"
                 autoComplete="email"
                 required
-                placeholder="[you@example.com]"
-                className={`block w-full px-3 py-2.5 font-serif text-sm bg-paper border-2 outline-none transition focus:ring-2 ${
-                  errors.email
-                    ? "border-accent ring-accent/50"
-                    : "border-ink focus:ring-accent/50"
+                placeholder="you@example.com"
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-surface border rounded-sm outline-none transition ease-desk focus:ring-2 focus:ring-accent/30 ${
+                  errors.email ? "border-danger" : "border-hair focus:border-accent"
                 }`}
                 value={formData.email}
                 onChange={handleChange}
               />
               {errors.email && (
-                <p className="font-mono text-xs text-accent">[{errors.email}]</p>
+                <p className="font-serif text-xs text-danger">{errors.email}</p>
               )}
             </div>
 
@@ -181,7 +172,7 @@ export default function RegisterForm () {
             <div className="space-y-2">
               <label
                 htmlFor="password"
-                className="block font-mono text-xs uppercase tracking-wider text-ink"
+                className="block font-mono text-xs text-faint"
               >
                 Password
               </label>
@@ -191,17 +182,15 @@ export default function RegisterForm () {
                 name="password"
                 autoComplete="new-password"
                 required
-                placeholder="[••••••••]"
-                className={`block w-full px-3 py-2.5 font-serif text-sm bg-paper border-2 outline-none transition focus:ring-2 ${
-                  errors.password
-                    ? "border-accent ring-accent/50"
-                    : "border-ink focus:ring-accent/50"
+                placeholder="••••••••"
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-surface border rounded-sm outline-none transition ease-desk focus:ring-2 focus:ring-accent/30 ${
+                  errors.password ? "border-danger" : "border-hair focus:border-accent"
                 }`}
                 value={formData.password}
                 onChange={handleChange}
               />
               {errors.password && (
-                <p className="font-mono text-xs text-accent">[{errors.password}]</p>
+                <p className="font-serif text-xs text-danger">{errors.password}</p>
               )}
             </div>
 
@@ -209,7 +198,7 @@ export default function RegisterForm () {
             <div className="space-y-2">
               <label
                 htmlFor="confirmPassword"
-                className="block font-mono text-xs uppercase tracking-wider text-ink"
+                className="block font-mono text-xs text-faint"
               >
                 Confirm password
               </label>
@@ -219,18 +208,16 @@ export default function RegisterForm () {
                 name="confirmPassword"
                 autoComplete="new-password"
                 required
-                placeholder="[Repeat your password]"
-                className={`block w-full px-3 py-2.5 font-serif text-sm bg-paper border-2 outline-none transition focus:ring-2 ${
-                  errors.confirmPassword
-                    ? "border-accent ring-accent/50"
-                    : "border-ink focus:ring-accent/50"
+                placeholder="Repeat your password"
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-surface border rounded-sm outline-none transition ease-desk focus:ring-2 focus:ring-accent/30 ${
+                  errors.confirmPassword ? "border-danger" : "border-hair focus:border-accent"
                 }`}
                 value={formData.confirmPassword}
                 onChange={handleChange}
               />
               {errors.confirmPassword && (
-                <p className="font-mono text-xs text-accent">
-                  [{errors.confirmPassword}]
+                <p className="font-serif text-xs text-danger">
+                  {errors.confirmPassword}
                 </p>
               )}
             </div>
@@ -239,15 +226,15 @@ export default function RegisterForm () {
             <button
               type="submit"
               disabled={loading}
-              className="brutalist-button brutalist-button-primary w-full py-3 font-mono text-sm uppercase disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
+              className="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
                   <span className="inline-block h-4 w-4 animate-spin border-2 border-paper/40 border-t-paper rounded-full" />
-                  <span>[Creating account...]</span>
+                  <span>Creating account…</span>
                 </>
               ) : (
-                <span>[Sign up]</span>
+                <span>Sign up</span>
               )}
             </button>
           </form>
@@ -257,9 +244,9 @@ export default function RegisterForm () {
             Already have an account?{" "}
             <Link
               href="/login"
-              className="font-mono text-xs text-accent hover:underline"
+              className="text-accent hover:text-accent-ink transition-colors ease-desk"
             >
-              [Sign in]
+              Sign in
             </Link>
           </p>
         </div>
