@@ -9,6 +9,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _execute_outside_transaction(engine, statement: str) -> None:
+    """
+    Execute a DDL statement that cannot run inside an open transaction block.
+
+    PostgreSQL's ``CREATE INDEX CONCURRENTLY`` (and ``VACUUM``, ``REINDEX``,
+    etc.) require autocommit isolation. ``engine.begin()`` opens a transaction,
+    and even ``engine.connect()`` leaves the connection in a transactional state
+    by default in SQLAlchemy 2.0 — both cause::
+
+        CREATE INDEX CONCURRENTLY cannot run inside a transaction block
+
+    We drop to AUTOCOMMIT isolation for the duration of this one statement so
+    the DDL applies. The per-migration ``except Exception`` at the call sites
+    keeps any failure non-fatal (matches existing behavior).
+    """
+    with engine.connect() as conn:
+        conn.execution_options(isolation_level="AUTOCOMMIT").execute(text(statement))
+
+
 def add_title_column_if_missing(engine):
     """
     Add the 'title' column to the 'conversations' table if it doesn't exist.
@@ -117,30 +136,31 @@ def add_document_chunks_indexes(engine):
         # Get existing indexes
         existing_indexes = {idx['name'] for idx in inspector.get_indexes('document_chunks')}
 
-        with engine.begin() as conn:
-            # Index 1: document_id (for filtering by document)
-            idx_name_document = 'idx_document_chunks_document_id'
-            if idx_name_document not in existing_indexes:
-                logger.info(f"Creating index '{idx_name_document}' on document_chunks.document_id...")
-                conn.execute(text(
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_document_id "
-                    "ON document_chunks (document_id)"
-                ))
-                logger.info(f"Successfully created index '{idx_name_document}'")
-            else:
-                logger.debug(f"Index '{idx_name_document}' already exists")
+        # Index 1: document_id (for filtering by document)
+        idx_name_document = 'idx_document_chunks_document_id'
+        if idx_name_document not in existing_indexes:
+            logger.info(f"Creating index '{idx_name_document}' on document_chunks.document_id...")
+            _execute_outside_transaction(
+                engine,
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_document_id "
+                "ON document_chunks (document_id)"
+            )
+            logger.info(f"Successfully created index '{idx_name_document}'")
+        else:
+            logger.debug(f"Index '{idx_name_document}' already exists")
 
-            # Index 2: Composite (document_id, page_number) for ordered page queries
-            idx_name_composite = 'idx_document_chunks_document_id_page_number'
-            if idx_name_composite not in existing_indexes:
-                logger.info(f"Creating composite index '{idx_name_composite}' on (document_id, page_number)...")
-                conn.execute(text(
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_document_id_page_number "
-                    "ON document_chunks (document_id, page_number)"
-                ))
-                logger.info(f"Successfully created composite index '{idx_name_composite}'")
-            else:
-                logger.debug(f"Index '{idx_name_composite}' already exists")
+        # Index 2: Composite (document_id, page_number) for ordered page queries
+        idx_name_composite = 'idx_document_chunks_document_id_page_number'
+        if idx_name_composite not in existing_indexes:
+            logger.info(f"Creating composite index '{idx_name_composite}' on (document_id, page_number)...")
+            _execute_outside_transaction(
+                engine,
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_document_id_page_number "
+                "ON document_chunks (document_id, page_number)"
+            )
+            logger.info(f"Successfully created composite index '{idx_name_composite}'")
+        else:
+            logger.debug(f"Index '{idx_name_composite}' already exists")
 
     except Exception as e:
         # Log error but don't crash the backend
@@ -176,16 +196,16 @@ def add_pgvector_hnsw_index(engine):
             logger.info(f"Creating HNSW index '{idx_name}' on document_chunks.embedding...")
             logger.info("This may take a few minutes for large datasets...")
 
-            with engine.begin() as conn:
-                # Create HNSW index with cosine distance operator
-                # Using CONCURRENTLY to avoid table locks during creation
-                conn.execute(text(
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_embedding_hnsw "
-                    "ON document_chunks USING hnsw (embedding vector_cosine_ops) "
-                    "WITH (m = 16, ef_construction = 64)"
-                ))
-                logger.info(f"Successfully created HNSW index '{idx_name}'")
-                logger.info("Vector searches will now use approximate nearest neighbor (ANN) search")
+            # Create HNSW index with cosine distance operator.
+            # CONCURRENTLY cannot run inside a transaction block — use autocommit.
+            _execute_outside_transaction(
+                engine,
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_embedding_hnsw "
+                "ON document_chunks USING hnsw (embedding vector_cosine_ops) "
+                "WITH (m = 16, ef_construction = 64)"
+            )
+            logger.info(f"Successfully created HNSW index '{idx_name}'")
+            logger.info("Vector searches will now use approximate nearest neighbor (ANN) search")
         else:
             logger.debug(f"HNSW index '{idx_name}' already exists")
 
@@ -303,16 +323,16 @@ def add_fulltext_search_index(engine):
             logger.info(f"Creating GIN full-text search index '{idx_name}' on document_chunks.content...")
             logger.info("This may take a few minutes for large datasets...")
 
-            with engine.begin() as conn:
-                # Create GIN index for full-text search
-                # Using to_tsvector with 'english' configuration for proper stemming
-                # CONCURRENTLY avoids blocking other operations
-                conn.execute(text(
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_content_fts "
-                    "ON document_chunks USING gin(to_tsvector('english', content))"
-                ))
-                logger.info(f"Successfully created GIN index '{idx_name}'")
-                logger.info("Full-text search is now enabled for hybrid search")
+            # Create GIN index for full-text search using to_tsvector with 'english'
+            # configuration for proper stemming. CONCURRENTLY cannot run inside a
+            # transaction block — use autocommit.
+            _execute_outside_transaction(
+                engine,
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_document_chunks_content_fts "
+                "ON document_chunks USING gin(to_tsvector('english', content))"
+            )
+            logger.info(f"Successfully created GIN index '{idx_name}'")
+            logger.info("Full-text search is now enabled for hybrid search")
         else:
             logger.debug(f"GIN index '{idx_name}' already exists")
 
