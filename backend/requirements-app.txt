@@ -53,6 +53,7 @@ arq
 
 # OpenAI & Tokenization
 openai
+anthropic
 tiktoken
 
 # LangChain - Using latest compatible versions
@@ -66,3 +67,4 @@ langgraph
 pytest
 pytest-asyncio
 pytest-cov
+

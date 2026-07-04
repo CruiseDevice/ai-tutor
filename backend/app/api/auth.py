@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
 import logging
+import uuid
 from ..database import get_db
 from ..schemas.auth import (
     UserCreate,
@@ -57,13 +58,14 @@ async def register(
         logger.warning(f"Registration validation error for {user_data.email}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="Registration failed"
         )
     except Exception as e:
         logger.error(f"Registration error for {user_data.email}: {str(e)}", exc_info=True)
+        request_id = str(uuid.uuid4())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Registration failed: {str(e)}"
+            detail=f"Registration failed (ref: {request_id})"
         )
 
 
@@ -102,10 +104,17 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Logout a user."""
-    # The session_token cookie will be passed through get_current_user
-    # We need to get it from the request context
+async def logout(
+    response: Response,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Logout a user and invalidate the current session."""
+    session_token = request.cookies.get("session_token")
+    if session_token:
+        AuthService.delete_session(db, session_token)
+
     response.delete_cookie("session_token")
     return {"message": "Logout successful"}
 

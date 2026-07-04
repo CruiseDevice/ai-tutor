@@ -46,8 +46,8 @@ export default function AdminLayout({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin w-8 h-8 border-4 border-gray-300 border-t-gray-900 rounded-full" />
+      <div className="flex items-center justify-center min-h-screen bg-desk">
+        <div className="animate-spin w-8 h-8 border-2 border-hair border-t-accent rounded-full" />
       </div>
     );
   }
@@ -57,31 +57,31 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-desk">
       {/* Admin Navigation */}
-      <nav className="bg-white border-b">
+      <nav className="bg-paper border-b border-hair">
         <div className="container mx-auto px-4">
           <div className="flex items-center gap-6 h-16">
-            <h1 className="text-xl font-bold">Admin Panel</h1>
+            <h1 className="font-serif text-xl font-semibold text-ink">Admin Panel</h1>
 
-            <div className="flex gap-4">
+            <div className="flex gap-2">
               <a
                 href="/admin/queue"
-                className="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-100"
+                className="flex items-center gap-2 px-3 py-2 rounded-sm text-subtle hover:text-accent hover:bg-accent-soft/50 transition-colors font-serif text-sm"
               >
                 <Activity className="w-4 h-4" />
                 Queue Monitor
               </a>
               <a
                 href="/admin/users"
-                className="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-100 opacity-50 cursor-not-allowed"
+                className="flex items-center gap-2 px-3 py-2 rounded-sm text-faint cursor-not-allowed font-serif text-sm"
               >
                 <Users className="w-4 h-4" />
                 Users
               </a>
               <a
                 href="/admin/settings"
-                className="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-100 opacity-50 cursor-not-allowed"
+                className="flex items-center gap-2 px-3 py-2 rounded-sm text-faint cursor-not-allowed font-serif text-sm"
               >
                 <Settings className="w-4 h-4" />
                 Settings

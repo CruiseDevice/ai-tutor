@@ -21,6 +21,8 @@ class CacheService:
         self.redis_client: Optional[Any] = None
         self._connection_pool: Optional[Any] = None
         self.enabled = settings.CACHE_ENABLED and aioredis is not None
+        # Normalize prefix: trailing colon is required for clean namespacing.
+        self.key_prefix = settings.CACHE_KEY_PREFIX.rstrip(":") + ":"
         # Cache metrics
         self.stats = {
             'embedding_hits': 0,
@@ -79,13 +81,34 @@ class CacheService:
         """Check if Redis is connected and enabled."""
         return self.enabled and self.redis_client is not None
 
+    def _prefix_key(self, key: str) -> str:
+        """Return a cache key namespaced under the configured prefix."""
+        return f"{self.key_prefix}{key}"
+
+    def _scan_pattern(self, pattern: str) -> str:
+        """Return a Redis SCAN pattern that is constrained to the cache namespace."""
+        return self._prefix_key(pattern)
+
+    async def _delete_keys(self, keys: List[str]) -> int:
+        """Delete a list of keys in fixed-size batches. Returns number of keys deleted."""
+        if not keys or not self.redis_client:
+            return 0
+
+        deleted = 0
+        batch_size = 500
+        for i in range(0, len(keys), batch_size):
+            batch = keys[i:i + batch_size]
+            if batch:
+                deleted += await self.redis_client.delete(*batch)
+        return deleted
+
     async def get_embedding(self, query_text: str) -> Optional[List[float]]:
         """Get cached embedding for a query text."""
         if not self._ensure_connected():
             return None
 
         try:
-            cache_key = f"embedding:{self._hash_text(query_text)}"
+            cache_key = self._prefix_key(f"embedding:{self._hash_text(query_text)}")
             cached = await self.redis_client.get(cache_key)
             if cached:
                 self.stats['embedding_hits'] += 1
@@ -104,7 +127,7 @@ class CacheService:
             return
 
         try:
-            cache_key = f"embedding:{self._hash_text(query_text)}"
+            cache_key = self._prefix_key(f"embedding:{self._hash_text(query_text)}")
             await self.redis_client.setex(
                 cache_key,
                 settings.CACHE_EMBEDDING_TTL,
@@ -134,7 +157,7 @@ class CacheService:
             embedding_hash = self._hash_embedding(query_embedding)
             # Include re-ranking status in cache key to avoid mixing ranked/unranked results
             rerank_suffix = "rerank" if rerank_enabled else "no-rerank"
-            cache_key = f"chunks:{document_id}:{embedding_hash}:{rerank_suffix}"
+            cache_key = self._prefix_key(f"chunks:{document_id}:{embedding_hash}:{rerank_suffix}")
             cached = await self.redis_client.get(cache_key)
             if cached:
                 self.stats['chunk_hits'] += 1
@@ -169,7 +192,7 @@ class CacheService:
             embedding_hash = self._hash_embedding(query_embedding)
             # Include re-ranking status in cache key to avoid mixing ranked/unranked results
             rerank_suffix = "rerank" if rerank_enabled else "no-rerank"
-            cache_key = f"chunks:{document_id}:{embedding_hash}:{rerank_suffix}"
+            cache_key = self._prefix_key(f"chunks:{document_id}:{embedding_hash}:{rerank_suffix}")
             await self.redis_client.setex(
                 cache_key,
                 settings.CACHE_CHUNK_TTL,
@@ -185,14 +208,14 @@ class CacheService:
             return
 
         try:
-            pattern = f"chunks:{document_id}:*"
+            pattern = self._scan_pattern(f"chunks:{document_id}:*")
             keys = []
             async for key in self.redis_client.scan_iter(match=pattern):
                 keys.append(key)
 
             if keys:
-                await self.redis_client.delete(*keys)
-                logger.info(f"Invalidated {len(keys)} chunk cache entries for document_id={document_id}")
+                deleted = await self._delete_keys(keys)
+                logger.info(f"Invalidated {deleted} chunk cache entries for document_id={document_id}")
         except Exception as e:
             logger.warning(f"Error invalidating document chunks: {e}")
 
@@ -218,7 +241,7 @@ class CacheService:
 
         try:
             # Search for cached responses for this document
-            pattern = f"response:{document_id}:*"
+            pattern = self._scan_pattern(f"response:{document_id}:*")
             best_match = None
             best_similarity = 0.0
 
@@ -268,7 +291,7 @@ class CacheService:
 
         try:
             embedding_hash = self._hash_embedding(query_embedding)
-            cache_key = f"response:{document_id}:{embedding_hash}"
+            cache_key = self._prefix_key(f"response:{document_id}:{embedding_hash}")
             cache_data = {
                 'query_embedding': query_embedding,
                 'content': content,
@@ -313,13 +336,21 @@ class CacheService:
         }
 
     async def clear_all(self):
-        """Clear all cache entries (use with caution)."""
+        """Clear all cache entries without touching non-cache Redis data (e.g. arq queues)."""
         if not self._ensure_connected():
             return
 
         try:
-            await self.redis_client.flushdb()
-            logger.warning("Cleared all cache entries")
+            pattern = self._scan_pattern("*")
+            keys = []
+            async for key in self.redis_client.scan_iter(match=pattern):
+                keys.append(key)
+
+            if keys:
+                deleted = await self._delete_keys(keys)
+                logger.warning(f"Cleared {deleted} cache entries")
+            else:
+                logger.info("No cache entries to clear")
         except Exception as e:
             logger.error(f"Error clearing cache: {e}")
 

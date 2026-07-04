@@ -8,7 +8,7 @@ import { useRef, useCallback, useEffect } from 'react';
  * @param delay - Minimum time between callback invocations in milliseconds
  * @returns A throttled version of the callback
  */
-export function useThrottledCallback<T extends (...args: any[]) => any>(
+export function useThrottledCallback<T extends (...args: never[]) => unknown>(
   callback: T,
   delay: number
 ): T {

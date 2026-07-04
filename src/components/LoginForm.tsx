@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
+import { X } from "lucide-react";
 import { authApi } from "@/lib/api-client";
 
 interface FormErrors {
@@ -26,14 +27,10 @@ export default function LoginForm() {
 
     if (!formData.email) {
       newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
     }
 
     if (!formData.password) {
       newErrors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
     }
 
     setErrors(newErrors);
@@ -101,42 +98,34 @@ export default function LoginForm() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-paper px-4">
       <div className="w-full max-w-md">
-        {/* =====================================================
-            HEADER - TUTOR.AI branding
-            ===================================================== */}
+        {/* ===== Brand wordmark ===== */}
         <header className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="font-mono font-bold text-2xl uppercase tracking-tight">
-              TUTOR<span className="text-accent">.AI</span>
-            </h1>
-            <span className="font-mono text-xs text-accent">[001]</span>
-          </div>
-          <p className="font-serif text-ink">
-            Sign in to continue
-          </p>
+          <h1 className="font-serif text-2xl font-semibold tracking-tight">
+            TUTOR<span className="text-accent">.AI</span>
+          </h1>
+          <p className="font-serif text-subtle mt-1">Sign in to continue</p>
         </header>
 
-        {/* =====================================================
-            FORM CARD - Brutalist Style
-            ===================================================== */}
-        <div className="bg-panel-bg border-2 border-ink p-6 sm:p-8 space-y-6">
+        {/* ===== Form card ===== */}
+        <div className="surface-card p-6 sm:p-8 space-y-6">
           {/* Error Alert */}
           {errors.general && (
             <div
-              className="flex items-start gap-3 border-2 border-accent bg-accent/10 px-4 py-3"
+              className="flex items-start gap-3 bg-accent-soft border border-hair rounded-sm px-4 py-3"
               role="alert"
             >
-              <span className="font-mono text-accent text-lg">[!]</span>
+              <span className="text-accent font-semibold leading-none mt-0.5">!</span>
               <div className="flex-1">
-                <p className="font-mono text-xs font-bold text-accent uppercase">Couldn&apos;t sign you in</p>
+                <p className="font-serif text-xs font-semibold text-accent">Couldn&apos;t sign you in</p>
                 <p className="font-serif text-sm text-ink mt-1">{errors.general}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setErrors(prev => ({ ...prev, general: undefined }))}
-                className="font-mono text-accent hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="text-subtle hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors ease-desk"
+                aria-label="Dismiss error"
               >
-                [×]
+                <X className="h-4 w-4" />
               </button>
             </div>
           )}
@@ -146,7 +135,7 @@ export default function LoginForm() {
             <div className="space-y-2">
               <label
                 htmlFor="email"
-                className="block font-mono text-xs uppercase tracking-wider text-ink"
+                className="block font-mono text-xs text-faint"
               >
                 Email
               </label>
@@ -156,17 +145,15 @@ export default function LoginForm() {
                 type="email"
                 autoComplete="email"
                 required
-                placeholder="[you@example.com]"
-                className={`block w-full px-3 py-2.5 font-serif text-sm bg-paper border-2 outline-none transition focus:ring-2 ${
-                  errors.email
-                    ? "border-accent ring-accent/50"
-                    : "border-ink focus:ring-accent/50"
+                placeholder="you@example.com"
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-surface border rounded-sm outline-none transition ease-desk focus:ring-2 focus:ring-accent/30 ${
+                  errors.email ? "border-danger" : "border-hair focus:border-accent"
                 }`}
                 value={formData.email}
                 onChange={handleChange}
               />
               {errors.email && (
-                <p className="font-mono text-xs text-accent">[{errors.email}]</p>
+                <p className="font-serif text-xs text-danger">{errors.email}</p>
               )}
             </div>
 
@@ -174,7 +161,7 @@ export default function LoginForm() {
             <div className="space-y-2">
               <label
                 htmlFor="password"
-                className="block font-mono text-xs uppercase tracking-wider text-ink"
+                className="block font-mono text-xs text-faint"
               >
                 Password
               </label>
@@ -184,34 +171,32 @@ export default function LoginForm() {
                 type="password"
                 autoComplete="current-password"
                 required
-                placeholder="[••••••••]"
-                className={`block w-full px-3 py-2.5 font-serif text-sm bg-paper border-2 outline-none transition focus:ring-2 ${
-                  errors.password
-                    ? "border-accent ring-accent/50"
-                    : "border-ink focus:ring-accent/50"
+                placeholder="••••••••"
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-surface border rounded-sm outline-none transition ease-desk focus:ring-2 focus:ring-accent/30 ${
+                  errors.password ? "border-danger" : "border-hair focus:border-accent"
                 }`}
                 value={formData.password}
                 onChange={handleChange}
               />
               {errors.password && (
-                <p className="font-mono text-xs text-accent">[{errors.password}]</p>
+                <p className="font-serif text-xs text-danger">{errors.password}</p>
               )}
             </div>
 
             {/* Remember & Forgot */}
-            <div className="flex items-center justify-between font-mono text-xs">
+            <div className="flex items-center justify-between font-serif text-sm">
               <label className="inline-flex items-center gap-2 text-ink">
                 <input
                   type="checkbox"
                   className="w-4 h-4 accent-accent"
                 />
-                <span>[Keep me signed in]</span>
+                <span className="text-subtle">Keep me signed in</span>
               </label>
               <Link
                 href="/forgot-password"
-                className="text-accent hover:underline"
+                className="text-accent hover:text-accent-ink transition-colors ease-desk"
               >
-                [Forgot password?]
+                Forgot password?
               </Link>
             </div>
 
@@ -219,15 +204,15 @@ export default function LoginForm() {
             <button
               type="submit"
               disabled={loading}
-              className="brutalist-button brutalist-button-primary w-full py-3 font-mono text-sm uppercase disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
+              className="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
                   <span className="inline-block h-4 w-4 animate-spin border-2 border-paper/40 border-t-paper rounded-full" />
-                  <span>[Signing in...]</span>
+                  <span>Signing in…</span>
                 </>
               ) : (
-                <span>[Sign in]</span>
+                <span>Sign in</span>
               )}
             </button>
           </form>
@@ -237,9 +222,9 @@ export default function LoginForm() {
             Don&apos;t have an account?{" "}
             <Link
               href="/register"
-              className="font-mono text-xs text-accent hover:underline"
+              className="text-accent hover:text-accent-ink transition-colors ease-desk"
             >
-              [Create a TUTOR.AI account]
+              Create one
             </Link>
           </p>
         </div>

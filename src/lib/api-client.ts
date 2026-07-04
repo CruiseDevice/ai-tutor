@@ -104,7 +104,7 @@ export const chatApi = {
         conversation_id: conversationId,
         document_id: documentId,
         content,
-        model: model || 'gpt-4',
+        model: model || 'gpt-5.1',
         use_agent: useAgent ?? true
       }),
     });
@@ -134,7 +134,7 @@ export const chatApi = {
           conversation_id: conversationId,
           document_id: documentId,
           content,
-          model: model || 'gpt-4',
+          model: model || 'gpt-5.1',
           use_agent: useAgent
         }),
       });
@@ -181,9 +181,9 @@ export const chatApi = {
                 // Clean up technical error messages for user-friendly display
                 let userError = rawError;
                 if (userError.includes('Incorrect API key') || userError.includes('invalid_api_key')) {
-                  userError = 'Invalid OpenAI API key. Please check your API key in Settings.';
+                  userError = 'Invalid API key. Please check your API key in Settings.';
                 } else if (userError.includes('Rate limit')) {
-                  userError = 'OpenAI rate limit exceeded. Please wait a moment and try again.';
+                  userError = 'Rate limit exceeded. Please wait a moment and try again.';
                 } else if (userError.includes('Answer generation failed')) {
                   userError = userError.replace('Answer generation failed: ', '');
                 }
@@ -244,8 +244,8 @@ export const userApi = {
     });
   },
 
-  async updateAPIKey(apiKey: string) {
-    return apiRequest('/api/user/apikey', {
+  async updateAPIKey(provider: string, apiKey: string) {
+    return apiRequest(`/api/user/apikey/${provider}`, {
       method: 'POST',
       body: JSON.stringify({ api_key: apiKey }),
     });
@@ -255,8 +255,8 @@ export const userApi = {
     return apiRequest('/api/user/apikey/check');
   },
 
-  async deleteAPIKey() {
-    return apiRequest('/api/user/apikey', {
+  async deleteAPIKey(provider: string) {
+    return apiRequest(`/api/user/apikey/${provider}`, {
       method: 'DELETE',
     });
   },

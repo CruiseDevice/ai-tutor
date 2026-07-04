@@ -241,22 +241,23 @@ export default function QueueDashboard() {
   if (loading && !stats) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-gray-400" />
+        <RefreshCw className="w-8 h-8 animate-spin text-faint" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 text-red-800">
+      <div className="bg-danger/10 border border-danger/30 rounded p-4">
+        <div className="flex items-center gap-2 text-danger">
           <AlertCircle className="w-5 h-5" />
-          <span className="font-semibold">Error loading queue data</span>
+          <span className="font-serif font-semibold">Error loading queue data</span>
         </div>
-        <p className="text-red-600 text-sm mt-1">{error}</p>
+        <p className="font-serif text-danger text-sm mt-1">{error}</p>
         <button
           onClick={fetchData}
-          className="mt-3 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          className="btn mt-3 text-sm"
+          style={{ background: 'var(--danger)', borderColor: 'var(--danger)', color: '#fff' }}
         >
           Retry
         </button>
@@ -265,22 +266,22 @@ export default function QueueDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Queue Monitor</h1>
-          <p className="text-gray-500 text-sm mt-1">
+          <h1 className="font-serif text-3xl font-semibold text-ink">Queue Monitor</h1>
+          <p className="font-serif text-subtle text-sm mt-1">
             Real-time document processing queue status
           </p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           {/* Bulk Actions */}
           <div className="flex gap-2">
             <button
               onClick={handleRetryAllFailed}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={jobs.filter(j => j.status === 'failed').length === 0}
             >
               <RefreshCw className="w-4 h-4" />
@@ -288,7 +289,8 @@ export default function QueueDashboard() {
             </button>
             <button
               onClick={handleCancelAllPending}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: 'var(--danger)', borderColor: 'var(--danger)', color: '#fff' }}
               disabled={jobs.filter(j => j.status === 'queued').length === 0}
             >
               Cancel All Pending
@@ -297,7 +299,7 @@ export default function QueueDashboard() {
 
           <button
             onClick={fetchData}
-            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
+            className="btn btn-quiet text-sm"
           >
             <RefreshCw className="w-4 h-4" />
             Refresh
@@ -321,8 +323,8 @@ export default function QueueDashboard() {
       />
 
       {/* Live indicator */}
-      <div className="text-xs text-gray-400 flex items-center gap-2">
-        <div className={`w-2 h-2 rounded-full ${useSSE ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+      <div className="font-mono text-xs text-faint flex items-center gap-2">
+        <div className={`w-2 h-2 rounded-full ${useSSE ? 'bg-success animate-pulse' : 'bg-faint'}`} />
         {useSSE ? 'Live updates enabled' : 'Polling mode (5s refresh)'}
       </div>
 

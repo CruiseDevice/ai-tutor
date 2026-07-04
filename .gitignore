@@ -41,11 +41,10 @@ yarn-error.log*
 next-env.d.ts
 
 
-# temp files
-*.pdf
-*.json
-*.csv
-*.jsonl
+# temp files — local data dumps (scoped to repo root so nested config,
+# eval_results/*.json, eval_data/*.jsonl, and test fixtures stay trackable)
+/*.pdf
+/*.csv
 *.jsonl.gz
 *.jsonl.tar.gz
 
@@ -58,7 +57,7 @@ __pycache__/
 *.pyz
 
 # Personal documentation (not for GitHub)
-/docs/
+# /docs/
 backend/figures/
 
 # Cursor AI plans (local only)

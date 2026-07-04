@@ -51,7 +51,7 @@ export default function ForgotPasswordForm() {
       }
     } catch (error) {
       // TODO: Display error message to user
-      console.error('Password reset request error:', error);
+      console.error('Password reset request error: ', error);
       setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
       setIsLoading(false);
@@ -66,84 +66,111 @@ export default function ForgotPasswordForm() {
     router.push(`/reset-password?token=${resetToken}`);
   };
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Forgot Password</h2>
-          <p className="mt-2 text-center text-sm text-gray-600">Enter your email address and we will send you a link to reset your password.</p>
-        </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-        {error && (
-            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded relative" role="alert">
+    <div className="min-h-screen flex items-center justify-center bg-paper px-4">
+      <div className="w-full max-w-md">
+        {/* ===== Brand wordmark ===== */}
+        <header className="mb-8">
+          <h1 className="font-serif text-2xl font-semibold tracking-tight">
+            TUTOR<span className="text-accent">.AI</span>
+          </h1>
+          <p className="font-serif text-subtle mt-1">Reset your password</p>
+        </header>
+
+        {/* ===== Form card ===== */}
+        <div className="surface-card p-6 sm:p-8 space-y-6">
+          {/* Error Alert */}
+          {error && (
+            <div
+              className="flex items-start gap-3 bg-accent-soft border border-hair rounded-sm px-4 py-3"
+              role="alert"
+            >
+              <span className="text-danger font-semibold leading-none mt-0.5">!</span>
+              <p className="flex-1 font-serif text-sm text-ink">{error}</p>
               <button
                 onClick={() => setError('')}
-                className="absolute right-2 top-2 text-red-700 hover:text-red-900"
+                className="text-subtle hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors ease-desk"
+                aria-label="Dismiss error"
               >
-                <X size={16} />
+                <X className="h-4 w-4" />
               </button>
-              <p>{error}</p>
             </div>
           )}
 
+          {/* Success Alert */}
           {success && (
-            <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded relative" role="alert">
-              <div className="flex">
-                <CheckCircle className="h-5 w-5 text-green-400" />
-                <p className="ml-3">{success}</p>
+            <div className="space-y-3 bg-success/10 border border-hair rounded-sm px-4 py-3" role="alert">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-success flex-shrink-0 mt-0.5" />
+                <p className="font-serif text-sm text-ink">{success}</p>
               </div>
               {resetToken && (
-                <div className="mt-3 space-y-2">
-                  <p className="text-sm font-medium">Reset Token (Dev Mode):</p>
+                <div className="space-y-2 pt-2 border-t border-hair-soft">
+                  <p className="font-mono text-xs text-faint">Reset token (dev mode)</p>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 bg-white px-2 py-1 rounded text-xs break-all">{resetToken}</code>
+                    <code className="flex-1 bg-desk px-2 py-1 rounded-xs text-xs break-all font-mono text-ink-2">{resetToken}</code>
                     <button
                       type="button"
                       onClick={handleCopyToken}
-                      className="p-1 hover:bg-green-200 rounded"
+                      className="btn btn-quiet px-2 py-1 min-w-[44px] min-h-[44px]"
                       title="Copy token"
+                      aria-label="Copy token"
                     >
-                      <Copy size={16} />
+                      <Copy className="h-4 w-4" />
                     </button>
                   </div>
                   <button
                     type="button"
                     onClick={handleResetWithToken}
-                    className="w-full mt-2 py-1 px-3 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
+                    className="btn w-full"
                   >
-                    Go to Reset Password
+                    Go to reset password
                   </button>
                 </div>
               )}
             </div>
           )}
-          <div>
-            <label htmlFor="email" className="sr-only">Email address</label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              placeholder="Email address"
-              className="appearance-none rounded-none relative-block block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-          <div>
+
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <div className="space-y-2">
+              <label htmlFor="email" className="block font-mono text-xs text-faint">
+                Email
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                placeholder="you@example.com"
+                className="block w-full px-3 py-2.5 font-serif text-sm bg-surface border border-hair rounded-sm outline-none transition ease-desk focus:border-accent focus:ring-2 focus:ring-accent/30"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={isLoading}
+              />
+            </div>
+
             <button
               type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50">
-                {isLoading ? 'Sending...' : 'Send Reset Link'}
+              disabled={isLoading}
+              className="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <span className="inline-block h-4 w-4 animate-spin border-2 border-paper/40 border-t-paper rounded-full" />
+                  <span>Sending…</span>
+                </>
+              ) : (
+                <span>Send reset link</span>
+              )}
             </button>
-          </div>
-          <div className="text-sm text-center">
-            <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
+          </form>
+
+          <p className="text-center font-serif text-sm text-subtle">
+            <Link href="/login" className="text-accent hover:text-accent-ink transition-colors ease-desk">
               Back to login
             </Link>
-          </div>
-        </form>
+          </p>
+        </div>
       </div>
     </div>
   )

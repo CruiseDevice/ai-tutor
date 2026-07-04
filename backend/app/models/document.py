@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, Text, Index
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from ..database import Base
@@ -17,14 +17,14 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String, nullable=False)
     url = Column(String, nullable=False)
     blob_path = Column(String, nullable=False)
     content_hash = Column(String, nullable=True, index=True)
 
     # Document processing status tracking
-    status = Column(String, default="pending", nullable=False, index=True)
+    status = Column(String, default="pending", nullable=False, server_default="pending", index=True)
     # Possible values: pending, queued, processing, completed, failed
     error_message = Column(Text, nullable=True)  # Store error details if processing fails
     job_id = Column(String, nullable=True)  # Arq job ID for tracking background processing
@@ -61,8 +61,8 @@ class DocumentChunk(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     content = Column(Text, nullable=False)
     page_number = Column(Integer, nullable=False)
-    chunk_type = Column(String, nullable=True, default='text', index=True)
-    chunk_level = Column(String, nullable=True, default='flat', index=True)  # flat, parent, or child
+    chunk_type = Column(String, nullable=False, default='text', server_default='text', index=True)
+    chunk_level = Column(String, nullable=False, default='flat', server_default='flat', index=True)  # flat, parent, or child
     embedding = Column(Vector(768))  # pgvector type for 768-dimensional embeddings
     document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     position_data = Column(JSONB, nullable=True)
@@ -84,6 +84,15 @@ class DocumentChunk(Base):
         foreign_keys="ParentChildRelationship.child_chunk_id",
         back_populates="child_chunk",
         cascade="all, delete-orphan"
+    )
+
+
+    # Table-level indexes for hybrid search...
+    __table_args__ = (
+        Index("idx_document_chunks_document_id", "document_id"),
+        Index("idx_document_chunks_document_id_page_number", "document_id", "page_number"),
+        Index("idx_document_chunks_embedding_hnsw", "embedding", postgresql_using="hnsw", postgresql_with={"m": 16, "ef_construction": 64}, postgresql_ops={"embedding": "vector_cosine_ops"}),
+        Index("idx_document_chunks_content_fts", text("to_tsvector('english'::regconfig, content)"), postgresql_using="gin"),
     )
 
 

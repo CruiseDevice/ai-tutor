@@ -1,5 +1,6 @@
 import type { Config } from "tailwindcss";
 import typographyPlugin from '@tailwindcss/typography';
+import containerQueries from '@tailwindcss/container-queries';
 
 export default {
   content: [
@@ -10,31 +11,58 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        mono: ['var(--font-mono)', 'monospace'],
-        serif: ['var(--font-serif)', 'Georgia', 'serif'],
+        // Newsreader (body + headings) and JetBrains Mono (apparatus only).
+        // Both are loaded via next/font in src/app/layout.tsx.
+        serif: ['var(--font-serif)', 'Georgia', 'Times New Roman', 'serif'],
+        mono:  ['var(--font-mono-apparatus)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       colors: {
-        // Legacy (for compatibility)
-        background: "var(--background)",
-        foreground: "var(--foreground)",
-        // Brutalist palette
-        ink: 'var(--ink)',
-        paper: 'var(--paper)',
-        accent: 'var(--accent)',
-        rule: 'var(--rule)',
-        subtle: 'var(--subtle)',
-        // Dashboard extensions
-        'sidebar-bg': 'var(--sidebar-bg)',
-        'panel-bg': 'var(--panel-bg)',
-        'chat-user': 'var(--chat-user)',
-        'chat-ai': 'var(--chat-ai)',
+        // Grounds
+        paper:   'var(--paper)',
+        surface: 'var(--surface)',
+        desk:    'var(--desk)',
+        'desk-2':'var(--desk-2)',
+
+        // Ink
+        ink:     'var(--ink)',
+        'ink-2': 'var(--ink-2)',
+        subtle:  'var(--subtle)',
+        faint:   'var(--faint)',
+
+        // Lines
+        hair:        'var(--hair)',
+        'hair-soft': 'var(--hair-soft)',
+
+        // Accent (ink blue)
+        accent:       'var(--accent)',
+        'accent-ink': 'var(--accent-ink)',
+        'accent-soft':'var(--accent-soft)',
+
+        // Citation highlighter
+        mark:      'var(--mark)',
+        'mark-edge':'var(--mark-edge)',
+
+        // Semantic
+        danger:  'var(--danger)',
+        success: 'var(--success)',
       },
-      borderWidth: {
-        '3': '3px',
+      borderRadius: {
+        'xs': 'var(--r-xs)',
+        'sm': 'var(--r-sm)',
+        DEFAULT: 'var(--r)',
+        'lg': 'var(--r-lg)',
+      },
+      boxShadow: {
+        'page': 'var(--shadow-page)',
+        'card': 'var(--shadow-card)',
+      },
+      transitionTimingFunction: {
+        'desk': 'var(--ease)',
       },
     },
   },
   plugins: [
     typographyPlugin,
+    containerQueries,
   ],
 } satisfies Config;

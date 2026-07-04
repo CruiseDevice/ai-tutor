@@ -1,10 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import logging
+import uuid
 from .config import settings
 from .api import auth, documents, chat, conversations, user, config, admin
-from .services.embedding_service import EmbeddingService
 from .core.rate_limiting import setup_rate_limiting
+from .core.exceptions import StudyFetchError
+from .database import app_lifespan
 
 # Configure logging
 logging.basicConfig(
@@ -19,10 +22,11 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="StudyFetch AI Tutor Backend",
     description="Backend API for StudyFetch AI Tutor",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=app_lifespan,
 )
 
-# Setup rate limiting
+# Setup rate limiting (Redis-backed slowapi)
 setup_rate_limiting(app)
 
 # Configure CORS
@@ -38,90 +42,32 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup."""
-    logger.info("Starting application initialization...")
-
-    try:
-        logger.info("Initializing database...")
-        from .database import engine, Base
-        from sqlalchemy import text
-
-        # Step 1: Create pgvector extension if it doesn't exist
-        # This is required for the Vector type in DocumentChunk model
-        logger.info("Ensuring pgvector extension exists...")
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            logger.info("pgvector extension is ready")
-        except Exception as ext_error:
-            logger.error(f"Failed to create pgvector extension: {ext_error}", exc_info=True)
-            raise
-
-        # Step 2: Create database tables
-        # Import models to register them with SQLAlchemy Base
-        from .models import user, document, conversation  # noqa: F401
-        Base.metadata.create_all(bind=engine)
-
-        # Run migrations for existing databases
-        logger.info("Running database migrations...")
-        from .database_migrations import (
-            add_title_column_if_missing,
-            remove_unique_constraint_from_document_id,
-            add_document_chunks_indexes,
-            add_pgvector_hnsw_index,
-            add_document_status_fields,
-            add_fulltext_search_index,
-            add_user_role_column,
-            add_processing_time_columns,
-            add_audit_logs_table,
-            add_chunk_type_column,
-            add_hierarchical_chunking_schema
-        )
-        add_title_column_if_missing(engine)
-        remove_unique_constraint_from_document_id(engine)
-        add_document_chunks_indexes(engine)
-        add_pgvector_hnsw_index(engine)
-        add_document_status_fields(engine)
-        add_fulltext_search_index(engine)  # Enable hybrid search with full-text index
-        add_user_role_column(engine)  # Add role column for RBAC
-        add_processing_time_columns(engine)
-        add_audit_logs_table(engine)
-        add_chunk_type_column(engine)
-        add_hierarchical_chunking_schema(engine) # Hierarchical parent-child chunking
-        logger.info("Database initialization complete")
-    except Exception as e:
-        logger.error(f"Database initialization error: {e}", exc_info=True)
-        # Don't crash - let the app start even if migrations fail
-        # The app can still function, though some features may not work
-
-    # Initialize embedding service lazily (loads the model on first use)
-    # This prevents blocking startup while downloading the model
-    logger.info("Embedding service will be initialized on first use (lazy loading)")
-
-    # Initialize cache service
-    try:
-        logger.info("Initializing cache service...")
-        from .services.cache_service import get_cache_service
-        await get_cache_service()  # This will connect to Redis
-        logger.info("Cache service initialized successfully")
-    except Exception as e:
-        logger.warning(f"Cache service initialization error: {e}. Caching will be disabled.")
-        # Don't crash - app can function without cache (just slower)
-
-    logger.info("Application initialization complete")
+@app.exception_handler(StudyFetchError)
+async def study_fetch_error_handler(request: Request, exc: StudyFetchError):
+    """Map domain exceptions to safe JSON responses."""
+    request_id = str(uuid.uuid4())
+    logger.warning(
+        f"Domain error ({request_id}): {exc.__class__.__name__}: {exc.detail}",
+        extra={"request_id": request_id},
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.default_detail, "request_id": request_id},
+    )
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown."""
-    try:
-        from .services.cache_service import close_cache_service
-        await close_cache_service()
-        logger.info("Cache service disconnected")
-    except Exception as e:
-        logger.warning(f"Error disconnecting cache service: {e}")
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """Catch-all: log full traceback server-side, return generic client message."""
+    request_id = str(uuid.uuid4())
+    logger.exception(
+        f"Unhandled exception ({request_id}): {exc}",
+        extra={"request_id": request_id},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "request_id": request_id},
+    )
 
 
 # Include routers
@@ -149,4 +95,3 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
-

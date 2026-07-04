@@ -4,7 +4,6 @@ LangGraph-based RAG Agent Service for adaptive multi-step reasoning.
 This service transforms the linear RAG pipeline into an agent-based system that can:
 - Adaptively route queries based on complexity
 - Perform multi-step reasoning for complex questions
-- Verify and improve answer quality
 - Gracefully fallback to the linear pipeline on errors
 
 Integration points:
@@ -28,6 +27,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from ..config import settings
 from ..models.conversation import Message
 from .chat_service import ChatService
+from .llm import Provider, resolve_provider, pick_helper_model, get_llm_client
 from .query_expansion_service import get_query_expansion_service
 from .rerank_service import get_rerank_service
 from .cache_service import get_cache_service
@@ -37,40 +37,21 @@ logger = logging.getLogger(__name__)
 
 
 class AgentMetrics:
-    """Helper class for tracking agent performance metrics and costs."""
+    """Lightweight helper for tracking agent node timing only.
 
-    # Model pricing (cost per 1K tokens) - Updated as of Jan 2025
-    PRICING = {
-        "gpt-4o": {"input": 0.0025, "output": 0.01},  # $2.50 / $10 per 1M tokens
-        "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},  # $0.15 / $0.60 per 1M tokens
-        "gpt-4": {"input": 0.03, "output": 0.06},  # Legacy pricing
-    }
-
-    @staticmethod
-    def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-        """
-        Calculate cost for an OpenAI API call.
-
-        Args:
-            model: Model name (e.g., "gpt-4o-mini")
-            prompt_tokens: Number of input tokens
-            completion_tokens: Number of output tokens
-
-        Returns:
-            Cost in USD
-        """
-        pricing = AgentMetrics.PRICING.get(model, AgentMetrics.PRICING["gpt-4o-mini"])
-        input_cost = (prompt_tokens / 1000) * pricing["input"]
-        output_cost = (completion_tokens / 1000) * pricing["output"]
-        return input_cost + output_cost
+    Token usage and cost numbers are intentionally **not** tracked here. The
+    LLMClient wrappers currently do not surface SDK usage objects, and the
+    previous code fabricated values (hardcoded prompt/completion counts and
+    stale pricing tables). Real token/cost observability will be restored in
+    Phase 6 by threading actual SDK usage through LLMClient.complete() / .stream()
+    (see BACKEND_QUALITY_PLAN.md 6.3).
+    """
 
     @staticmethod
     def init_metrics() -> Dict[str, Any]:
         """Initialize empty metrics dictionary."""
         return {
             "node_timings": {},
-            "token_usage": {},
-            "costs": {},
             "cache_hits": {},
             "retrieval_stats": {},
             "workflow_start_time": time.time(),
@@ -85,60 +66,12 @@ class AgentMetrics:
         metrics["node_timings"][node_name] = duration
 
     @staticmethod
-    def track_token_usage(
-        metrics: Dict,
-        step_name: str,
-        model: str,
-        prompt_tokens: int,
-        completion_tokens: int
-    ):
-        """Track token usage and calculate cost for a step."""
-        if "token_usage" not in metrics:
-            metrics["token_usage"] = {}
-        if "costs" not in metrics:
-            metrics["costs"] = {}
-
-        # Track tokens
-        metrics["token_usage"][step_name] = {
-            "model": model,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        }
-
-        # Calculate cost
-        cost = AgentMetrics.calculate_cost(model, prompt_tokens, completion_tokens)
-        metrics["costs"][step_name] = cost
-
-    @staticmethod
     def finalize_metrics(metrics: Dict) -> Dict:
-        """Calculate totals and finalize metrics."""
+        """Calculate total time and finalize metrics."""
         # Calculate total time
         if "workflow_start_time" in metrics:
             metrics["total_time"] = time.time() - metrics["workflow_start_time"]
             del metrics["workflow_start_time"]  # Remove start time from final metrics
-
-        # Calculate total tokens
-        total_prompt = sum(
-            usage.get("prompt_tokens", 0)
-            for usage in metrics.get("token_usage", {}).values()
-        )
-        total_completion = sum(
-            usage.get("completion_tokens", 0)
-            for usage in metrics.get("token_usage", {}).values()
-        )
-
-        if total_prompt > 0 or total_completion > 0:
-            metrics["token_usage"]["total"] = {
-                "prompt_tokens": total_prompt,
-                "completion_tokens": total_completion,
-                "total_tokens": total_prompt + total_completion,
-            }
-
-        # Calculate total cost
-        total_cost = sum(metrics.get("costs", {}).values())
-        if total_cost > 0:
-            metrics["costs"]["total"] = total_cost
 
         return metrics
 
@@ -155,6 +88,8 @@ class AgentState(TypedDict):
     user_id: str
     db_session: Session
     user_api_key: str
+    model: Optional[str]  # User-selected chat model (None → provider smart default)
+    provider: Optional[str]  # Resolved provider name ("openai"|"anthropic"|"ollama")
 
     # Query Understanding (from _classify_query_type)
     query_type: Optional[str]  # "factual", "analytical", "comparative", "follow-up", "clarification"
@@ -175,26 +110,17 @@ class AgentState(TypedDict):
     clean_answer: Optional[str]  # Answer with annotations removed
     annotations: Optional[List[Dict]]  # Parsed annotation objects
 
-    # Verification (from _score_answer_quality and _verify_citations)
-    quality_score: Optional[Dict[str, Any]]  # Quality scores dict
-    verified: Optional[bool]  # Whether answer passed verification
-    citation_warnings: Optional[List[str]]  # Citation mismatch warnings
-
     # Output (matches ChatResponse schema)
     final_response: Optional[Dict]
     error: Optional[str]
-
-    # Workflow control
-    retry_count: Optional[int]  # Number of regeneration attempts
-    max_retries: Optional[int]  # Maximum allowed retries
 
     # Performance Metrics
     metrics: Optional[Dict[str, Any]]  # Performance tracking
     # metrics structure:
     # {
     #   "node_timings": {"understand_query": 0.5, "retrieve_context": 1.2, ...},
-    #   "token_usage": {"understand": {...}, "generate": {...}, "verify": {...}, "total": {...}},
-    #   "costs": {"understand": 0.001, "generate": 0.05, "verify": 0.002, "total": 0.053},
+    #   "token_usage": {"understand": {...}, "generate": {...}, "total": {...}},
+    #   "costs": {"understand": 0.001, "generate": 0.05, "total": 0.053},
     #   "cache_hits": {"query_classification": True/False},
     #   "retrieval_stats": {"sub_questions": 3, "chunks_retrieved": 15, "chunks_used": 10}
     # }
@@ -236,16 +162,26 @@ class RAGAgentService:
         }
         return limits.get(complexity, settings.MAX_COMPLETION_TOKENS_MODERATE)
 
+    def _smart_model_for(self, provider: Provider) -> str:
+        """Return the configured smart model id for a provider."""
+        if provider == Provider.ANTHROPIC:
+            return settings.ANTHROPIC_SMART_MODEL
+        if provider == Provider.OLLAMA:
+            return settings.OLLAMA_MODELS[0]
+        return settings.OPENAI_SMART_MODEL
+
     def _build_workflow(self) -> StateGraph:
         """
         Build the LangGraph workflow with conditional routing.
 
         Workflow structure:
-        1. understand_query -> Route based on complexity
-        2a. Fast path (simple queries): retrieve_context -> generate_answer -> format_response
-        2b. Reasoning path (complex queries): retrieve_context -> generate_answer -> verify_response
-        3. verify_response -> Route based on quality score (re-generate or format)
-        4. format_response -> END
+        1. understand_query -> Route based on complexity (all routes converge)
+        2. retrieve_context -> generate_answer -> format_response -> END
+
+        Note: a response-verification step existed previously but was never wired
+        into the graph edges (verification was intentionally bypassed). It has
+        been removed; reintroduce it as a real graph node with eval coverage if
+        answer-quality verification is needed.
         """
         # Create workflow graph
         workflow = StateGraph(AgentState)
@@ -254,7 +190,6 @@ class RAGAgentService:
         workflow.add_node("understand_query", self._understand_query)
         workflow.add_node("retrieve_context", self._retrieve_context)
         workflow.add_node("generate_answer", self._generate_answer)
-        workflow.add_node("verify_response", self._verify_response)
         workflow.add_node("format_response", self._format_response)
 
         # Set entry point
@@ -274,7 +209,7 @@ class RAGAgentService:
         # Retrieval always goes to generation
         workflow.add_edge("retrieve_context", "generate_answer")
 
-        # Skip verification - go directly to formatting
+        # Generation goes directly to formatting
         workflow.add_edge("generate_answer", "format_response")
 
         # Format response is the final step
@@ -293,6 +228,7 @@ class RAGAgentService:
         """
         start_time = time.time()
         logger.info(f"[Agent] Understanding query: {state['user_query'][:100]}")
+        provider = Provider(state.get("provider") or Provider.OPENAI.value)
 
         # Initialize metrics if not already present
         if state.get("metrics") is None:
@@ -318,7 +254,8 @@ class RAGAgentService:
                 # Use existing classification logic from ChatService
                 classification = await self.chat_service._classify_query_type(
                     query=state["user_query"],
-                    user_api_key=state["user_api_key"]
+                    user_api_key=state["user_api_key"],
+                    provider=Provider(state.get("provider") or Provider.OPENAI.value)
                 )
 
                 # Cache the classification (expires in 1 hour)
@@ -332,20 +269,13 @@ class RAGAgentService:
                 except Exception as cache_error:
                     logger.warning(f"[Agent] Cache write failed: {cache_error}")
 
-                # Track token usage (estimated for classification - ~100 prompt + ~50 completion)
-                AgentMetrics.track_token_usage(
-                    state["metrics"],
-                    "query_classification",
-                    settings.QUERY_CLASSIFICATION_MODEL,
-                    prompt_tokens=100,
-                    completion_tokens=50
-                )
+                # metrics is initialized with node_timings only. Token/cost
+                # tracking is intentionally disabled until LLMClient surfaces
+                # real SDK usage (BACKEND_QUALITY_PLAN.md 6.3).
 
             state["query_type"] = classification["query_type"]
             state["complexity"] = classification["complexity"]
             state["requires_cot"] = classification["requires_cot"]
-            state["retry_count"] = 0
-            state["max_retries"] = 1  # Allow one regeneration attempt
 
             logger.info(
                 f"[Agent] Query classified: type={classification['query_type']}, "
@@ -395,7 +325,7 @@ class RAGAgentService:
 
         return strategy
 
-    async def _decompose_complex_query(self, query: str, user_api_key: str) -> List[str]:
+    async def _decompose_complex_query(self, query: str, user_api_key: str, provider: Provider = Provider.OPENAI) -> List[str]:
         """
         Decompose a complex query into sub-questions for multi-step reasoning.
 
@@ -404,13 +334,15 @@ class RAGAgentService:
 
         Args:
             query: The complex user query
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
+            provider: LLM provider to use
 
         Returns:
             List of sub-questions (including the original query)
         """
         try:
-            client = AsyncOpenAI(api_key=user_api_key)
+            client = get_llm_client(provider, user_api_key)
+            model = pick_helper_model(provider)
 
             decomposition_prompt = f"""You are a query decomposition assistant. Break down this complex query into 2-4 simpler sub-questions that, when answered together, would fully address the original query.
 
@@ -428,17 +360,14 @@ Output: ["What is photosynthesis?", "What is cellular respiration?", "How are ph
 
 Output (JSON array only):"""
 
-            completion = await client.chat.completions.create(
-                model="gpt-4o-mini",  # Use cheaper model for decomposition
-                messages=[
-                    {"role": "system", "content": "You are a query decomposition assistant that outputs only valid JSON arrays."},
-                    {"role": "user", "content": decomposition_prompt}
-                ],
+            response_text = await client.complete(
+                system_prompt="You are a query decomposition assistant that outputs only valid JSON arrays.",
+                messages=[{"role": "user", "content": decomposition_prompt}],
+                model=model,
                 temperature=0.3,
-                max_completion_tokens=200
+                max_tokens=200,
             )
-
-            response_text = completion.choices[0].message.content.strip()
+            response_text = response_text.strip()
 
             # Parse JSON response
             sub_questions = json.loads(response_text)
@@ -471,6 +400,7 @@ Output (JSON array only):"""
         try:
             strategy = state.get("retrieval_strategy", "fast_path")
             complexity = state.get("complexity", "simple")
+            provider = Provider(state.get("provider") or Provider.OPENAI.value)
 
             # Adaptive chunk limits based on strategy
             if strategy == "fast_path":
@@ -490,7 +420,8 @@ Output (JSON array only):"""
                 # Decompose query into sub-questions
                 sub_questions = await self._decompose_complex_query(
                     query=state["user_query"],
-                    user_api_key=state["user_api_key"]
+                    user_api_key=state["user_api_key"],
+                    provider=Provider(state.get("provider") or Provider.OPENAI.value)
                 )
 
                 # Retrieve chunks for each sub-question
@@ -505,7 +436,8 @@ Output (JSON array only):"""
                         document_id=state["document_id"],
                         query=sub_question,
                         user_api_key=state["user_api_key"],
-                        limit=max(3, limit // len(sub_questions))  # Distribute limit across sub-questions
+                        limit=max(3, limit // len(sub_questions)),  # Distribute limit across sub-questions
+                        provider=provider
                     )
 
                     # Deduplicate chunks (based on page number + content hash)
@@ -526,7 +458,8 @@ Output (JSON array only):"""
                     document_id=state["document_id"],
                     query=state["user_query"],
                     user_api_key=state["user_api_key"],
-                    limit=limit
+                    limit=limit,
+                    provider=provider
                 )
                 # TODO(human): Diagnostic logging for agent chunk retrieval
                 logger.info(f"[Agent DEBUG] Standard retrieval returned {len(chunks)} chunks for document {state['document_id']}")
@@ -589,12 +522,14 @@ Output (JSON array only):"""
 
     async def _generate_answer(self, state: AgentState) -> AgentState:
         """
-        Node 3: Generate answer using existing _build_system_prompt and OpenAI.
+        Node 3: Generate answer using _build_system_prompt and the user's
+        selected model (routed through the provider-agnostic LLM client).
 
         Leverages ChatService._build_system_prompt() for adaptive prompting
         and ChatService._parse_annotations() for annotation extraction.
 
-        Now includes conversation history for context-aware responses.
+        The user's selected model is honored. If unset, falls back to the
+        provider's smart model. Includes conversation history for context.
         """
         logger.info(f"[Agent] Generating answer")
 
@@ -607,16 +542,18 @@ Output (JSON array only):"""
                 requires_cot=state.get("requires_cot", False)
             )
 
-            # Select model and token limit based on complexity
+            # Resolve provider + model: honor the user's selection; only fall
+            # back to a provider default when none was supplied.
+            provider = Provider(state.get("provider") or Provider.OPENAI.value)
+            model = state.get("model") or self._smart_model_for(provider)
             complexity = state.get("complexity", "simple")
-            if complexity == "complex":
-                model = "gpt-4o"  # Better model for complex queries
-            else:
-                model = settings.AGENT_DEFAULT_MODEL  # gpt-4o-mini for simple/moderate
 
             # Get adaptive token limit based on complexity
             max_tokens = self._get_adaptive_token_limit(complexity)
-            logger.info(f"[Agent] Using {max_tokens} max completion tokens for {complexity} query")
+            logger.info(
+                f"[Agent] Using model={model} provider={provider.value} "
+                f"with {max_tokens} max tokens for {complexity} query"
+            )
 
             # Fetch conversation history for context-aware responses
             history_messages = self._fetch_conversation_history(
@@ -628,33 +565,30 @@ Output (JSON array only):"""
             # Store conversation history in state for debugging/analysis
             state["conversation_history"] = history_messages
 
-            # Build messages list with conversation history
-            messages = [{"role": "system", "content": system_prompt}]
-
-            # Add conversation history (excluding the current user message if already in history)
-            # The history includes previous exchanges, providing context for follow-up questions
+            # Build messages list with conversation history (system prompt is
+            # passed separately to the LLM client).
+            chat_messages = []
             for msg in history_messages:
                 # Skip if this is the same as the current user query (avoid duplication)
                 if msg["role"] == "user" and msg["content"] == state["user_query"]:
                     continue
-                messages.append(msg)
+                chat_messages.append(msg)
 
             # Add current user message
-            messages.append({"role": "user", "content": state["user_query"]})
+            chat_messages.append({"role": "user", "content": state["user_query"]})
 
-            logger.debug(f"[Agent] Sending {len(messages)} messages to OpenAI (including history)")
+            logger.debug(f"[Agent] Sending {len(chat_messages)} messages to LLM (including history)")
 
-            # Generate answer
-            client = AsyncOpenAI(api_key=state["user_api_key"])
+            # Generate answer via the provider-agnostic client
+            client = get_llm_client(provider, state["user_api_key"])
 
-            completion = await client.chat.completions.create(
+            raw_answer = await client.complete(
+                system_prompt=system_prompt,
+                messages=chat_messages,
                 model=model,
-                messages=messages,
                 temperature=0.7,
-                max_completion_tokens=max_tokens
+                max_tokens=max_tokens,
             )
-
-            raw_answer = completion.choices[0].message.content
             state["answer"] = raw_answer
 
             # Parse annotations using existing logic
@@ -677,91 +611,6 @@ Output (JSON array only):"""
 
         return state
 
-    def _route_after_generation(self, state: AgentState) -> str:
-        """
-        Route after generation based on complexity.
-        Simple queries skip verification, complex queries get verified.
-        """
-        complexity = state.get("complexity", "simple")
-
-        # Only verify complex queries to save costs
-        if complexity in ["moderate", "complex"]:
-            return "verify"
-        else:
-            return "format"
-
-    async def _verify_response(self, state: AgentState) -> AgentState:
-        """
-        Node 4: Verify response quality using existing _score_answer_quality
-        and _verify_citations.
-
-        Leverages ChatService methods for quality scoring and citation verification.
-        """
-        logger.info(f"[Agent] Verifying response quality")
-
-        try:
-            # Score answer quality using existing logic
-            quality_scores = await self.chat_service._score_answer_quality(
-                query=state["user_query"],
-                answer=state.get("clean_answer", ""),
-                context_chunks=state.get("retrieved_chunks", []),
-                user_api_key=state["user_api_key"]
-            )
-
-            state["quality_score"] = quality_scores
-
-            # Verify citations using existing logic
-            citation_warnings = self.chat_service._verify_citations(
-                response_text=state.get("answer", ""),
-                annotations=state.get("annotations", []),
-                relevant_chunks=state.get("retrieved_chunks", [])
-            )
-
-            state["citation_warnings"] = citation_warnings
-
-            # Determine if answer is verified
-            overall_score = quality_scores.get("overall")
-            has_critical_warnings = len(citation_warnings) > 0
-
-            # Verification passes if score >= 7 and no critical citation errors
-            state["verified"] = (
-                overall_score is not None and
-                overall_score >= 7.0 and
-                not has_critical_warnings
-            )
-
-            logger.info(
-                f"[Agent] Verification complete: score={overall_score}, "
-                f"verified={state['verified']}, warnings={len(citation_warnings)}"
-            )
-
-        except Exception as e:
-            logger.error(f"[Agent] Error in verify_response: {e}")
-            # Default to verified on error to avoid infinite loops
-            state["verified"] = True
-            state["quality_score"] = {"overall": None}
-            state["citation_warnings"] = []
-
-        return state
-
-    def _route_after_verification(self, state: AgentState) -> str:
-        """
-        Route after verification based on quality score.
-        If quality is low and retries remain, regenerate. Otherwise, format.
-        """
-        verified = state.get("verified", True)
-        retry_count = state.get("retry_count", 0)
-        max_retries = state.get("max_retries", 1)
-
-        # If not verified and we have retries left, regenerate
-        if not verified and retry_count < max_retries:
-            state["retry_count"] = retry_count + 1
-            logger.info(f"[Agent] Quality check failed, regenerating (attempt {retry_count + 1})")
-            return "regenerate"
-        else:
-            # Either verified or out of retries
-            return "format"
-
     async def _format_response(self, state: AgentState) -> AgentState:
         """
         Node 5: Format final response to match existing ChatResponse schema.
@@ -780,9 +629,7 @@ Output (JSON array only):"""
                 # Log performance summary
                 metrics = state["metrics"]
                 logger.info(
-                    f"[Agent Metrics] Total time: {metrics.get('total_time', 0):.2f}s, "
-                    f"Total cost: ${metrics.get('costs', {}).get('total', 0):.4f}, "
-                    f"Total tokens: {metrics.get('token_usage', {}).get('total', {}).get('total_tokens', 0)}"
+                    f"[Agent Metrics] Total time: {metrics.get('total_time', 0):.2f}s"
                 )
 
             # Match existing ChatResponse format
@@ -804,10 +651,6 @@ Output (JSON array only):"""
                         "requires_cot": state.get("requires_cot")
                     },
                     "retrieval_strategy": state.get("retrieval_strategy"),
-                    "quality_scores": state.get("quality_score"),
-                    "citation_warnings": state.get("citation_warnings", []),
-                    "verified": state.get("verified"),
-                    "retry_count": state.get("retry_count", 0),
                     "performance_metrics": state.get("metrics", {})  # Include full metrics
                 }
             }
@@ -835,7 +678,8 @@ Output (JSON array only):"""
         document_id: str,
         user_id: str,
         db_session: Session,
-        user_api_key: str
+        user_api_key: str,
+        model: Optional[str] = None
     ) -> Dict:
         """
         Main entry point for agent-based query processing.
@@ -846,7 +690,8 @@ Output (JSON array only):"""
             document_id: Document identifier
             user_id: User identifier
             db_session: Database session
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
+            model: User-selected chat model id (None → provider smart default)
 
         Returns:
             Dict matching ChatResponse schema with metadata
@@ -855,6 +700,7 @@ Output (JSON array only):"""
             Exception: If workflow execution fails (should be caught by caller for fallback)
         """
         logger.info(f"[Agent] Processing query: {user_query[:100]}")
+        provider = resolve_provider(model) if model else Provider.OPENAI
 
         # Initialize state
         initial_state: AgentState = {
@@ -864,6 +710,8 @@ Output (JSON array only):"""
             "user_id": user_id,
             "db_session": db_session,
             "user_api_key": user_api_key,
+            "model": model,
+            "provider": provider.value,
             # All other fields initialized to None
             "query_type": None,
             "complexity": None,
@@ -876,13 +724,8 @@ Output (JSON array only):"""
             "answer": None,
             "clean_answer": None,
             "annotations": None,
-            "quality_score": None,
-            "verified": None,
-            "citation_warnings": None,
             "final_response": None,
             "error": None,
-            "retry_count": None,
-            "max_retries": None,
             "metrics": AgentMetrics.init_metrics()  # Initialize metrics tracking
         }
 
@@ -913,7 +756,8 @@ Output (JSON array only):"""
         document_id: str,
         user_id: str,
         db_session: Session,
-        user_api_key: str
+        user_api_key: str,
+        model: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         Stream agent workflow execution with intermediate step updates.
@@ -927,7 +771,8 @@ Output (JSON array only):"""
             document_id: Document identifier
             user_id: User identifier
             db_session: Database session
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
+            model: User-selected chat model id (None → provider smart default)
 
         Yields:
             str: JSON-encoded Server-Sent Events (SSE) with step updates
@@ -943,6 +788,7 @@ Output (JSON array only):"""
         import json
 
         logger.info(f"[Agent Stream] Starting streaming workflow for query: {user_query[:100]}")
+        provider = resolve_provider(model) if model else Provider.OPENAI
 
         # Initialize state (same as process_query)
         initial_state: AgentState = {
@@ -952,6 +798,8 @@ Output (JSON array only):"""
             "user_id": user_id,
             "db_session": db_session,
             "user_api_key": user_api_key,
+            "model": model,
+            "provider": provider.value,
             "query_type": None,
             "complexity": None,
             "requires_cot": None,
@@ -963,13 +811,8 @@ Output (JSON array only):"""
             "answer": None,
             "clean_answer": None,
             "annotations": None,
-            "quality_score": None,
-            "verified": None,
-            "citation_warnings": None,
             "final_response": None,
             "error": None,
-            "retry_count": None,
-            "max_retries": None,
             "metrics": AgentMetrics.init_metrics()  # Initialize metrics tracking
         }
 
@@ -1017,15 +860,6 @@ Output (JSON array only):"""
                         }
                         step_event["message"] = "Generated answer with citations"
 
-                    elif node_name == "verify_response":
-                        quality_score = state_update.get("quality_score", {})
-                        step_event["data"] = {
-                            "overall_score": quality_score.get("overall"),
-                            "verified": state_update.get("verified"),
-                            "warnings": len(state_update.get("citation_warnings", []))
-                        }
-                        step_event["message"] = f"Verified answer quality (Score: {quality_score.get('overall', 'N/A')})"
-
                     elif node_name == "format_response":
                         step_event["message"] = "Formatting final response"
 
@@ -1068,8 +902,8 @@ Output (JSON array only):"""
             logger.error(f"[Agent Stream] Workflow execution failed: {e}", exc_info=True)
             error_event = {
                 "type": "error",
-                "error": str(e),
-                "message": f"Streaming error: {str(e)}"
+                "error": "Streaming interrupted",
+                "message": "Streaming interrupted"
             }
             yield f"data: {json.dumps(error_event)}\n\n"
 

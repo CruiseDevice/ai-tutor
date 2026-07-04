@@ -65,13 +65,24 @@ class AuthService:
 
     @staticmethod
     def delete_session(db: Session, token: str) -> bool:
-        """Delete a session."""
+        """Delete a session by token."""
         session = db.query(DBSession).filter(DBSession.token == token).first()
         if session:
             db.delete(session)
             db.commit()
             return True
         return False
+
+    @staticmethod
+    def revoke_user_sessions(db: Session, user_id: str) -> int:
+        """Revoke all active sessions for a user. Used after password reset."""
+        sessions = db.query(DBSession).filter(DBSession.user_id == user_id).all()
+        count = 0
+        for session in sessions:
+            db.delete(session)
+            count += 1
+        db.commit()
+        return count
 
     @staticmethod
     def verify_session(db: Session, token: str) -> Optional[User]:
@@ -126,6 +137,10 @@ class AuthService:
         # Update password
         user.password = get_password_hash(new_password)
         reset_token.used = True
+
+        # Security: revoke all existing sessions so stolen/old sessions can't
+        # continue after a password reset.
+        AuthService.revoke_user_sessions(db, user.id)
 
         db.commit()
 

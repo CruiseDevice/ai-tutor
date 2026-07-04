@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_AUTH_PER_MINUTE: int = 20  # More lenient for development (can be overridden via env var)
+    # Comma-separated list of trusted proxy CIDRs/IPs. Only honor X-Forwarded-For
+    # / X-Real-IP headers when the immediate peer is in this list. Empty means
+    # never trust forwarded headers (the safe default).
+    TRUSTED_PROXIES: List[str] = []
 
     # Redis Cache (optimized for performance)
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -37,6 +41,7 @@ class Settings(BaseSettings):
     CACHE_CHUNK_TTL: int = 259200  # 72 hours (increased from 24h - vector results are stable)
     CACHE_SIMILARITY_THRESHOLD: float = 0.85  # 85% similarity for response cache
     CACHE_COMPRESSION_THRESHOLD: int = 1024  # Compress cache values larger than 1KB
+    CACHE_KEY_PREFIX: str = "sft:cache:"  # Namespace for cache keys; must end with a colon
 
     # Environment
     NODE_ENV: str = "development"
@@ -190,6 +195,29 @@ class Settings(BaseSettings):
 
     # Image extraction settings
     IMAGE_MIN_SIZE: int = 100  # Minimum image size in pixels (width/height)
+
+    # =====================================================
+    # LLM Provider Catalog (single source of truth for model IDs)
+    # One smart + one less-smart model per provider, plus Ollama Cloud.
+    # To rename a model, edit the ID here only.
+    # =====================================================
+    OPENAI_SMART_MODEL: str = "gpt-5.1"
+    OPENAI_LESS_SMART_MODEL: str = "gpt-4o-mini"
+
+    ANTHROPIC_SMART_MODEL: str = "claude-sonnet-5"
+    ANTHROPIC_LESS_SMART_MODEL: str = "claude-haiku-4-5"
+
+    # Ollama Cloud uses an OpenAI-compatible API; the user picks the model id.
+    # The ":cloud" suffix routes the request to Ollama Cloud.
+    OLLAMA_CLOUD_BASE_URL: str = "https://ollama.com/v1"
+    OLLAMA_MODELS: List[str] = [
+        "glm-5.2:cloud",         # Z.ai GLM-5.2 flagship (1M-token context)
+        "kimi-k2.7-code:cloud",  # Moonshot Kimi K2.7 coding model
+        "gpt-oss:20b",           # open-weight default
+    ]
+
+    # Default model for the chat request when none is supplied
+    DEFAULT_CHAT_MODEL: str = "gpt-5.1"
 
     # CORS - Allow common development origins
     CORS_ORIGINS: List[str] = [

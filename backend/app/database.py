@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -33,3 +34,41 @@ def get_db():
     finally:
         db.close()
 
+
+@asynccontextmanager
+async def app_lifespan(app):
+    """Modern FastAPI lifespan context manager.
+
+    Handles startup/shutdown without performing any DDL. Schema changes are
+    the responsibility of Alembic (see backend/scripts/run_migrations.sh).
+    """
+    logger = __import__("logging").getLogger(__name__)
+    logger.info("Starting application initialization...")
+
+    # NOTE: No migrations or Base.metadata.create_all() here. The app assumes
+    # the database schema is managed externally via Alembic. For local dev,
+    # run `alembic upgrade head` or `./scripts/run_migrations.sh` before
+    # starting the app.
+
+    # Initialize cache service
+    try:
+        logger.info("Initializing cache service...")
+        from .services.cache_service import get_cache_service
+        await get_cache_service()
+        logger.info("Cache service initialized successfully")
+    except Exception as e:
+        logger.warning(f"Cache service initialization error: {e}. Caching will be disabled.")
+
+    logger.info("Application initialization complete")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down application...")
+    try:
+        from .services.cache_service import close_cache_service
+        await close_cache_service()
+        logger.info("Cache service disconnected")
+    except Exception as e:
+        logger.warning(f"Error disconnecting cache service: {e}")
+    logger.info("Application shutdown complete")

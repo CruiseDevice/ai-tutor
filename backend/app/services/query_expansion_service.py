@@ -4,6 +4,7 @@ import logging
 import json
 import hashlib
 from app.config import settings
+from app.services.llm import Provider, get_llm_client, pick_helper_model
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +29,18 @@ class QueryExpansionService:
         query: str,
         user_api_key: str,
         num_variations: Optional[int] = None,
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        provider: Provider = Provider.OPENAI
     ) -> List[str]:
         """
         Generate multiple query variations for improved retrieval.
 
         Args:
             query: The original user query
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
             num_variations: Number of variations to generate (default: from config)
-            model: Model to use (default: from config)
+            model: Model to use (default: helper model for the provider)
+            provider: LLM provider to use
 
         Returns:
             List of query strings including the original query
@@ -45,7 +48,7 @@ class QueryExpansionService:
         """
         # Use defaults from config if not specified
         num_variations = num_variations or self.num_variations
-        model = model or self.model
+        model = model or pick_helper_model(provider)
 
         # Validate inputs
         if not query or not query.strip():
@@ -66,7 +69,8 @@ class QueryExpansionService:
                 query=query,
                 user_api_key=user_api_key,
                 num_variations=num_variations - 1,  # Exclude original from count
-                model=model
+                model=model,
+                provider=provider
             )
 
             # Always include the original query
@@ -87,21 +91,23 @@ class QueryExpansionService:
         query: str,
         user_api_key: str,
         num_variations: int,
-        model: str
+        model: str,
+        provider: Provider = Provider.OPENAI
     ) -> List[str]:
         """
-        Generate query variations using OpenAI LLM.
+        Generate query variations using an LLM.
 
         Args:
             query: Original query
-            user_api_key: User's OpenAI API key
+            user_api_key: User's API key (provider-resolved)
             num_variations: Number of variations to generate
             model: Model to use
+            provider: LLM provider to use
 
         Returns:
             List of query variation strings
         """
-        client = AsyncOpenAI(api_key=user_api_key)
+        client = get_llm_client(provider, user_api_key)
 
         # Craft enhanced prompt to generate diverse query variations
         # This improved prompt generates more targeted variations across different semantic angles
@@ -151,19 +157,18 @@ Return ONLY a JSON array of {num_variations} strings, no explanation.
 Format: ["variation 1", "variation 2", ...]"""
 
         try:
-            response = await client.chat.completions.create(
+            # JSON mode (response_format) is OpenAI-only; for other providers
+            # the prompt already requests strict JSON output.
+            content = await client.complete(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
                 model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
                 temperature=self.temperature,
                 max_tokens=500,
-                response_format={"type": "json_object"} if "gpt-4" in model or "gpt-3.5" in model else None
             )
 
             # Parse response
-            content = response.choices[0].message.content.strip()
+            content = content.strip()
 
             # Try to parse as JSON
             try:

@@ -43,10 +43,6 @@ function ResetPasswordFormWithParams() {
     const newErrors: FormErrors = {};
     if (!formData.password) {
       newErrors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters long';
-    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
-      newErrors.password = 'Password must contain at least one lowercase letter, one uppercase letter, and one number';
     }
 
     if (!formData.confirmPassword) {
@@ -71,7 +67,7 @@ function ResetPasswordFormWithParams() {
     e.preventDefault();
     setErrors({});
     setSuccess('');
-    
+
     if(!validateForm()) return;
 
     if (!token) {
@@ -84,7 +80,7 @@ function ResetPasswordFormWithParams() {
 
     setIsLoading(true);
 
-    try { 
+    try {
       const response = await authApi.confirmPasswordReset(token, formData.password);
 
       const data = await response.json();
@@ -107,103 +103,124 @@ function ResetPasswordFormWithParams() {
 
   if (!token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md w-full space-y-8">
-          <div className="text-center">
-            <p className="text-red-600">Invalid or missing reset token.</p>
-            <Link href="/forgot-password" className="text-indigo-600 hover:text-indigo-500">
-              Request a new password reset
-            </Link>
-          </div>
+      <div className="min-h-screen flex items-center justify-center bg-paper px-4">
+        <div className="w-full max-w-md text-center">
+          <p className="font-serif text-danger">Invalid or missing reset token.</p>
+          <Link href="/forgot-password" className="font-serif text-sm text-accent hover:text-accent-ink transition-colors ease-desk mt-2 inline-block">
+            Request a new password reset
+          </Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Reset Password</h2>
-          <p className="mt-2 text-center text-sm text-gray-600">Enter your new password here</p>
-        </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+    <div className="min-h-screen flex items-center justify-center bg-paper px-4">
+      <div className="w-full max-w-md">
+        {/* ===== Brand wordmark ===== */}
+        <header className="mb-8">
+          <h1 className="font-serif text-2xl font-semibold tracking-tight">
+            TUTOR<span className="text-accent">.AI</span>
+          </h1>
+          <p className="font-serif text-subtle mt-1">Enter your new password</p>
+        </header>
+
+        {/* ===== Form card ===== */}
+        <div className="surface-card p-6 sm:p-8 space-y-6">
           {errors.general && (
-            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded relative" role="alert">
+            <div
+              className="flex items-start gap-3 bg-accent-soft border border-hair rounded-sm px-4 py-3"
+              role="alert"
+            >
+              <span className="text-danger font-semibold leading-none mt-0.5">!</span>
+              <p className="flex-1 font-serif text-sm text-ink">{errors.general}</p>
               <button
                 onClick={() => setErrors(prev => ({ ...prev, general: undefined }))}
-                className="absolute right-2 top-2 text-red-700 hover:text-red-900"
+                className="text-subtle hover:text-ink min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors ease-desk"
+                aria-label="Dismiss error"
               >
-                <X size={16} />
+                <X className="h-4 w-4" />
               </button>
-              <p>{errors.general}</p>
             </div>
           )}
 
           {success && (
-            <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded relative" role="alert">
-              <div className="flex">
-                <CheckCircle className="h-5 w-5 text-green-400" />
-                <p className="ml-3">{success}</p>
-              </div>
+            <div className="flex items-start gap-3 bg-success/10 border border-hair rounded-sm px-4 py-3" role="alert">
+              <CheckCircle className="h-5 w-5 text-success flex-shrink-0 mt-0.5" />
+              <p className="font-serif text-sm text-ink">{success}</p>
             </div>
           )}
-        <div className="rounded-md shadow-sm space-y-4">
-            <div>
-              <label htmlFor="password" className="sr-only">
-                New Password
+
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <div className="space-y-2">
+              <label htmlFor="password" className="block font-mono text-xs text-faint">
+                New password
               </label>
               <input
                 id="password"
                 name="password"
                 type="password"
                 required
-                placeholder="New Password"
+                placeholder="••••••••"
                 value={formData.password}
                 onChange={handleChange}
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
-                  errors.password ? 'border-red-500' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-surface border rounded-sm outline-none transition ease-desk focus:ring-2 focus:ring-accent/30 ${
+                  errors.password ? 'border-danger' : 'border-hair focus:border-accent'
+                }`}
                 disabled={isLoading}
               />
+              {errors.password && (
+                <p className="font-serif text-xs text-danger">{errors.password}</p>
+              )}
             </div>
-            
-            <div>
-              <label htmlFor="confirmPassword" className="sr-only">
-                Confirm Password
+
+            <div className="space-y-2">
+              <label htmlFor="confirmPassword" className="block font-mono text-xs text-faint">
+                Confirm password
               </label>
               <input
                 id="confirmPassword"
                 name="confirmPassword"
                 type="password"
                 required
-                placeholder="Confirm Password"
+                placeholder="••••••••"
                 value={formData.confirmPassword}
                 onChange={handleChange}
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
-                  errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                className={`block w-full px-3 py-2.5 font-serif text-sm bg-surface border rounded-sm outline-none transition ease-desk focus:ring-2 focus:ring-accent/30 ${
+                  errors.confirmPassword ? 'border-danger' : 'border-hair focus:border-accent'
+                }`}
                 disabled={isLoading}
               />
+              {errors.confirmPassword && (
+                <p className="font-serif text-xs text-danger">{errors.confirmPassword}</p>
+              )}
             </div>
-          </div>
-          <div>
+
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50">
-                {isLoading ? 'Resetting ...' : 'Reset Password'}
+              className="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <span className="inline-block h-4 w-4 animate-spin border-2 border-paper/40 border-t-paper rounded-full" />
+                  <span>Resetting…</span>
+                </>
+              ) : (
+                <span>Reset password</span>
+              )}
             </button>
-          </div>
-          <div className="text-sm text-center">
-              <Link
-                href="/login"
-                className="font-medium text-indigo-600 hover:text-indigo-500"
-              >
-                Back to login
-              </Link>
-          </div>
-        </form>
+          </form>
+
+          <p className="text-center font-serif text-sm text-subtle">
+            <Link
+              href="/login"
+              className="text-accent hover:text-accent-ink transition-colors ease-desk"
+            >
+              Back to login
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   )

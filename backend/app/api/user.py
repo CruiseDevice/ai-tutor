@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from typing import Literal, Dict
 from ..database import get_db
 from ..core.deps import get_current_user
 from ..models.user import User
 
 router = APIRouter(prefix="/api/user", tags=["user"])
+
+# Allowed providers. Keep in sync with services/llm/provider.Provider.
+ProviderName = Literal["openai", "anthropic", "ollama"]
 
 
 class UpdateAPIKeyRequest(BaseModel):
@@ -14,6 +18,24 @@ class UpdateAPIKeyRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     email: str
+
+
+# Per-provider API-key format hints for validation.
+# Ollama Cloud keys have no public stable prefix, so we only require non-empty.
+_PROVIDER_KEY_VALIDATION: Dict[str, dict] = {
+    "openai": {
+        "prefix": "sk-",
+        "message": "OpenAI API keys should start with 'sk-'",
+    },
+    "anthropic": {
+        "prefix": "sk-ant-",
+        "message": "Anthropic API keys should start with 'sk-ant-'",
+    },
+    "ollama": {
+        "prefix": None,  # no validation beyond non-empty
+        "message": "Invalid Ollama Cloud API key",
+    },
+}
 
 
 @router.get("/profile")
@@ -59,43 +81,48 @@ async def update_profile(
     }
 
 
-@router.post("/apikey")
+@router.post("/apikey/{provider}")
 async def update_api_key(
+    provider: ProviderName,
     api_key_data: UpdateAPIKeyRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Update user's OpenAI API key."""
-    # Validate API key format (basic check)
-    if api_key_data.api_key and not api_key_data.api_key.startswith("sk-"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid API key format. OpenAI API keys should start with 'sk-'"
-        )
+    """Update the user's API key for a specific provider."""
+    rules = _PROVIDER_KEY_VALIDATION[provider]
+    key = api_key_data.api_key
+    if key:
+        prefix = rules["prefix"]
+        if prefix and not key.startswith(prefix):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid API key format. {rules['message']}"
+            )
 
-    # Encrypt and store the API key
-    user.set_encrypted_api_key(api_key_data.api_key)
+    user.set_encrypted_key(provider, key)
     db.commit()
 
-    return {"message": "API key updated successfully"}
+    return {"message": f"{provider} API key updated successfully"}
 
 
 @router.get("/apikey/check")
 async def check_api_key(user: User = Depends(get_current_user)):
-    """Check if user has an API key configured."""
+    """Check which providers the user has API keys configured for."""
     return {
-        "hasApiKey": bool(user.api_key)
+        "openai": bool(user.openai_api_key or user.api_key),
+        "anthropic": bool(user.anthropic_api_key),
+        "ollama": bool(user.ollama_api_key),
     }
 
 
-@router.delete("/apikey")
+@router.delete("/apikey/{provider}")
 async def delete_api_key(
+    provider: ProviderName,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete user's OpenAI API key."""
-    user.set_encrypted_api_key(None)
+    """Delete the user's API key for a specific provider."""
+    user.set_encrypted_key(provider, None)
     db.commit()
 
-    return {"message": "API key deleted successfully"}
-
+    return {"message": f"{provider} API key deleted successfully"}

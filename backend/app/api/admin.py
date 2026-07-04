@@ -35,7 +35,7 @@ async def get_queue_statistics(
         logger.error(f"Failed to get queue stats: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve queue statistics: {str(e)}"
+            detail="Failed to retrieve queue statistics"
         )
 
 
@@ -63,7 +63,7 @@ async def list_jobs(
         logger.error(f"Failed to list jobs: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list jobs: {str(e)}"
+            detail="Failed to list jobs"
         )
 
 
@@ -89,7 +89,7 @@ async def get_job_details(
         logger.error(f"Failed to get job details: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve job details: {str(e)}"
+            detail="Failed to retrieve job details"
         )
 
 
@@ -120,13 +120,13 @@ async def retry_failed_job(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            detail="Job not found"
         )
     except Exception as e:
         logger.error(f"Failed to retry job: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retry job: {str(e)}"
+            detail="Failed to retry job"
         )
 
 
@@ -158,7 +158,7 @@ async def cancel_job(
         logger.error(f"Failed to cancel job: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to cancel job: {str(e)}"
+            detail="Failed to cancel job"
         )
 
 
@@ -187,7 +187,7 @@ async def stream_queue_stats(
             logger.info("SSE connection closed by client")
         except Exception as e:
             logger.error(f"Error in SSE stream: {e}", exc_info=True)
-            error_data = {"error": str(e)}
+            error_data = {"type": "error", "content": "Streaming interrupted"}
             yield f"data: {json.dumps(error_data)}\n\n"
 
     return StreamingResponse(
