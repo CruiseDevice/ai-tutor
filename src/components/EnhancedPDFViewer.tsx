@@ -766,7 +766,7 @@ const EnhancedPDFViewer = forwardRef<PDFViewerRef, EnhancedPDFViewerProps>(({
                   rotate={rotation}
                   renderAnnotationLayer={true}
                   renderTextLayer={true}
-                  className="bg-white"
+                  className="bg-surface"
                   width={containerRef.current?.clientWidth ? Math.min(containerRef.current.clientWidth - 48, 800) : undefined}
                   onRenderSuccess={handlePageLoadSuccess}
                 />
