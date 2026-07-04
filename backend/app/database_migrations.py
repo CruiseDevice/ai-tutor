@@ -1,6 +1,11 @@
 """
-Database migration utilities.
-Handles schema migrations for existing databases.
+Database migration utilities (legacy).
+
+DEPRECATED: This module is being retired. Schema changes are now managed by
+Alembic migrations in backend/migrations/versions/. Do not add new migration
+functions here; add Alembic revisions instead. The module is kept temporarily so
+that existing DDL (especially index creation statements) can be referenced when
+writing the corresponding Alembic migrations in Phase 2.4.
 """
 from sqlalchemy import text, inspect
 from sqlalchemy.exc import ProgrammingError

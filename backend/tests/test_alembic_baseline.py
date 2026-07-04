@@ -54,6 +54,7 @@ def test_env_py_imports_app_settings_and_metadata():
 )
 def test_alembic_current_matches_head():
     """If a database is available, it should be stamped at the baseline head."""
+    from sqlalchemy import text
     from alembic.config import Config
     from alembic.script import ScriptDirectory
     from app.config import settings
@@ -64,7 +65,7 @@ def test_alembic_current_matches_head():
 
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
     except Exception as e:
         pytest.skip(f"Database not reachable: {e}")
 

@@ -166,12 +166,29 @@ Docker Compose will automatically pick up `JWT_SECRET`, `AWS_REGION`, `AWS_ACCES
 
 ### 6. Initialize the database
 
-The database tables are automatically created on backend startup. The backend includes automatic migrations for:
-- pgvector extension setup
-- HNSW indexes for vector search
-- Full-text search indexes for hybrid search
-- Document status fields
-- Other schema updates
+Schema changes are managed by **Alembic** and applied outside of application startup.
+
+1. Ensure the `pgvector` extension is installed (one-time setup; run as an
+   administrative Postgres role):
+   ```bash
+   # Docker-managed Postgres
+   docker exec -i study-fetch-tutor-db-1 psql -U postgres -d studyfetch -f /app/scripts/ensure_extensions.sql
+
+   # Or directly
+   psql -U postgres -d studyfetch -f backend/scripts/ensure_extensions.sql
+   ```
+
+2. Apply migrations:
+   ```bash
+   cd backend
+   ./scripts/run_migrations.sh
+   # or: alembic upgrade head
+   ```
+
+The initial baseline migration is intentionally a no-op for databases that already
+ran the legacy startup migration layer. For a fresh database it will simply
+stamp the schema at-baseline; any new schema changes are applied by subsequent
+Alembic revisions.
 
 If you need to manually verify:
 
@@ -184,31 +201,50 @@ docker exec -it study-fetch-tutor-db-1 psql -U postgres -d studyfetch
 
 # Check tables
 \dt
+
+# Check current Alembic revision
+SELECT * FROM alembic_version;
 ```
 
 ## Running the Application
 
 ### Development Mode (recommended: Docker for backend + local frontend)
 
-1. **Start backend stack with Docker** (from repo root):
+1. **Start backend infrastructure** (from repo root):
    ```bash
-   DOCKER_BUILDKIT=1 docker-compose up --build
+   DOCKER_BUILDKIT=1 docker-compose up --build db redis embedding-service
    ```
-   This starts PostgreSQL, Redis, embedding service, backend API, and worker.
 
-2. **Start the frontend locally**:
+2. **Run database migrations** (from the `backend` directory):
+   ```bash
+   cd backend
+   ./scripts/run_migrations.sh
+   ```
+
+3. **Start backend API and worker** (from repo root):
+   ```bash
+   docker-compose up backend worker
+   ```
+
+4. **Start the frontend locally**:
    ```bash
    npm run dev
    ```
 
-3. Visit the app at:
+5. Visit the app at:
    - **Frontend**: [http://localhost:3000](http://localhost:3000)
    - **Backend API** (in Docker): [http://localhost:8001](http://localhost:8001)
    - **Embedding Service** (in Docker): [http://localhost:8002/health](http://localhost:8002/health)
 
 ### Development Mode (backend without Docker)
 
-1. **Start the backend directly**:
+1. **Apply database migrations**:
+   ```bash
+   cd backend
+   ./scripts/run_migrations.sh
+   ```
+
+2. **Start the backend directly**:
    ```bash
    cd backend
    uvicorn app.main:app --reload --port 8001
@@ -412,14 +448,26 @@ python -m pytest test_*.py
 
 ### Database Migrations
 
-Migrations are handled automatically on startup via `database_migrations.py`. For manual migrations:
+Schema changes are managed by **Alembic** and applied outside of application startup. The legacy `database_migrations.py` module is being retired; new changes go through Alembic revisions.
 
-```python
-# In Python shell or script
-from app.database import engine
-from app.database_migrations import add_pgvector_hnsw_index
-add_pgvector_hnsw_index(engine)
+```bash
+cd backend
+alembic upgrade head
 ```
+
+For local development, you can also use:
+
+```bash
+./scripts/run_migrations.sh
+```
+
+To create a new migration after changing SQLAlchemy models:
+
+```bash
+alembic revision --autogenerate -m "description"
+```
+
+Review the generated migration before committing. The migration directory is at `backend/migrations/versions/`.
 
 ### Update Embeddings Model
 
