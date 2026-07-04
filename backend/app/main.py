@@ -1,10 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import logging
+import uuid
 from .config import settings
 from .api import auth, documents, chat, conversations, user, config, admin
 from .services.embedding_service import EmbeddingService
 from .core.rate_limiting import setup_rate_limiting
+from .core.exceptions import StudyFetchError
 
 # Configure logging
 logging.basicConfig(
@@ -36,6 +39,34 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+@app.exception_handler(StudyFetchError)
+async def study_fetch_error_handler(request: Request, exc: StudyFetchError):
+    """Map domain exceptions to safe JSON responses."""
+    request_id = str(uuid.uuid4())
+    logger.warning(
+        f"Domain error ({request_id}): {exc.__class__.__name__}: {exc.detail}",
+        extra={"request_id": request_id},
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.default_detail, "request_id": request_id},
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """Catch-all: log full traceback server-side, return generic client message."""
+    request_id = str(uuid.uuid4())
+    logger.exception(
+        f"Unhandled exception ({request_id}): {exc}",
+        extra={"request_id": request_id},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "request_id": request_id},
+    )
 
 
 @app.on_event("startup")

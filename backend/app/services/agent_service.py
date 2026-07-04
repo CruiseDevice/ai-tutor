@@ -902,8 +902,8 @@ Output (JSON array only):"""
             logger.error(f"[Agent Stream] Workflow execution failed: {e}", exc_info=True)
             error_event = {
                 "type": "error",
-                "error": str(e),
-                "message": f"Streaming error: {str(e)}"
+                "error": "Streaming interrupted",
+                "message": "Streaming interrupted"
             }
             yield f"data: {json.dumps(error_event)}\n\n"
 

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, DatabaseError
 import logging
 import json
+import uuid
 from ..database import get_db
 from ..core.deps import get_current_user
 from ..models.user import User
@@ -56,25 +57,26 @@ async def send_message(
     except HTTPException:
         raise
     except ValueError as e:
-        logger.error(f"ValueError in send_message: {str(e)}", exc_info=True)
         db.rollback()
+        logger.error(f"ValueError in send_message: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="Invalid request"
         )
     except (SQLAlchemyError, DatabaseError) as e:
-        logger.error(f"Database error in send_message: {str(e)}", exc_info=True)
         db.rollback()
+        logger.error(f"Database error in send_message: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            detail="Database error"
         )
     except Exception as e:
-        logger.error(f"Unexpected error in send_message: {str(e)}", exc_info=True)
         db.rollback()
+        logger.error(f"Unexpected error in send_message: {str(e)}", exc_info=True)
+        request_id = str(uuid.uuid4())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process message: {str(e)}"
+            detail=f"Failed to process message (ref: {request_id})"
         )
 
 
@@ -129,7 +131,7 @@ async def send_message_stream(
                         yield chunk
             except Exception as e:
                 logger.error(f"Error in streaming response: {str(e)}", exc_info=True)
-                error_data = json.dumps({'type': 'error', 'content': f'Streaming error: {str(e)}'})
+                error_data = json.dumps({'type': 'error', 'content': 'Streaming interrupted'})
                 yield f"data: {error_data}\n\n"
 
         return StreamingResponse(
@@ -149,13 +151,14 @@ async def send_message_stream(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="Invalid request"
         )
     except Exception as e:
         logger.error(f"Unexpected error in send_message_stream: {str(e)}", exc_info=True)
         db.rollback()
+        request_id = str(uuid.uuid4())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start streaming: {str(e)}"
+            detail=f"Failed to start streaming (ref: {request_id})"
         )
 

@@ -2957,7 +2957,7 @@ say you don't have enough information from the document and suggest looking at o
                     db.rollback()
                     error_data = json.dumps({
                         'type': 'error',
-                        'content': f'Error saving messages: {str(e)}'
+                        'content': 'Error saving messages'
                     })
                     yield f"data: {error_data}\n\n"
 
@@ -3272,7 +3272,7 @@ say you don't have enough information from the document and suggest looking at o
 
             except APIError as e:
                 logger.error(f"LLM API error during streaming: {str(e)}", exc_info=True)
-                error_msg = f"LLM API error: {str(e)}"
+                error_msg = "AI provider error"
                 status_code = getattr(e, 'status_code', None)
                 if status_code:
                     if status_code == 429:
@@ -3287,7 +3287,7 @@ say you don't have enough information from the document and suggest looking at o
                 return
             except Exception as e:
                 logger.error(f"Unexpected error calling LLM API: {str(e)}", exc_info=True)
-                yield f"data: {json.dumps({'type': 'error', 'content': f'Failed to generate response: {str(e)}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'content': 'Failed to generate response'})}\n\n"
                 return
 
             # Parse annotations from the complete response
@@ -3415,11 +3415,11 @@ say you don't have enough information from the document and suggest looking at o
             yield f"data: {json.dumps(final_data)}\n\n"
 
         except ValueError as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Invalid request'})}\n\n"
         except Exception as e:
             logger.error(f"Error in generate_chat_response_stream: {str(e)}", exc_info=True)
             db.rollback()
-            yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Streaming interrupted'})}\n\n"
 
     def _check_hierarchical_chunking(self, db: Session, document_id: str) -> bool:
         """

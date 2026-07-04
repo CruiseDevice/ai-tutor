@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from fastapi import UploadFile, HTTPException
+from fastapi import UploadFile
 from typing import List, Dict, Optional
 import tempfile
 import os
@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import logging
 from ..models.document import Document, DocumentChunk
 from ..models.conversation import Conversation
+from ..core.exceptions import NotFoundError, ValidationError, ExternalServiceError
 from ..config import settings
 from .embedding_service import get_embedding_service
 from .cache_service import get_cache_service
@@ -803,10 +804,7 @@ class DocumentService:
 
         except Exception as e:
             logger.error(f"All chunking strategies failed: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to chunk document: {str(e)}"
-            )
+            raise ExternalServiceError("Failed to chunk document")
 
         return chunk_data
 
@@ -822,9 +820,8 @@ class DocumentService:
             # Validate file size after reading
             file_size = len(content)
             if file_size > settings.MAX_FILE_SIZE:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"File size ({file_size / (1024 * 1024):.2f}MB) exceeds maximum allowed size ({settings.MAX_FILE_SIZE / (1024 * 1024)}MB)"
+                raise ValidationError(
+                    f"File size ({file_size / (1024 * 1024):.2f}MB) exceeds maximum allowed size ({settings.MAX_FILE_SIZE / (1024 * 1024)}MB)"
                 )
 
             await file.seek(0)  # Reset file pointer (though we already read it)
@@ -841,10 +838,10 @@ class DocumentService:
             url = f"https://{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/{unique_filename}"
 
             return url, unique_filename
-        except HTTPException:
+        except ValidationError:
             raise
         except ClientError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to upload to S3: {str(e)}")
+            raise ExternalServiceError("Failed to upload to S3")
 
     def get_signed_url(self, blob_path: str, expiration: int = 3600) -> str:
         """Generate a signed URL for accessing a file in S3."""
@@ -856,7 +853,7 @@ class DocumentService:
             )
             return url
         except ClientError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to generate signed URL: {str(e)}")
+            raise ExternalServiceError("Failed to generate signed URL")
 
     async def create_document(
         self,
@@ -868,7 +865,7 @@ class DocumentService:
         """Upload a document and create database records."""
         # Validate file type
         if not file.filename.lower().endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="Only PDF files are supported")
+            raise ValidationError("Only PDF files are supported")
 
         # File size validation happens in upload_to_s3 after reading content
         # Upload to S3
@@ -1002,7 +999,7 @@ class DocumentService:
         # Get document
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            raise HTTPException(status_code=404, detail="Document not found")
+            raise NotFoundError("Document not found")
 
         # Get signed URL for the PDF
         signed_url = self.get_signed_url(document.blob_path)
@@ -1010,7 +1007,7 @@ class DocumentService:
         # Download PDF to temporary file
         response = requests.get(signed_url)
         if not response.ok:
-            raise HTTPException(status_code=500, detail="Failed to download PDF from S3")
+            raise ExternalServiceError("Failed to download PDF from S3")
 
         # Save to temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
@@ -1190,7 +1187,7 @@ class DocumentService:
         # Get document
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            raise HTTPException(status_code=404, detail="Document not found")
+            raise NotFoundError("Document not found")
 
         # Get signed URL for the PDF
         signed_url = self.get_signed_url(document.blob_path)
@@ -1199,7 +1196,7 @@ class DocumentService:
         import requests
         response = requests.get(signed_url)
         if not response.ok:
-            raise HTTPException(status_code=500, detail="Failed to download PDF from S3")
+            raise ExternalServiceError("Failed to download PDF from S3")
 
         # Save to temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
@@ -1349,10 +1346,7 @@ class DocumentService:
                 # Rollback on critical error
                 logger.error(f"Critical error during chunk processing: {e}", exc_info=True)
                 db.rollback()
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to process document chunks: {str(e)}"
-                )
+                raise ExternalServiceError("Failed to process document chunks")
 
             # Invalidate cache for this document since chunks have been updated
             try:

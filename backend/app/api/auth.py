@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
 import logging
+import uuid
 from ..database import get_db
 from ..schemas.auth import (
     UserCreate,
@@ -57,13 +58,14 @@ async def register(
         logger.warning(f"Registration validation error for {user_data.email}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="Registration failed"
         )
     except Exception as e:
         logger.error(f"Registration error for {user_data.email}: {str(e)}", exc_info=True)
+        request_id = str(uuid.uuid4())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Registration failed: {str(e)}"
+            detail=f"Registration failed (ref: {request_id})"
         )
 
 
