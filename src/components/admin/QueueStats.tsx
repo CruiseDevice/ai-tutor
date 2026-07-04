@@ -21,43 +21,43 @@ export default function QueueStats({ stats }: QueueStatsProps) {
       label: 'Queue Depth',
       value: stats.queue_depth,
       icon: Activity,
-      color: stats.queue_depth > 20 ? 'text-orange-500' : 'text-blue-500',
-      bgColor: stats.queue_depth > 20 ? 'bg-orange-50' : 'bg-blue-50'
+      color: stats.queue_depth > 20 ? 'text-danger' : 'text-accent',
+      bgColor: stats.queue_depth > 20 ? 'bg-danger/10' : 'bg-accent-soft'
     },
     {
       label: 'Processing',
       value: stats.jobs_processing,
       icon: Clock,
-      color: 'text-yellow-500',
-      bgColor: 'bg-yellow-50'
+      color: 'text-subtle',
+      bgColor: 'bg-desk'
     },
     {
       label: 'Completed (1h)',
       value: stats.jobs_completed_1h,
       icon: CheckCircle,
-      color: 'text-green-500',
-      bgColor: 'bg-green-50'
+      color: 'text-success',
+      bgColor: 'bg-success/10'
     },
     {
       label: 'Failed (1h)',
       value: stats.jobs_failed_1h,
       icon: XCircle,
-      color: 'text-red-500',
-      bgColor: 'bg-red-50'
+      color: 'text-danger',
+      bgColor: 'bg-danger/10'
     },
     {
       label: 'Workers',
       value: `${stats.workers_active}/${stats.worker_count}`,
       icon: Users,
-      color: 'text-purple-500',
-      bgColor: 'bg-purple-50'
+      color: 'text-ink-2',
+      bgColor: 'bg-desk'
     },
     {
       label: 'Success Rate (24h)',
       value: `${stats.success_rate_24h.toFixed(1)}%`,
       icon: CheckCircle,
-      color: stats.success_rate_24h > 90 ? 'text-green-500' : 'text-orange-500',
-      bgColor: stats.success_rate_24h > 90 ? 'bg-green-50' : 'bg-orange-50'
+      color: stats.success_rate_24h > 90 ? 'text-success' : 'text-danger',
+      bgColor: stats.success_rate_24h > 90 ? 'bg-success/10' : 'bg-danger/10'
     }
   ];
 
@@ -68,15 +68,15 @@ export default function QueueStats({ stats }: QueueStatsProps) {
         return (
           <div
             key={stat.label}
-            className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow"
+            className="surface-card p-4"
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-500">{stat.label}</span>
-              <div className={`p-2 rounded-lg ${stat.bgColor}`}>
+              <span className="font-serif text-sm text-subtle">{stat.label}</span>
+              <div className={`p-2 rounded-sm ${stat.bgColor}`}>
                 <Icon className={`w-4 h-4 ${stat.color}`} />
               </div>
             </div>
-            <div className={`text-2xl font-bold ${stat.color}`}>
+            <div className={`font-mono text-2xl font-semibold ${stat.color}`}>
               {stat.value}
             </div>
           </div>
