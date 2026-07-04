@@ -1470,9 +1470,24 @@ class DocumentService:
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
-    def list_documents(self, db: Session, user_id: str) -> List[Document]:
-        """List all documents for a user."""
-        documents = db.query(Document).filter(Document.user_id == user_id).order_by(Document.created_at.desc()).all()
+    def list_documents(self, db: Session, user_id: str, limit: int = 50, offset: int = 0) -> List[Document]:
+        """List paginated documents for a user.
+
+        Args:
+            db: SQLAlchemy session.
+            user_id: Owner user id.
+            limit: Maximum documents to return; capped at 50.
+            offset: Number of documents to skip.
+        """
+        limit = min(limit, 50)
+        documents = (
+            db.query(Document)
+            .filter(Document.user_id == user_id)
+            .order_by(Document.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
         return documents
 
     async def delete_document(self, db: Session, document_id: str, user_id: str) -> bool:

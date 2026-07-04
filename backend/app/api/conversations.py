@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -73,24 +73,36 @@ async def create_conversation(
 @router.get("")
 async def list_conversations(
     group_by_document: bool = Query(False, description="Group conversations by document"),
+    limit: int = Query(50, ge=1, le=50, description="Maximum conversations to return (capped at 50)"),
+    offset: int = Query(0, ge=0, description="Number of conversations to skip"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all conversations for the current user, optionally grouped by document."""
-    conversations = db.query(Conversation).filter(
-        Conversation.user_id == user.id
-    ).order_by(Conversation.updated_at.desc()).all()
+    """List paginated conversations for the current user, optionally grouped by document.
+
+    Eager-loads the related Document in one query to avoid N+1 lookups.
+    """
+    # Clamp the page size at the API layer as a defense in depth.
+    limit = min(limit, 50)
+
+    conversations = (
+        db.query(Conversation)
+        .options(selectinload(Conversation.document))
+        .filter(Conversation.user_id == user.id)
+        .order_by(Conversation.updated_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
     if group_by_document:
-        # Group conversations by document
         document_map: Dict[str, Dict[str, Any]] = {}
 
         for conv in conversations:
+            document = conv.document
             doc_id = conv.document_id
 
             if doc_id not in document_map:
-                # Get document info
-                document = db.query(Document).filter(Document.id == doc_id).first()
                 signed_url = document_service.get_signed_url(document.blob_path) if document else None
                 document_map[doc_id] = {
                     "document": {
@@ -110,38 +122,32 @@ async def list_conversations(
                 "updated_at": conv.updated_at.isoformat()
             })
 
-        # Convert to list format
-        result = []
-        for doc_id, data in document_map.items():
-            result.append({
-                "document": data["document"],
-                "conversations": data["conversations"]
-            })
+        return [
+            {"document": data["document"], "conversations": data["conversations"]}
+            for doc_id, data in document_map.items()
+        ]
 
-        return result
-    else:
-        # Return flat list (backward compatible)
-        result = []
-        for conv in conversations:
-            # Get document info
-            document = db.query(Document).filter(Document.id == conv.document_id).first()
-            signed_url = document_service.get_signed_url(document.blob_path) if document else None
+    # Flat list (backward compatible)
+    result = []
+    for conv in conversations:
+        document = conv.document
+        signed_url = document_service.get_signed_url(document.blob_path) if document else None
 
-            result.append({
-                "id": conv.id,
-                "user_id": conv.user_id,
-                "document_id": conv.document_id,
-                "title": conv.title,  # Smart conversation title
-                "created_at": conv.created_at,
-                "updated_at": conv.updated_at,
-                "document": {
-                    "id": document.id,
-                    "title": document.title,
-                    "url": signed_url
-                } if document else None
-            })
+        result.append({
+            "id": conv.id,
+            "user_id": conv.user_id,
+            "document_id": conv.document_id,
+            "title": conv.title,
+            "created_at": conv.created_at,
+            "updated_at": conv.updated_at,
+            "document": {
+                "id": document.id,
+                "title": document.title,
+                "url": signed_url
+            } if document else None
+        })
 
-        return result
+    return result
 
 
 @router.get("/{conversation_id}")

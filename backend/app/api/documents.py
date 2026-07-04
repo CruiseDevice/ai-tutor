@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
@@ -139,11 +139,13 @@ async def get_processing_status(
 
 @router.get("", response_model=List[DocumentResponse])
 async def list_documents(
+    limit: int = Query(50, ge=1, le=50, description="Maximum documents to return (capped at 50)"),
+    offset: int = Query(0, ge=0, description="Number of documents to skip"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all documents for the current user."""
-    documents = document_service.list_documents(db, user.id)
+    """List paginated documents for the current user."""
+    documents = document_service.list_documents(db, user.id, limit=limit, offset=offset)
     return [DocumentResponse.model_validate(doc) for doc in documents]
 
 
