@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_AUTH_PER_MINUTE: int = 20  # More lenient for development (can be overridden via env var)
+    # Comma-separated list of trusted proxy CIDRs/IPs. Only honor X-Forwarded-For
+    # / X-Real-IP headers when the immediate peer is in this list. Empty means
+    # never trust forwarded headers (the safe default).
+    TRUSTED_PROXIES: List[str] = []
 
     # Redis Cache (optimized for performance)
     REDIS_URL: str = "redis://localhost:6379/0"

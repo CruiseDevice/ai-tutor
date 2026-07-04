@@ -22,7 +22,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Setup rate limiting
+# Setup rate limiting (Redis-backed slowapi)
 setup_rate_limiting(app)
 
 # Configure CORS
