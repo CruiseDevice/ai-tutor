@@ -4,7 +4,6 @@ LangGraph-based RAG Agent Service for adaptive multi-step reasoning.
 This service transforms the linear RAG pipeline into an agent-based system that can:
 - Adaptively route queries based on complexity
 - Perform multi-step reasoning for complex questions
-- Verify and improve answer quality
 - Gracefully fallback to the linear pipeline on errors
 
 Integration points:
@@ -178,26 +177,17 @@ class AgentState(TypedDict):
     clean_answer: Optional[str]  # Answer with annotations removed
     annotations: Optional[List[Dict]]  # Parsed annotation objects
 
-    # Verification (from _score_answer_quality and _verify_citations)
-    quality_score: Optional[Dict[str, Any]]  # Quality scores dict
-    verified: Optional[bool]  # Whether answer passed verification
-    citation_warnings: Optional[List[str]]  # Citation mismatch warnings
-
     # Output (matches ChatResponse schema)
     final_response: Optional[Dict]
     error: Optional[str]
-
-    # Workflow control
-    retry_count: Optional[int]  # Number of regeneration attempts
-    max_retries: Optional[int]  # Maximum allowed retries
 
     # Performance Metrics
     metrics: Optional[Dict[str, Any]]  # Performance tracking
     # metrics structure:
     # {
     #   "node_timings": {"understand_query": 0.5, "retrieve_context": 1.2, ...},
-    #   "token_usage": {"understand": {...}, "generate": {...}, "verify": {...}, "total": {...}},
-    #   "costs": {"understand": 0.001, "generate": 0.05, "verify": 0.002, "total": 0.053},
+    #   "token_usage": {"understand": {...}, "generate": {...}, "total": {...}},
+    #   "costs": {"understand": 0.001, "generate": 0.05, "total": 0.053},
     #   "cache_hits": {"query_classification": True/False},
     #   "retrieval_stats": {"sub_questions": 3, "chunks_retrieved": 15, "chunks_used": 10}
     # }
@@ -252,11 +242,13 @@ class RAGAgentService:
         Build the LangGraph workflow with conditional routing.
 
         Workflow structure:
-        1. understand_query -> Route based on complexity
-        2a. Fast path (simple queries): retrieve_context -> generate_answer -> format_response
-        2b. Reasoning path (complex queries): retrieve_context -> generate_answer -> verify_response
-        3. verify_response -> Route based on quality score (re-generate or format)
-        4. format_response -> END
+        1. understand_query -> Route based on complexity (all routes converge)
+        2. retrieve_context -> generate_answer -> format_response -> END
+
+        Note: a response-verification step existed previously but was never wired
+        into the graph edges (verification was intentionally bypassed). It has
+        been removed; reintroduce it as a real graph node with eval coverage if
+        answer-quality verification is needed.
         """
         # Create workflow graph
         workflow = StateGraph(AgentState)
@@ -265,7 +257,6 @@ class RAGAgentService:
         workflow.add_node("understand_query", self._understand_query)
         workflow.add_node("retrieve_context", self._retrieve_context)
         workflow.add_node("generate_answer", self._generate_answer)
-        workflow.add_node("verify_response", self._verify_response)
         workflow.add_node("format_response", self._format_response)
 
         # Set entry point
@@ -285,7 +276,7 @@ class RAGAgentService:
         # Retrieval always goes to generation
         workflow.add_edge("retrieve_context", "generate_answer")
 
-        # Skip verification - go directly to formatting
+        # Generation goes directly to formatting
         workflow.add_edge("generate_answer", "format_response")
 
         # Format response is the final step
@@ -357,8 +348,6 @@ class RAGAgentService:
             state["query_type"] = classification["query_type"]
             state["complexity"] = classification["complexity"]
             state["requires_cot"] = classification["requires_cot"]
-            state["retry_count"] = 0
-            state["max_retries"] = 1  # Allow one regeneration attempt
 
             logger.info(
                 f"[Agent] Query classified: type={classification['query_type']}, "
@@ -694,91 +683,6 @@ Output (JSON array only):"""
 
         return state
 
-    def _route_after_generation(self, state: AgentState) -> str:
-        """
-        Route after generation based on complexity.
-        Simple queries skip verification, complex queries get verified.
-        """
-        complexity = state.get("complexity", "simple")
-
-        # Only verify complex queries to save costs
-        if complexity in ["moderate", "complex"]:
-            return "verify"
-        else:
-            return "format"
-
-    async def _verify_response(self, state: AgentState) -> AgentState:
-        """
-        Node 4: Verify response quality using existing _score_answer_quality
-        and _verify_citations.
-
-        Leverages ChatService methods for quality scoring and citation verification.
-        """
-        logger.info(f"[Agent] Verifying response quality")
-
-        try:
-            # Score answer quality using existing logic
-            quality_scores = await self.chat_service._score_answer_quality(
-                query=state["user_query"],
-                answer=state.get("clean_answer", ""),
-                context_chunks=state.get("retrieved_chunks", []),
-                user_api_key=state["user_api_key"]
-            )
-
-            state["quality_score"] = quality_scores
-
-            # Verify citations using existing logic
-            citation_warnings = self.chat_service._verify_citations(
-                response_text=state.get("answer", ""),
-                annotations=state.get("annotations", []),
-                relevant_chunks=state.get("retrieved_chunks", [])
-            )
-
-            state["citation_warnings"] = citation_warnings
-
-            # Determine if answer is verified
-            overall_score = quality_scores.get("overall")
-            has_critical_warnings = len(citation_warnings) > 0
-
-            # Verification passes if score >= 7 and no critical citation errors
-            state["verified"] = (
-                overall_score is not None and
-                overall_score >= 7.0 and
-                not has_critical_warnings
-            )
-
-            logger.info(
-                f"[Agent] Verification complete: score={overall_score}, "
-                f"verified={state['verified']}, warnings={len(citation_warnings)}"
-            )
-
-        except Exception as e:
-            logger.error(f"[Agent] Error in verify_response: {e}")
-            # Default to verified on error to avoid infinite loops
-            state["verified"] = True
-            state["quality_score"] = {"overall": None}
-            state["citation_warnings"] = []
-
-        return state
-
-    def _route_after_verification(self, state: AgentState) -> str:
-        """
-        Route after verification based on quality score.
-        If quality is low and retries remain, regenerate. Otherwise, format.
-        """
-        verified = state.get("verified", True)
-        retry_count = state.get("retry_count", 0)
-        max_retries = state.get("max_retries", 1)
-
-        # If not verified and we have retries left, regenerate
-        if not verified and retry_count < max_retries:
-            state["retry_count"] = retry_count + 1
-            logger.info(f"[Agent] Quality check failed, regenerating (attempt {retry_count + 1})")
-            return "regenerate"
-        else:
-            # Either verified or out of retries
-            return "format"
-
     async def _format_response(self, state: AgentState) -> AgentState:
         """
         Node 5: Format final response to match existing ChatResponse schema.
@@ -821,10 +725,6 @@ Output (JSON array only):"""
                         "requires_cot": state.get("requires_cot")
                     },
                     "retrieval_strategy": state.get("retrieval_strategy"),
-                    "quality_scores": state.get("quality_score"),
-                    "citation_warnings": state.get("citation_warnings", []),
-                    "verified": state.get("verified"),
-                    "retry_count": state.get("retry_count", 0),
                     "performance_metrics": state.get("metrics", {})  # Include full metrics
                 }
             }
@@ -898,13 +798,8 @@ Output (JSON array only):"""
             "answer": None,
             "clean_answer": None,
             "annotations": None,
-            "quality_score": None,
-            "verified": None,
-            "citation_warnings": None,
             "final_response": None,
             "error": None,
-            "retry_count": None,
-            "max_retries": None,
             "metrics": AgentMetrics.init_metrics()  # Initialize metrics tracking
         }
 
@@ -990,13 +885,8 @@ Output (JSON array only):"""
             "answer": None,
             "clean_answer": None,
             "annotations": None,
-            "quality_score": None,
-            "verified": None,
-            "citation_warnings": None,
             "final_response": None,
             "error": None,
-            "retry_count": None,
-            "max_retries": None,
             "metrics": AgentMetrics.init_metrics()  # Initialize metrics tracking
         }
 
@@ -1043,15 +933,6 @@ Output (JSON array only):"""
                             "has_answer": bool(state_update.get("clean_answer"))
                         }
                         step_event["message"] = "Generated answer with citations"
-
-                    elif node_name == "verify_response":
-                        quality_score = state_update.get("quality_score", {})
-                        step_event["data"] = {
-                            "overall_score": quality_score.get("overall"),
-                            "verified": state_update.get("verified"),
-                            "warnings": len(state_update.get("citation_warnings", []))
-                        }
-                        step_event["message"] = f"Verified answer quality (Score: {quality_score.get('overall', 'N/A')})"
 
                     elif node_name == "format_response":
                         step_event["message"] = "Formatting final response"
