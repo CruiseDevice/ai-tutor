@@ -102,10 +102,17 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Logout a user."""
-    # The session_token cookie will be passed through get_current_user
-    # We need to get it from the request context
+async def logout(
+    response: Response,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Logout a user and invalidate the current session."""
+    session_token = request.cookies.get("session_token")
+    if session_token:
+        AuthService.delete_session(db, session_token)
+
     response.delete_cookie("session_token")
     return {"message": "Logout successful"}
 
