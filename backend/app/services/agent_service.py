@@ -37,40 +37,21 @@ logger = logging.getLogger(__name__)
 
 
 class AgentMetrics:
-    """Helper class for tracking agent performance metrics and costs."""
+    """Lightweight helper for tracking agent node timing only.
 
-    # Model pricing (cost per 1K tokens) - Updated as of Jan 2025
-    PRICING = {
-        "gpt-4o": {"input": 0.0025, "output": 0.01},  # $2.50 / $10 per 1M tokens
-        "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},  # $0.15 / $0.60 per 1M tokens
-        "gpt-4": {"input": 0.03, "output": 0.06},  # Legacy pricing
-    }
-
-    @staticmethod
-    def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-        """
-        Calculate cost for an OpenAI API call.
-
-        Args:
-            model: Model name (e.g., "gpt-4o-mini")
-            prompt_tokens: Number of input tokens
-            completion_tokens: Number of output tokens
-
-        Returns:
-            Cost in USD
-        """
-        pricing = AgentMetrics.PRICING.get(model, AgentMetrics.PRICING["gpt-4o-mini"])
-        input_cost = (prompt_tokens / 1000) * pricing["input"]
-        output_cost = (completion_tokens / 1000) * pricing["output"]
-        return input_cost + output_cost
+    Token usage and cost numbers are intentionally **not** tracked here. The
+    LLMClient wrappers currently do not surface SDK usage objects, and the
+    previous code fabricated values (hardcoded prompt/completion counts and
+    stale pricing tables). Real token/cost observability will be restored in
+    Phase 6 by threading actual SDK usage through LLMClient.complete() / .stream()
+    (see BACKEND_QUALITY_PLAN.md 6.3).
+    """
 
     @staticmethod
     def init_metrics() -> Dict[str, Any]:
         """Initialize empty metrics dictionary."""
         return {
             "node_timings": {},
-            "token_usage": {},
-            "costs": {},
             "cache_hits": {},
             "retrieval_stats": {},
             "workflow_start_time": time.time(),
@@ -85,60 +66,12 @@ class AgentMetrics:
         metrics["node_timings"][node_name] = duration
 
     @staticmethod
-    def track_token_usage(
-        metrics: Dict,
-        step_name: str,
-        model: str,
-        prompt_tokens: int,
-        completion_tokens: int
-    ):
-        """Track token usage and calculate cost for a step."""
-        if "token_usage" not in metrics:
-            metrics["token_usage"] = {}
-        if "costs" not in metrics:
-            metrics["costs"] = {}
-
-        # Track tokens
-        metrics["token_usage"][step_name] = {
-            "model": model,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        }
-
-        # Calculate cost
-        cost = AgentMetrics.calculate_cost(model, prompt_tokens, completion_tokens)
-        metrics["costs"][step_name] = cost
-
-    @staticmethod
     def finalize_metrics(metrics: Dict) -> Dict:
-        """Calculate totals and finalize metrics."""
+        """Calculate total time and finalize metrics."""
         # Calculate total time
         if "workflow_start_time" in metrics:
             metrics["total_time"] = time.time() - metrics["workflow_start_time"]
             del metrics["workflow_start_time"]  # Remove start time from final metrics
-
-        # Calculate total tokens
-        total_prompt = sum(
-            usage.get("prompt_tokens", 0)
-            for usage in metrics.get("token_usage", {}).values()
-        )
-        total_completion = sum(
-            usage.get("completion_tokens", 0)
-            for usage in metrics.get("token_usage", {}).values()
-        )
-
-        if total_prompt > 0 or total_completion > 0:
-            metrics["token_usage"]["total"] = {
-                "prompt_tokens": total_prompt,
-                "completion_tokens": total_completion,
-                "total_tokens": total_prompt + total_completion,
-            }
-
-        # Calculate total cost
-        total_cost = sum(metrics.get("costs", {}).values())
-        if total_cost > 0:
-            metrics["costs"]["total"] = total_cost
 
         return metrics
 
@@ -336,14 +269,9 @@ class RAGAgentService:
                 except Exception as cache_error:
                     logger.warning(f"[Agent] Cache write failed: {cache_error}")
 
-                # Track token usage (estimated for classification - ~100 prompt + ~50 completion)
-                AgentMetrics.track_token_usage(
-                    state["metrics"],
-                    "query_classification",
-                    pick_helper_model(provider),
-                    prompt_tokens=100,
-                    completion_tokens=50
-                )
+                # metrics is initialized with node_timings only. Token/cost
+                # tracking is intentionally disabled until LLMClient surfaces
+                # real SDK usage (BACKEND_QUALITY_PLAN.md 6.3).
 
             state["query_type"] = classification["query_type"]
             state["complexity"] = classification["complexity"]
@@ -701,9 +629,7 @@ Output (JSON array only):"""
                 # Log performance summary
                 metrics = state["metrics"]
                 logger.info(
-                    f"[Agent Metrics] Total time: {metrics.get('total_time', 0):.2f}s, "
-                    f"Total cost: ${metrics.get('costs', {}).get('total', 0):.4f}, "
-                    f"Total tokens: {metrics.get('token_usage', {}).get('total', {}).get('total_tokens', 0)}"
+                    f"[Agent Metrics] Total time: {metrics.get('total_time', 0):.2f}s"
                 )
 
             # Match existing ChatResponse format
