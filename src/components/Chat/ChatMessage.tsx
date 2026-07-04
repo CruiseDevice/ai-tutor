@@ -30,17 +30,83 @@ const preprocessMathContent = (content: string): string => {
     parts.push({ type: 'text', content: content.slice(lastIndex) });
   }
 
-  return parts.map(part => {
-    if (part.type === 'code') {
-      return part.content;
-    }
+    return parts.map(part => {
+      if (part.type === 'code') {
+        return part.content;
+      }
 
-    let processed = part.content;
-    processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_match, inner) => `$$${inner}$$`);
-    processed = processed.replace(/\\\((.*?)\\\)/g, (_match, inner) => `$${inner}$`);
-    return processed;
-  }).join('');
+      let processed = part.content;
+      processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_match, inner) => `$$${inner}$$`);
+      processed = processed.replace(/\\\((.*?)\\\)/g, (_match, inner) => `$${inner}$`);
+      return processed;
+    }).join('');
 };
+
+// ───────────────────────────────────────────────────────────────
+// Inline citations (Phase 8 / Option A) — restyle the model's
+// existing `[Page N]` markers as clickable superscripts keyed to the
+// same filtered annotations the bibliography footer uses.
+//
+// The model already emits `[Page X]` per the system prompt; we just
+// rewrite each one to a markdown link whose href encodes the
+// annotation index (`#cite-<idx>`), which the custom `a` renderer
+// turns into a `.citation` <sup>. No backend, no schema change.
+//
+// Code-block-aware: reuses the same split as preprocessMathContent so
+// citations never appear inside code. `[Page N]` with no matching
+// annotation stays literal (graceful fallback to the footer).
+// ───────────────────────────────────────────────────────────────
+
+const CITE_LINK_PREFIX = '#cite-';
+
+const injectCitations = (
+  content: string,
+  validAnnotations: AnnotationReference[]
+): string => {
+  if (!validAnnotations.length) return content;
+
+  // Map page number → 1-based footer index (matches BibliographyRow order).
+  const pageToIndex = new Map<number, number>();
+  validAnnotations.forEach((ann, idx) => {
+    if (typeof ann.pageNumber === 'number' && !pageToIndex.has(ann.pageNumber)) {
+      pageToIndex.set(ann.pageNumber, idx);
+    }
+  });
+
+  // Split on code spans/blocks so we never touch citations inside code.
+  const codeBlockRegex = /(```[\s\S]*?```|`[^`\n]+?`)/g;
+  const parts: string[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(replacePageMarkers(content.slice(lastIndex, match.index), pageToIndex));
+    }
+    parts.push(match[0]); // code — unchanged
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < content.length) {
+    parts.push(replacePageMarkers(content.slice(lastIndex), pageToIndex));
+  }
+  return parts.join('');
+};
+
+// Replace `[Page N]` (case-insensitive, any separator) with a citation
+// link keyed to the annotation index. Unmatched pages are left as-is.
+const replacePageMarkers = (
+  text: string,
+  pageToIndex: Map<number, number>
+): string => {
+  return text.replace(/\[\s*page\s+(\d+)\s*]/gi, (full, pageStr) => {
+    const idx = pageToIndex.get(Number(pageStr));
+    if (idx === undefined) return full; // no annotation for this page — leave literal
+    const num = idx + 1;
+    // Markdown link with the index as label and a sentinel href.
+    return `[${num}](${CITE_LINK_PREFIX}${num})`;
+  });
+};
+
 
 // =====================================================
 // CODE BLOCK COMPONENT — dark ink panel with hairline header
@@ -212,14 +278,35 @@ export const ChatMessage = React.memo(function ChatMessage({
     state.messages.find(m => m.id === messageId)
   );
 
-  const processedContent = useMemo(() =>
-    message ? preprocessMathContent(message.content) : '',
+  // Annotations with a valid page number — the same set the footer renders,
+  // so inline superscripts and footer rows share one numbering.
+  const validAnnotations = useMemo(
+    () =>
+      (message?.annotations ?? []).filter(
+        (ann): ann is AnnotationReference =>
+          ann != null && typeof ann.pageNumber === 'number'
+      ),
     [message]
+  );
+
+  const processedContent = useMemo(() =>
+    message ? injectCitations(preprocessMathContent(message.content), validAnnotations) : '',
+    [message, validAnnotations]
   );
 
   const handleAnnotationClick = useCallback((annotation: AnnotationReference) => {
     onAnnotationClick?.(annotation);
   }, [onAnnotationClick]);
+
+  // Resolve a citation-link href to its annotation, or undefined if not a citation.
+  const citationFromHref = useCallback(
+    (href: string | undefined): AnnotationReference | undefined => {
+      if (!href || !href.startsWith(CITE_LINK_PREFIX)) return undefined;
+      const idx = Number(href.slice(CITE_LINK_PREFIX.length)) - 1;
+      return validAnnotations[idx];
+    },
+    [validAnnotations]
+  );
 
   if (!message) return null;
 
@@ -276,23 +363,37 @@ export const ChatMessage = React.memo(function ChatMessage({
               pre: ({ children }: { children?: React.ReactNode }) => {
                 return children as React.ReactElement;
               },
+              a: ({ href, children }) => {
+                const annotation = citationFromHref(href);
+                if (annotation) {
+                  return (
+                    <sup
+                      className="citation"
+                      onClick={() => handleAnnotationClick(annotation)}
+                    >
+                      {children}
+                    </sup>
+                  );
+                }
+                // Normal link — preserve default behavior.
+                return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+              },
             }}
           >
             {processedContent}
           </ReactMarkdown>
         </div>
 
-        {/* Sources — academic bibliography footer */}
-        {message.annotations && message.annotations.length > 0 && (
+        {/* Sources — academic bibliography footer.
+            Numbering shares validAnnotations with the inline superscripts
+            above so a click on either jumps to the same PDF passage. */}
+        {validAnnotations.length > 0 && (
           <div className="mt-5 pt-3 border-t border-hair-soft">
             <div className="font-mono text-[11px] uppercase tracking-wider text-faint mb-1.5">
               Sources
             </div>
             <div className="bibliography">
-              {message.annotations
-                .filter((annotation): annotation is NonNullable<typeof annotation> =>
-                  annotation != null && typeof annotation.pageNumber === 'number'
-                )
+              {validAnnotations
                 .map((annotation, idx) => (
                   <BibliographyRow
                     key={`${message.id}-${annotation.pageNumber}-${idx}`}
