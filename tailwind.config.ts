@@ -1,5 +1,6 @@
 import type { Config } from "tailwindcss";
 import typographyPlugin from '@tailwindcss/typography';
+import containerQueries from '@tailwindcss/container-queries';
 
 export default {
   content: [
@@ -62,5 +63,6 @@ export default {
   },
   plugins: [
     typographyPlugin,
+    containerQueries,
   ],
 } satisfies Config;

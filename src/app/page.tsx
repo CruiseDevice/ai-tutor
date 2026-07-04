@@ -72,20 +72,23 @@ function HeroDemo() {
     : "";
 
   return (
-    <div className="surface-card overflow-hidden">
-      <div className="grid grid-cols-1 sm:grid-cols-2">
+    // The demo keys its internal layout off its OWN width (@container), not the
+    // viewport. In the desktop hero it lives in a narrow col-span-5 strip and
+    // stacks; only when the card itself is wide enough does it go side-by-side.
+    <div className="surface-card overflow-hidden @container">
+      <div className="grid grid-cols-1 @[36rem]:grid-cols-2">
         {/* Left: a faux PDF page lifted off a desk-tinted ground */}
-        <div className="p-4 sm:p-5 desk">
-          <div className="bg-surface rounded shadow-page paper-grain p-4 sm:p-5 min-h-[220px] sm:min-h-[260px]">
-            <div className="flex items-center justify-between mb-3 pb-2 sm:mb-4 sm:pb-3 border-b border-hair-soft">
-              <span className="font-serif text-xs sm:text-sm text-ink-2 truncate">Research Paper.pdf</span>
+        <div className="p-4 @[36rem]:p-5 desk">
+          <div className="bg-surface rounded shadow-page paper-grain p-4 @[36rem]:p-5 min-h-[220px] @[36rem]:min-h-[260px]">
+            <div className="flex items-center justify-between mb-3 pb-2 @[36rem]:mb-4 @[36rem]:pb-3 border-b border-hair-soft">
+              <span className="font-serif text-xs @[36rem]:text-sm text-ink-2 truncate">Research Paper.pdf</span>
               <span className="font-mono text-xs text-faint">3 / 15</span>
             </div>
             <p className="font-mono text-[0.65rem] uppercase tracking-widest text-faint mb-2">Abstract</p>
-            <p className="font-serif text-xs sm:text-sm leading-relaxed text-ink-2 mb-3">
+            <p className="font-serif text-xs @[36rem]:text-sm leading-relaxed text-ink-2 mb-3">
               This paper analyzes machine learning algorithms and their application in predictive analytics.
             </p>
-            <p className="font-serif text-xs sm:text-sm leading-relaxed text-ink">
+            <p className="font-serif text-xs @[36rem]:text-sm leading-relaxed text-ink">
               <span key={highlightKey} className={highlightClass}>
                 Our central hypothesis is that machine learning algorithms can significantly improve prediction accuracy
               </span>{" "}
@@ -95,7 +98,7 @@ function HeroDemo() {
         </div>
 
         {/* Right: the chat exchange */}
-        <div className="p-4 sm:p-5 border-t sm:border-t-0 sm:border-l border-hair flex flex-col gap-4 justify-center">
+        <div className="p-4 @[36rem]:p-5 border-t @[36rem]:border-t-0 @[36rem]:border-l border-hair flex flex-col gap-4 justify-center">
           {/* User question */}
           <div
             className={`flex justify-end transition-opacity duration-500 ${
