@@ -73,19 +73,19 @@ function HeroDemo() {
 
   return (
     <div className="surface-card overflow-hidden">
-      <div className="grid lg:grid-cols-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2">
         {/* Left: a faux PDF page lifted off a desk-tinted ground */}
-        <div className="p-5 sm:p-6 desk">
-          <div className="bg-surface rounded shadow-page paper-grain p-5 sm:p-6 min-h-[260px]">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-hair-soft">
-              <span className="font-serif text-sm text-ink-2 truncate">Research Paper.pdf</span>
+        <div className="p-4 sm:p-5 desk">
+          <div className="bg-surface rounded shadow-page paper-grain p-4 sm:p-5 min-h-[220px] sm:min-h-[260px]">
+            <div className="flex items-center justify-between mb-3 pb-2 sm:mb-4 sm:pb-3 border-b border-hair-soft">
+              <span className="font-serif text-xs sm:text-sm text-ink-2 truncate">Research Paper.pdf</span>
               <span className="font-mono text-xs text-faint">3 / 15</span>
             </div>
             <p className="font-mono text-[0.65rem] uppercase tracking-widest text-faint mb-2">Abstract</p>
-            <p className="font-serif text-sm leading-relaxed text-ink-2 mb-3">
+            <p className="font-serif text-xs sm:text-sm leading-relaxed text-ink-2 mb-3">
               This paper analyzes machine learning algorithms and their application in predictive analytics.
             </p>
-            <p className="font-serif text-sm leading-relaxed text-ink">
+            <p className="font-serif text-xs sm:text-sm leading-relaxed text-ink">
               <span key={highlightKey} className={highlightClass}>
                 Our central hypothesis is that machine learning algorithms can significantly improve prediction accuracy
               </span>{" "}
@@ -95,7 +95,7 @@ function HeroDemo() {
         </div>
 
         {/* Right: the chat exchange */}
-        <div className="p-5 sm:p-6 border-t lg:border-t-0 lg:border-l border-hair flex flex-col gap-4 justify-center">
+        <div className="p-4 sm:p-5 border-t sm:border-t-0 sm:border-l border-hair flex flex-col gap-4 justify-center">
           {/* User question */}
           <div
             className={`flex justify-end transition-opacity duration-500 ${
@@ -158,8 +158,8 @@ export default function Home() {
     return (
       <div className="h-screen flex items-center justify-center bg-paper">
         <div className="text-center">
-          <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-subtle border-t-ink border-r-accent"></div>
-          <p className="mt-6 font-serif text-ink">Loading your learning experience...</p>
+          <div className="inline-block h-10 w-10 animate-spin rounded-full border-2 border-hair border-t-accent"></div>
+          <p className="mt-6 font-serif text-faint">Loading…</p>
         </div>
       </div>
     );
@@ -167,30 +167,26 @@ export default function Home() {
 
   return (
     <div className="scroll-smooth bg-paper">
-      {/* Navigation */}
-      <nav className="fixed w-full z-50 bg-paper border-b-2 border-ink">
+      {/* Navigation — paper, hairline, TUTOR.AI wordmark */}
+      <nav className="fixed w-full z-50 bg-paper border-b border-hair">
         <div className="flex justify-between items-center px-6 py-4">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="font-mono text-xl font-bold tracking-tight">
-              STUDYFETCH<span className="text-accent">.</span>AI
+          <div className="flex items-center gap-8">
+            <Link href="/" className="font-serif text-xl font-semibold tracking-tight text-ink">
+              TUTOR<span className="text-accent">.</span>AI
             </Link>
-            <div className="hidden md:flex items-center gap-1 font-mono text-xs">
-              <span className="text-subtle">[</span>
-              <a href="#features" className="px-3 py-2 hover:text-accent transition-colors">FEATURES</a>
-              <span className="text-subtle">]</span>
-              <span className="text-subtle">[</span>
-              <a href="#how-it-works" className="px-3 py-2 hover:text-accent transition-colors">HOW</a>
-              <span className="text-subtle">]</span>
-              <span className="text-subtle">[</span>
-              <a href="#demo" className="px-3 py-2 hover:text-accent transition-colors">DEMO</a>
-              <span className="text-subtle">]</span>
+            <div className="hidden md:flex items-center gap-6 font-serif text-sm">
+              <a href="#features" className="text-subtle hover:text-accent transition-colors">Features</a>
+              <a href="#how-it-works" className="text-subtle hover:text-accent transition-colors">How it works</a>
+              <a href="#cta" className="text-subtle hover:text-accent transition-colors">Get started</a>
             </div>
           </div>
-          <div className="flex items-center gap-4 font-mono text-xs">
-            <a href="/login" className="px-4 py-2 hover:text-accent transition-colors">LOGIN</a>
-            <a href="/register" className="bg-ink text-paper px-6 py-3 border-2 border-ink hover:bg-accent hover:border-accent transition-colors">
-              GET STARTED
-            </a>
+          <div className="flex items-center gap-4">
+            <Link href="/login" className="font-serif text-sm text-subtle hover:text-accent transition-colors px-3 py-2">
+              Log in
+            </Link>
+            <Link href="/register" className="btn btn-primary text-sm">
+              Get started
+            </Link>
           </div>
         </div>
       </nav>
@@ -211,8 +207,8 @@ export default function Home() {
               Every answer shows its source — click a citation and jump straight to the passage in the document.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-              <a href="/register" className="btn btn-primary">Start free</a>
-              <a href="#how-it-works" className="btn">See how it works</a>
+              <a href="/register" className="btn btn-primary w-full sm:w-auto">Start free</a>
+              <a href="#how-it-works" className="btn w-full sm:w-auto">See how it works</a>
             </div>
           </div>
 
@@ -224,14 +220,14 @@ export default function Home() {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-24 bg-paper border-b-2 border-ink">
+      <section id="features" className="py-24 bg-paper border-t border-hair">
         <div className="px-6 md:px-12">
           {/* Section header */}
-          <div className="flex flex-col md:flex-row md:items-end md:justify-between mb-16 pb-8 border-b border-ink">
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between mb-16 pb-8 border-b border-hair">
             <div>
-              <span className="font-mono text-xs text-accent">[002]</span>
-              <h2 className="font-mono text-4xl md:text-6xl font-bold mt-2">
-                FEATURES
+              <p className="font-mono text-xs uppercase tracking-widest text-faint mb-2">What you get</p>
+              <h2 className="font-serif text-4xl md:text-5xl font-semibold text-ink">
+                Features
               </h2>
             </div>
             <p className="font-serif text-lg text-subtle max-w-md mt-4 md:mt-0">
@@ -239,70 +235,70 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Features grid - asymmetric layout */}
-          <div className="grid md:grid-cols-2 gap-px bg-ink border-2 border-ink">
-            {/* Feature 1 - Full width on desktop */}
-            <div className="bg-paper p-8 md:p-12 hover:bg-accent/5 transition-colors group">
-              <div className="flex items-start gap-6">
-                <span className="font-mono text-6xl font-bold text-accent/20 group-hover:text-accent/40">01</span>
+          {/* Features grid — hairline grid, subtle apparatus numerals */}
+          <div className="grid md:grid-cols-2 gap-px bg-hair border border-hair rounded overflow-hidden">
+            {/* Feature 1 */}
+            <div className="bg-surface p-8 md:p-10 hover:bg-accent-soft/40 transition-colors">
+              <div className="flex items-start gap-5">
+                <span className="font-mono text-sm text-faint pt-1">01</span>
                 <div>
-                  <h3 className="font-mono text-xl font-bold mb-2">PDF Upload & Processing</h3>
-                  <p className="font-serif text-subtle">Upload your PDF documents. Our AI instantly processes them, making every page searchable and interactive.</p>
+                  <h3 className="font-serif text-lg font-semibold text-ink mb-2">PDF upload & processing</h3>
+                  <p className="font-serif text-subtle leading-relaxed">Upload your PDF documents. Our AI instantly processes them, making every page searchable and interactive.</p>
                 </div>
               </div>
             </div>
 
             {/* Feature 2 */}
-            <div className="bg-paper p-8 md:p-12 hover:bg-accent/5 transition-colors group">
-              <div className="flex items-start gap-6">
-                <span className="font-mono text-6xl font-bold text-accent/20 group-hover:text-accent/40">02</span>
+            <div className="bg-surface p-8 md:p-10 hover:bg-accent-soft/40 transition-colors">
+              <div className="flex items-start gap-5">
+                <span className="font-mono text-sm text-faint pt-1">02</span>
                 <div>
-                  <h3 className="font-mono text-xl font-bold mb-2">Intelligent Chat Interface</h3>
-                  <p className="font-serif text-subtle">Ask questions naturally. Get detailed explanations with exact page references.</p>
+                  <h3 className="font-serif text-lg font-semibold text-ink mb-2">Intelligent chat interface</h3>
+                  <p className="font-serif text-subtle leading-relaxed">Ask questions naturally. Get detailed explanations with exact page references.</p>
                 </div>
               </div>
             </div>
 
             {/* Feature 3 */}
-            <div className="bg-paper p-8 md:p-12 hover:bg-accent/5 transition-colors group">
-              <div className="flex items-start gap-6">
-                <span className="font-mono text-6xl font-bold text-accent/20 group-hover:text-accent/40">03</span>
+            <div className="bg-surface p-8 md:p-10 hover:bg-accent-soft/40 transition-colors">
+              <div className="flex items-start gap-5">
+                <span className="font-mono text-sm text-faint pt-1">03</span>
                 <div>
-                  <h3 className="font-mono text-xl font-bold mb-2">Smart Document Search</h3>
-                  <p className="font-serif text-subtle">Advanced vector search finds relevant content even when you don&apos;t remember exact keywords.</p>
+                  <h3 className="font-serif text-lg font-semibold text-ink mb-2">Smart document search</h3>
+                  <p className="font-serif text-subtle leading-relaxed">Advanced vector search finds relevant content even when you don&apos;t remember exact keywords.</p>
                 </div>
               </div>
             </div>
 
             {/* Feature 4 */}
-            <div className="bg-paper p-8 md:p-12 hover:bg-accent/5 transition-colors group">
-              <div className="flex items-start gap-6">
-                <span className="font-mono text-6xl font-bold text-accent/20 group-hover:text-accent/40">04</span>
+            <div className="bg-surface p-8 md:p-10 hover:bg-accent-soft/40 transition-colors">
+              <div className="flex items-start gap-5">
+                <span className="font-mono text-sm text-faint pt-1">04</span>
                 <div>
-                  <h3 className="font-mono text-xl font-bold mb-2">Persistent Conversations</h3>
-                  <p className="font-serif text-subtle">Chat history is automatically saved. Pick up where you left off.</p>
+                  <h3 className="font-serif text-lg font-semibold text-ink mb-2">Persistent conversations</h3>
+                  <p className="font-serif text-subtle leading-relaxed">Chat history is automatically saved. Pick up where you left off.</p>
                 </div>
               </div>
             </div>
 
             {/* Feature 5 */}
-            <div className="bg-paper p-8 md:p-12 hover:bg-accent/5 transition-colors group">
-              <div className="flex items-start gap-6">
-                <span className="font-mono text-6xl font-bold text-accent/20 group-hover:text-accent/40">05</span>
+            <div className="bg-surface p-8 md:p-10 hover:bg-accent-soft/40 transition-colors">
+              <div className="flex items-start gap-5">
+                <span className="font-mono text-sm text-faint pt-1">05</span>
                 <div>
-                  <h3 className="font-mono text-xl font-bold mb-2">Multi-Document Support</h3>
-                  <p className="font-serif text-subtle">Manage multiple documents with separate conversation histories for each subject.</p>
+                  <h3 className="font-serif text-lg font-semibold text-ink mb-2">Multi-document support</h3>
+                  <p className="font-serif text-subtle leading-relaxed">Manage multiple documents with separate conversation histories for each subject.</p>
                 </div>
               </div>
             </div>
 
             {/* Feature 6 */}
-            <div className="bg-paper p-8 md:p-12 hover:bg-accent/5 transition-colors group">
-              <div className="flex items-start gap-6">
-                <span className="font-mono text-6xl font-bold text-accent/20 group-hover:text-accent/40">06</span>
+            <div className="bg-surface p-8 md:p-10 hover:bg-accent-soft/40 transition-colors">
+              <div className="flex items-start gap-5">
+                <span className="font-mono text-sm text-faint pt-1">06</span>
                 <div>
-                  <h3 className="font-mono text-xl font-bold mb-2">Secure & Private</h3>
-                  <p className="font-serif text-subtle">Your documents are encrypted. Only you have access to your data.</p>
+                  <h3 className="font-serif text-lg font-semibold text-ink mb-2">Secure & private</h3>
+                  <p className="font-serif text-subtle leading-relaxed">Your documents are encrypted. Only you have access to your data.</p>
                 </div>
               </div>
             </div>
@@ -311,71 +307,66 @@ export default function Home() {
       </section>
 
       {/* How It Works Section */}
-      <section id="how-it-works" className="py-24 bg-paper border-b-2 border-ink">
+      <section id="how-it-works" className="py-24 bg-paper border-t border-hair">
         <div className="px-6 md:px-12">
-          <div className="mb-16 pb-8 border-b border-ink">
-            <span className="font-mono text-xs text-accent">[003]</span>
-            <h2 className="font-mono text-4xl md:text-6xl font-bold mt-2">HOW IT WORKS</h2>
+          <div className="mb-16 pb-8 border-b border-hair">
+            <p className="font-mono text-xs uppercase tracking-widest text-faint mb-2">A simple sequence</p>
+            <h2 className="font-serif text-4xl md:text-5xl font-semibold text-ink">How it works</h2>
           </div>
 
           <div className="flex flex-col md:flex-row">
             {/* Step 1 */}
-            <div className="flex-1 p-8 border-b-2 md:border-b-0 md:border-r border-ink">
-              <span className="font-mono text-8xl font-bold text-accent/20">01</span>
-              <h3 className="font-mono text-xl font-bold mt-6 mb-4">UPLOAD YOUR PDF</h3>
-              <p className="font-serif text-subtle">Drag and drop your study materials, textbooks, or research papers. Our AI processes them instantly.</p>
+            <div className="flex-1 p-8 border-b md:border-b-0 md:border-r border-hair">
+              <span className="font-mono text-sm text-accent">01</span>
+              <h3 className="font-serif text-lg font-semibold text-ink mt-4 mb-3">Upload your PDF</h3>
+              <p className="font-serif text-subtle leading-relaxed">Drag and drop your study materials, textbooks, or research papers. Our AI processes them instantly.</p>
             </div>
 
             {/* Step 2 */}
-            <div className="flex-1 p-8 border-b-2 md:border-b-0 md:border-r border-ink">
-              <span className="font-mono text-8xl font-bold text-accent/20">02</span>
-              <h3 className="font-mono text-xl font-bold mt-6 mb-4">ASK QUESTIONS</h3>
-              <p className="font-serif text-subtle">Start chatting with your document. Ask for explanations, summaries, or specific information.</p>
+            <div className="flex-1 p-8 border-b md:border-b-0 md:border-r border-hair">
+              <span className="font-mono text-sm text-accent">02</span>
+              <h3 className="font-serif text-lg font-semibold text-ink mt-4 mb-3">Ask questions</h3>
+              <p className="font-serif text-subtle leading-relaxed">Start chatting with your document. Ask for explanations, summaries, or specific information.</p>
             </div>
 
             {/* Step 3 */}
             <div className="flex-1 p-8">
-              <span className="font-mono text-8xl font-bold text-accent/20">03</span>
-              <h3 className="font-mono text-xl font-bold mt-6 mb-4">GET SMART ANSWERS</h3>
-              <p className="font-serif text-subtle">Receive detailed, contextual answers with page references. Learn faster.</p>
+              <span className="font-mono text-sm text-accent">03</span>
+              <h3 className="font-serif text-lg font-semibold text-ink mt-4 mb-3">Get grounded answers</h3>
+              <p className="font-serif text-subtle leading-relaxed">Receive detailed, contextual answers with page references. Learn faster.</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-24 bg-ink text-paper border-t-2 border-ink">
+      {/* CTA Section — paper throughout, hairline divider (not inverted ink) */}
+      <section id="cta" className="py-24 bg-paper border-t border-hair">
         <div className="px-6 md:px-12 max-w-5xl">
-          <span className="font-mono text-xs text-accent">[005]</span>
-          <h2 className="font-mono text-4xl md:text-6xl font-bold mt-2 mb-8">
-            READY TO TRANSFORM<br/>YOUR LEARNING?
+          <h2 className="font-serif text-4xl md:text-5xl font-semibold text-ink mb-6 leading-tight">
+            Ready to read deeper?
           </h2>
-          <p className="font-serif text-xl text-subtle mb-12 max-w-2xl">
-            Join thousands of students learning smarter with AI-powered tutoring.
+          <p className="font-serif text-lg md:text-xl text-subtle mb-12 max-w-2xl leading-relaxed">
+            Upload a PDF and ask your first question in under a minute. Every answer cites its source.
           </p>
           <div className="flex flex-col sm:flex-row gap-4">
-            <a href="/register" className="font-mono text-sm bg-paper text-ink px-10 py-5 border-3 border-paper hover:bg-accent hover:border-accent hover:text-paper transition-colors text-center">
-              GET STARTED FREE
-            </a>
-            <a href="/login" className="font-mono text-sm bg-transparent text-paper px-10 py-5 border-2 border-subtle hover:border-paper transition-colors text-center">
-              SIGN IN
-            </a>
+            <a href="/register" className="btn btn-primary">Start free</a>
+            <a href="/login" className="btn">Sign in</a>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-paper py-12 border-t-2 border-ink">
+      <footer className="bg-paper py-12 border-t border-hair">
         <div className="px-6 md:px-12">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
             <div>
-              <span className="font-mono text-xl font-bold">STUDYFETCH.AI</span>
-              <p className="font-serif text-sm text-subtle mt-2">&copy; 2024 All rights reserved</p>
+              <span className="font-serif text-xl font-semibold text-ink">TUTOR<span className="text-accent">.</span>AI</span>
+              <p className="font-serif text-sm text-subtle mt-2">&copy; {new Date().getFullYear()} All rights reserved</p>
             </div>
-            <div className="flex gap-8 font-mono text-xs">
-              <a href="#" className="hover:text-accent transition-colors">PRIVACY</a>
-              <a href="#" className="hover:text-accent transition-colors">TERMS</a>
-              <a href="#" className="hover:text-accent transition-colors">HELP</a>
+            <div className="flex gap-8 font-serif text-sm">
+              <a href="#" className="text-subtle hover:text-accent transition-colors">Privacy</a>
+              <a href="#" className="text-subtle hover:text-accent transition-colors">Terms</a>
+              <a href="#" className="text-subtle hover:text-accent transition-colors">Help</a>
             </div>
           </div>
         </div>
