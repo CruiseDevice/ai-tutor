@@ -16,6 +16,7 @@ from .rerank_service import get_rerank_service
 from .annotation_service import get_annotation_service
 from .prompt_builder import get_prompt_builder, TOKEN_BUDGET_TEMPLATE
 from .quality_service import get_quality_service
+from .conversation_titles import get_conversation_title_service
 from .retry_utils import retry_openai_call, async_retry_openai_call
 from .cache_service import get_cache_service
 from .query_expansion_service import get_query_expansion_service
@@ -38,6 +39,7 @@ class ChatService:
         self.annotation_service = get_annotation_service()
         self.prompt_builder = get_prompt_builder()
         self.quality_service = get_quality_service()
+        self.title_service = get_conversation_title_service()
 
     def _resolve_provider_for_model(self, model: str) -> Provider:
         """Resolve the LLM provider for a chat model id."""
@@ -77,70 +79,16 @@ class ChatService:
         return limits.get(complexity, settings.MAX_COMPLETION_TOKENS_MODERATE)
 
     async def _generate_conversation_title(self, user_message: str, user_api_key: str, provider: Provider | None = None) -> str:
+        """Generate a concise conversation title. Delegates to ConversationTitleService.
+
+        Kept for backward compatibility; new callers should use
+        `get_conversation_title_service().generate(...)` directly.
         """
-        Generate a smart, concise title for the conversation based on the first user message.
-        Uses LLM to create a title that's 3-6 words.
-        """
-        try:
-            prov = provider or Provider.OPENAI
-            client = get_llm_client(prov, user_api_key)
-            model = pick_helper_model(prov)
-
-            prompt = f"""Generate a concise, descriptive title for this conversation based on the user's question.
-The title should be 3-6 words and capture the main topic or question.
-
-User question: "{user_message}"
-
-Return ONLY the title, nothing else. Make it specific and informative.
-Examples:
-- "What is a virus?" → "Understanding Viruses"
-- "Explain photosynthesis" → "Photosynthesis Explanation"
-- "Summarize chapter 3" → "Chapter 3 Summary"
-- "How does DNA replication work?" → "DNA Replication Process"
-
-Title:"""
-
-            async def _create_completion():
-                return await client.complete(
-                    system_prompt="You are a helpful assistant that generates concise conversation titles.",
-                    messages=[{"role": "user", "content": prompt}],
-                    model=model,
-                    temperature=0.7,
-                    max_tokens=20,
-                )
-
-            title = await async_retry_openai_call(
-                _create_completion,
-                max_attempts=3,  # Fewer retries for title generation (non-critical)
-                initial_wait=1.0,
-                max_wait=30.0
-            )
-
-            title = title.strip()
-            # Remove quotes if present
-            title = title.strip('"\'')
-            # Limit to 50 characters
-            title = title[:50] if len(title) > 50 else title
-
-            logger.info(f"Generated conversation title: {title}")
-            return title
-
-        except APIError as e:
-            logger.warning(f"Failed to generate title with LLM after retries: {e}")
-            # Fallback: create title from first few words of the message
-            words = user_message.split()[:6]
-            title = " ".join(words)
-            if len(user_message) > len(title):
-                title += "..."
-            return title[:50]
-        except Exception as e:
-            logger.warning(f"Failed to generate title with LLM: {e}")
-            # Fallback: create title from first few words of the message
-            words = user_message.split()[:6]
-            title = " ".join(words)
-            if len(user_message) > len(title):
-                title += "..."
-            return title[:50]
+        return await self.title_service.generate(
+            user_message=user_message,
+            user_api_key=user_api_key,
+            provider=provider,
+        )
 
     def _parse_annotations(self, response_text: str, relevant_chunks: List[Dict]) -> tuple[str, List[Dict]]:
         """Parse annotations from the LLM response. Delegates to AnnotationService.
