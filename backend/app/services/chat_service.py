@@ -2466,13 +2466,19 @@ say you don't have enough information from the document and suggest looking at o
             raw_assistant_content = raw_assistant_content or ""
             logger.info(f"[Annotations] Raw OpenAI response: {raw_assistant_content[:500]}...")
 
-            # Extract token usage from completion
+            # Estimate token usage. The chat-completion client returns only the
+            # assistant text (not a usage object), so mirror the streaming path
+            # and estimate from the assembled messages + generated content.
             token_usage = None
-            if hasattr(completion, 'usage') and completion.usage:
+            try:
+                prompt_tokens = TokenService.estimate_context_tokens(messages, model)
+                completion_tokens = TokenService.count_tokens(raw_assistant_content, model)
+                total_tokens = prompt_tokens + completion_tokens
+
                 token_usage = {
-                    "prompt_tokens": completion.usage.prompt_tokens,
-                    "completion_tokens": completion.usage.completion_tokens,
-                    "total_tokens": completion.usage.total_tokens
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens
                 }
                 logger.info(
                     f"Token usage: {token_usage['prompt_tokens']} prompt + "
@@ -2484,8 +2490,8 @@ say you don't have enough information from the document and suggest looking at o
                     f"{token_usage['total_tokens']}/{max_context_tokens} "
                     f"({100 * token_usage['total_tokens'] / max_context_tokens:.1f}%)"
                 )
-            else:
-                logger.warning("Token usage information not available from OpenAI response")
+            except Exception as e:
+                logger.warning(f"Failed to estimate token usage: {e}")
 
             # Parse annotations from the response
             assistant_content, annotations = self._parse_annotations(
