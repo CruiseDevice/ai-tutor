@@ -30,6 +30,7 @@ from ..models.conversation import Message
 from .chat_service import ChatService
 from .llm import Provider, resolve_provider, pick_helper_model, get_llm_client
 from .query_expansion_service import get_query_expansion_service
+from .retrieval_service import get_retriever
 from .rerank_service import get_rerank_service
 from .cache_service import get_cache_service
 from .token_service import TokenService
@@ -515,7 +516,7 @@ Output (JSON array only):"""
                 for i, sub_question in enumerate(sub_questions, 1):
                     logger.info(f"[Agent] Retrieving for sub-question {i}/{len(sub_questions)}: {sub_question[:100]}")
 
-                    sub_chunks = await self.chat_service.find_similar_chunks(
+                    sub_chunks = await get_retriever().find_similar_chunks(
                         db=state["db_session"],
                         document_id=state["document_id"],
                         query=sub_question,
@@ -537,7 +538,7 @@ Output (JSON array only):"""
 
             else:
                 # Standard retrieval for simple/moderate queries
-                chunks = await self.chat_service.find_similar_chunks(
+                chunks = await get_retriever().find_similar_chunks(
                     db=state["db_session"],
                     document_id=state["document_id"],
                     query=state["user_query"],
