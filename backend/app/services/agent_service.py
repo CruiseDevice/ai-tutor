@@ -674,8 +674,9 @@ Output (JSON array only):"""
             )
             state["answer"] = raw_answer
 
-            # Parse annotations using existing logic
-            clean_answer, annotations = self.chat_service._parse_annotations(
+            # Parse annotations using AnnotationService (extracted from ChatService)
+            from .annotation_service import get_annotation_service
+            clean_answer, annotations = get_annotation_service().parse(
                 response_text=raw_answer,
                 relevant_chunks=state.get("retrieved_chunks", [])
             )
