@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError, DatabaseError
+from dataclasses import dataclass
 from typing import List, Dict, Optional, AsyncGenerator
 from openai import AsyncOpenAI, APIError
 import logging
@@ -33,6 +34,26 @@ from .llm import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PreparedContext:
+    """Inputs prepared for an LLM generation call (shared by the two linear entry points).
+
+    Captures everything the entry points compute before invoking the LLM, so
+    the non-streaming and streaming paths share one preparation method instead
+    of each inlining the ~80-line retrieve -> classify -> token-budget ->
+    prompt-build sequence.
+    """
+    system_prompt: str
+    messages: List[Dict]
+    relevant_chunks: List[Dict]
+    chunk_stats: Dict[str, int]
+    query_classification: Dict
+    max_tokens: int
+    cache_service: "object | None"
+    query_embedding: List[float]
+    is_first_message: bool
 
 
 class ChatService:
@@ -81,6 +102,180 @@ class ChatService:
             "complex": settings.MAX_COMPLETION_TOKENS_COMPLEX,
         }
         return limits.get(complexity, settings.MAX_COMPLETION_TOKENS_MODERATE)
+
+    @staticmethod
+    def _llm_error_message(e: APIError) -> str:
+        """Map an LLM APIError's status code to a user-facing message.
+
+        Shared by the non-streaming and streaming entry points (which
+        previously each kept their own copy of this status-code map).
+        Returns the generic message for unknown / missing status codes.
+        """
+        status_code = getattr(e, 'status_code', None)
+        if status_code == 429:
+            return "Rate limit exceeded. Please wait a moment and try again."
+        if status_code == 401:
+            return "Invalid API key. Please check your API key in settings."
+        if status_code == 403:
+            return "API access forbidden. Please check your API key permissions."
+        if status_code in [500, 502, 503, 504]:
+            return "The LLM service is temporarily unavailable. Please try again later."
+        return f"LLM API error: {str(e)}"
+
+    async def _set_title_if_first_message(
+        self,
+        db: Session,
+        conversation_id: str,
+        is_first_message: bool,
+        content: str,
+        api_key: str,
+        provider: Provider | None,
+    ) -> None:
+        """Generate and persist a conversation title for the first message.
+
+        No-op when this isn't the first message or the conversation already
+        has a title. Failures are logged and swallowed so they never break
+        the surrounding chat request. Replaces four near-identical blocks
+        across the entry points.
+        """
+        if not is_first_message:
+            return
+        try:
+            conversation = db.query(Conversation).filter(
+                Conversation.id == conversation_id
+            ).first()
+            if conversation and not conversation.title:
+                title = await self._generate_conversation_title(content, api_key, provider)
+                conversation.title = title
+                logger.info(f"Set conversation title to: {title}")
+        except Exception as e:
+            logger.warning(f"Failed to generate conversation title: {e}")
+            # Don't fail the whole request if title generation fails
+
+    async def _prepare_generation_context(
+        self,
+        db: Session,
+        content: str,
+        document_id: str,
+        model: str,
+        conversation_id: str,
+        api_key: str,
+        provider: Provider,
+        stream_log_prefix: str = "",
+    ) -> PreparedContext:
+        """Run the shared pre-LLM pipeline for the linear entry points.
+
+        Stages: resolve client + config -> retrieve candidate chunks ->
+        fetch history -> classify query -> token-budget chunk selection ->
+        format context text -> build adaptive system prompt -> assemble
+        messages. Both generate_chat_response and generate_chat_response_stream
+        call this; only their LLM call, persistence, and output differ.
+
+        `stream_log_prefix` lets the streaming path tag its log lines (it
+        previously used "[Stream]") without diverging the logic.
+        """
+        from ..config import settings
+
+        client = get_llm_client(provider, api_key)
+        cache_service = await get_cache_service()
+
+        max_context_tokens = getattr(settings, 'MAX_CONTEXT_TOKENS', 100000)
+        rerank_top_k = getattr(settings, 'RERANK_TOP_K', 20)
+
+        # Find relevant chunks (retrieve more for token-based selection)
+        logger.debug(f"Finding similar chunks for document {document_id}")
+        candidate_chunks = await self.find_similar_chunks(
+            db, content, document_id, limit=rerank_top_k,
+            user_api_key=api_key, provider=provider,
+        )
+        logger.info(f"[DEBUG CHAT] Retrieved {len(candidate_chunks)} candidate chunks for document {document_id}")
+
+        # Get conversation history for token counting
+        logger.debug(f"Fetching conversation history for {conversation_id}")
+        history = db.query(Message).filter(
+            Message.conversation_id == conversation_id
+        ).order_by(Message.created_at).limit(10).all()
+
+        # Classify query type for adaptive prompting
+        query_classification = await self._classify_query_type(content, api_key, provider)
+        logger.info(
+            f"Query classification: type={query_classification['query_type']}, "
+            f"complexity={query_classification['complexity']}, "
+            f"requires_cot={query_classification['requires_cot']}"
+        )
+
+        # Count tokens for dynamic chunk selection
+        system_prompt_tokens = TokenService.count_tokens(TOKEN_BUDGET_TEMPLATE, model)
+        user_message_tokens = TokenService.count_tokens(content, model)
+        history_messages = [{"role": msg.role, "content": msg.content} for msg in history]
+        history_tokens = TokenService.estimate_context_tokens(history_messages, model)
+        response_reserve_tokens = 1000
+
+        relevant_chunks, chunk_stats = self._select_chunks_by_token_limit(
+            chunks=candidate_chunks,
+            max_tokens=max_context_tokens,
+            model=model,
+            system_prompt_tokens=system_prompt_tokens,
+            user_message_tokens=user_message_tokens,
+            history_tokens=history_tokens,
+            response_reserve_tokens=response_reserve_tokens,
+        )
+
+        logger.info(
+            f"{stream_log_prefix}Dynamic chunk selection: "
+            f"{chunk_stats['selected_chunks']}/{len(candidate_chunks)} chunks, "
+            f"{chunk_stats['total_chunk_tokens']} tokens, "
+            f"{chunk_stats['truncated_chunks']} truncated, "
+            f"{chunk_stats['skipped_chunks']} skipped"
+        )
+
+        # Format context from chunks
+        if relevant_chunks:
+            context_text = "\n\n".join(
+                self._format_chunk_for_context(chunk)
+                for chunk in relevant_chunks
+            )
+        else:
+            context_text = "No relevant document sections found."
+
+        # Build adaptive system prompt with few-shot examples and chain-of-thought
+        system_prompt_content = self._build_system_prompt(
+            context_text=context_text,
+            query_type=query_classification['query_type'],
+            complexity=query_classification['complexity'],
+            requires_cot=query_classification['requires_cot'],
+        )
+
+        # Assemble messages: system + history + current user message
+        messages = [{"role": "system", "content": system_prompt_content}]
+        for msg in history:
+            messages.append({"role": msg.role, "content": msg.content})
+        messages.append({"role": "user", "content": content})
+
+        # Query embedding for response caching + first-message flag
+        query_embedding = await cache_service.get_embedding(content)
+        if query_embedding is None:
+            query_embedding = await self.embedding_service.generate_embedding_async(content)
+            await cache_service.set_embedding(content, query_embedding)
+
+        existing_message_count = db.query(Message).filter(
+            Message.conversation_id == conversation_id
+        ).count()
+        is_first_message = existing_message_count == 0
+
+        max_tokens = self._get_adaptive_token_limit(query_classification['complexity'])
+
+        return PreparedContext(
+            system_prompt=system_prompt_content,
+            messages=messages,
+            relevant_chunks=relevant_chunks,
+            chunk_stats=chunk_stats,
+            query_classification=query_classification,
+            max_tokens=max_tokens,
+            cache_service=cache_service,
+            query_embedding=query_embedding,
+            is_first_message=is_first_message,
+        )
 
     async def _generate_conversation_title(self, user_message: str, user_api_key: str, provider: Provider | None = None) -> str:
         """Generate a concise conversation title. Delegates to ConversationTitleService.
@@ -380,111 +575,26 @@ class ChatService:
                         }
                     }
 
-            # Initialize LLM client (provider resolved from the selected model)
-            provider = self._resolve_provider_for_model(model)
-            client = get_llm_client(provider, api_key)
-
-            # Get configuration
-            from ..config import settings
-            max_context_tokens = getattr(settings, 'MAX_CONTEXT_TOKENS', 100000)
-            rerank_top_k = getattr(settings, 'RERANK_TOP_K', 20)
-
-            # Find relevant chunks (retrieve more for token-based selection)
-            logger.debug(f"Finding similar chunks for document {document_id}")
-            candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key, provider=provider)
-            # TODO(human): Add diagnostic logging to understand why chunks might be empty
-            logger.info(f"[DEBUG CHAT] Retrieved {len(candidate_chunks)} candidate chunks for document {document_id}")
-
-            # Get conversation history for token counting
-            logger.debug(f"Fetching conversation history for {conversation_id}")
-            history = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).order_by(Message.created_at).limit(10).all()
-
-            # Classify query type for adaptive prompting
-            query_classification = await self._classify_query_type(content, api_key, provider)
-            logger.info(
-                f"Query classification: type={query_classification['query_type']}, "
-                f"complexity={query_classification['complexity']}, "
-                f"requires_cot={query_classification['requires_cot']}"
-            )
-
-            # Count tokens for dynamic chunk selection
-            # 1. System prompt template (without chunks)
-            system_prompt_template = TOKEN_BUDGET_TEMPLATE  # imported from prompt_builder
-
-            system_prompt_tokens = TokenService.count_tokens(system_prompt_template, model)
-
-            # 2. User message tokens
-            user_message_tokens = TokenService.count_tokens(content, model)
-
-            # 3. History tokens
-            history_messages = [{"role": msg.role, "content": msg.content} for msg in history]
-            history_tokens = TokenService.estimate_context_tokens(history_messages, model)
-
-            # 4. Response reserve (max_completion_tokens)
-            response_reserve_tokens = 1000
-
-            # Select chunks dynamically based on token limits
-            relevant_chunks, chunk_stats = self._select_chunks_by_token_limit(
-                chunks=candidate_chunks,
-                max_tokens=max_context_tokens,
+            # Resolve provider + prepare retrieval/classify/prompt pipeline.
+            # Shared with generate_chat_response_stream via _prepare_generation_context.
+            ctx = await self._prepare_generation_context(
+                db=db,
+                content=content,
+                document_id=document_id,
                 model=model,
-                system_prompt_tokens=system_prompt_tokens,
-                user_message_tokens=user_message_tokens,
-                history_tokens=history_tokens,
-                response_reserve_tokens=response_reserve_tokens
+                conversation_id=conversation_id,
+                api_key=api_key,
+                provider=provider,
             )
-
-            logger.info(
-                f"Dynamic chunk selection: {chunk_stats['selected_chunks']}/{len(candidate_chunks)} chunks, "
-                f"{chunk_stats['total_chunk_tokens']} tokens, "
-                f"{chunk_stats['truncated_chunks']} truncated, "
-                f"{chunk_stats['skipped_chunks']} skipped"
-            )
-
-            # Format context from chunks
-            if relevant_chunks:
-                context_text = "\n\n".join(
-                    self._format_chunk_for_context(chunk)
-                    for chunk in relevant_chunks
-                )
-            else:
-                context_text = "No relevant document sections found."
-
-            # Build adaptive system prompt with few-shot examples and chain-of-thought
-            system_prompt_content = self._build_system_prompt(
-                context_text=context_text,
-                query_type=query_classification['query_type'],
-                complexity=query_classification['complexity'],
-                requires_cot=query_classification['requires_cot']
-            )
-
-            # Create system message
-            system_message = {
-                "role": "system",
-                "content": system_prompt_content
-            }
-
-            # Format history for OpenAI (history already fetched above for token counting)
-            messages = [system_message]
-            for msg in history:
-                messages.append({
-                    "role": msg.role,
-                    "content": msg.content
-                })
-
-            # Add current user message
-            messages.append({
-                "role": "user",
-                "content": content
-            })
-
-            # Call OpenAI with retry logic
-            logger.debug(f"Calling OpenAI API with model {model}")
-
-            # Get adaptive token limit based on query complexity
-            max_tokens = self._get_adaptive_token_limit(query_classification['complexity'])
+            client = get_llm_client(provider, api_key)
+            system_prompt_content = ctx.system_prompt
+            messages = ctx.messages
+            relevant_chunks = ctx.relevant_chunks
+            chunk_stats = ctx.chunk_stats
+            query_classification = ctx.query_classification
+            cache_service = ctx.cache_service
+            query_embedding = ctx.query_embedding
+            max_tokens = ctx.max_tokens
             logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query")
 
             try:
@@ -508,18 +618,7 @@ class ChatService:
                 )
             except APIError as e:
                 logger.error(f"LLM API error after retries: {str(e)}", exc_info=True)
-                # Provide more specific error messages
-                status_code = getattr(e, 'status_code', None)
-                if status_code:
-                    if status_code == 429:
-                        raise ValueError("Rate limit exceeded. Please wait a moment and try again.")
-                    elif status_code == 401:
-                        raise ValueError("Invalid API key. Please check your API key in settings.")
-                    elif status_code == 403:
-                        raise ValueError("API access forbidden. Please check your API key permissions.")
-                    elif status_code in [500, 502, 503, 504]:
-                        raise ValueError("The LLM service is temporarily unavailable. Please try again later.")
-                raise ValueError(f"LLM API error: {str(e)}")
+                raise ValueError(self._llm_error_message(e))
             except Exception as e:
                 logger.error(f"Unexpected error calling LLM API: {str(e)}", exc_info=True)
                 raise ValueError(f"Failed to generate response: {str(e)}")
@@ -614,19 +713,14 @@ class ChatService:
             db.add(assistant_message)
 
             # Generate and update conversation title if this is the first message
-            if is_first_message:
-                try:
-                    conversation = db.query(Conversation).filter(
-                        Conversation.id == conversation_id
-                    ).first()
-
-                    if conversation and not conversation.title:
-                        title = await self._generate_conversation_title(content, api_key, provider)
-                        conversation.title = title
-                        logger.info(f"Set conversation title to: {title}")
-                except Exception as e:
-                    logger.warning(f"Failed to generate conversation title: {e}")
-                    # Don't fail the whole request if title generation fails
+            await self._set_title_if_first_message(
+                db=db,
+                conversation_id=conversation_id,
+                is_first_message=is_first_message,
+                content=content,
+                api_key=api_key,
+                provider=provider,
+            )
 
             db.commit()
 
@@ -795,19 +889,14 @@ class ChatService:
             db.add(assistant_message)
 
             # Generate and update conversation title if this is the first message
-            if is_first_message:
-                try:
-                    conversation = db.query(Conversation).filter(
-                        Conversation.id == conversation_id
-                    ).first()
-
-                    if conversation and not conversation.title:
-                        title = await self._generate_conversation_title(content, api_key, provider)
-                        conversation.title = title
-                        logger.info(f"Set conversation title to: {title}")
-                except Exception as e:
-                    logger.warning(f"Failed to generate conversation title: {e}")
-                    # Don't fail the whole request if title generation fails
+            await self._set_title_if_first_message(
+                db=db,
+                conversation_id=conversation_id,
+                is_first_message=is_first_message,
+                content=content,
+                api_key=api_key,
+                provider=provider,
+            )
 
             db.commit()
             db.refresh(user_message)
@@ -994,18 +1083,14 @@ class ChatService:
                     db.add(assistant_message)
 
                     # Generate and update conversation title if first message
-                    if is_first_message:
-                        try:
-                            conversation = db.query(Conversation).filter(
-                                Conversation.id == conversation_id
-                            ).first()
-
-                            if conversation and not conversation.title:
-                                title = await self._generate_conversation_title(content, api_key, provider)
-                                conversation.title = title
-                                logger.info(f"Set conversation title to: {title}")
-                        except Exception as e:
-                            logger.warning(f"Failed to generate conversation title: {e}")
+                    await self._set_title_if_first_message(
+                        db=db,
+                        conversation_id=conversation_id,
+                        is_first_message=is_first_message,
+                        content=content,
+                        api_key=api_key,
+                        provider=provider,
+                    )
 
                     db.commit()
                     logger.info("[Agent Stream] Messages saved successfully")
@@ -1135,114 +1220,31 @@ class ChatService:
                     yield f"data: {json.dumps(final_data)}\n\n"
                     return
 
-            # Initialize LLM client (provider resolved from the selected model)
-            provider = self._resolve_provider_for_model(model)
-            client = get_llm_client(provider, api_key)
-
-            # Get configuration
-            from ..config import settings
-            max_context_tokens = getattr(settings, 'MAX_CONTEXT_TOKENS', 100000)
-            rerank_top_k = getattr(settings, 'RERANK_TOP_K', 20)
-
-            # Find relevant chunks (retrieve more for token-based selection)
-            logger.debug(f"Finding similar chunks for document {document_id}")
-            candidate_chunks = await self.find_similar_chunks(db, content, document_id, limit=rerank_top_k, user_api_key=api_key, provider=provider)
-            # TODO(human): Add diagnostic logging to understand why chunks might be empty
-            logger.info(f"[DEBUG CHAT] Retrieved {len(candidate_chunks)} candidate chunks for document {document_id}")
-
-            # Get conversation history for token counting
-            logger.debug(f"Fetching conversation history for {conversation_id}")
-            history = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).order_by(Message.created_at).limit(10).all()
-
-            # Classify query type for adaptive prompting
-            query_classification = await self._classify_query_type(content, api_key, provider)
-            logger.info(
-                f"Query classification: type={query_classification['query_type']}, "
-                f"complexity={query_classification['complexity']}, "
-                f"requires_cot={query_classification['requires_cot']}"
-            )
-
-            # Count tokens for dynamic chunk selection
-            # 1. System prompt template (without chunks)
-            system_prompt_template = TOKEN_BUDGET_TEMPLATE  # imported from prompt_builder
-
-            system_prompt_tokens = TokenService.count_tokens(system_prompt_template, model)
-
-            # 2. User message tokens
-            user_message_tokens = TokenService.count_tokens(content, model)
-
-            # 3. History tokens
-            history_messages = [{"role": msg.role, "content": msg.content} for msg in history]
-            history_tokens = TokenService.estimate_context_tokens(history_messages, model)
-
-            # 4. Response reserve (max_completion_tokens)
-            response_reserve_tokens = 1000
-
-            # Select chunks dynamically based on token limits
-            relevant_chunks, chunk_stats = self._select_chunks_by_token_limit(
-                chunks=candidate_chunks,
-                max_tokens=max_context_tokens,
+            # Resolve provider + prepare retrieval/classify/prompt pipeline.
+            # Shared with generate_chat_response via _prepare_generation_context.
+            ctx = await self._prepare_generation_context(
+                db=db,
+                content=content,
+                document_id=document_id,
                 model=model,
-                system_prompt_tokens=system_prompt_tokens,
-                user_message_tokens=user_message_tokens,
-                history_tokens=history_tokens,
-                response_reserve_tokens=response_reserve_tokens
+                conversation_id=conversation_id,
+                api_key=api_key,
+                provider=provider,
+                stream_log_prefix="[Stream] ",
             )
+            client = get_llm_client(provider, api_key)
+            system_prompt_content = ctx.system_prompt
+            messages = ctx.messages
+            relevant_chunks = ctx.relevant_chunks
+            chunk_stats = ctx.chunk_stats
+            query_classification = ctx.query_classification
+            cache_service = ctx.cache_service
+            query_embedding = ctx.query_embedding
+            is_first_message = ctx.is_first_message
+            max_tokens = ctx.max_tokens
+            logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query (streaming)")
 
-            logger.info(
-                f"[Stream] Dynamic chunk selection: {chunk_stats['selected_chunks']}/{len(candidate_chunks)} chunks, "
-                f"{chunk_stats['total_chunk_tokens']} tokens, "
-                f"{chunk_stats['truncated_chunks']} truncated, "
-                f"{chunk_stats['skipped_chunks']} skipped"
-            )
-
-            # Format context from chunks
-            if relevant_chunks:
-                context_text = "\n\n".join(
-                    self._format_chunk_for_context(chunk)
-                    for chunk in relevant_chunks
-                )
-            else:
-                context_text = "No relevant document sections found."
-
-            # Build adaptive system prompt with few-shot examples and chain-of-thought
-            system_prompt_content = self._build_system_prompt(
-                context_text=context_text,
-                query_type=query_classification['query_type'],
-                complexity=query_classification['complexity'],
-                requires_cot=query_classification['requires_cot']
-            )
-
-            # Create system message
-            system_message = {
-                "role": "system",
-                "content": system_prompt_content
-            }
-
-            # Format history for OpenAI (history already fetched above for token counting)
-            messages = [system_message]
-            for msg in history:
-                messages.append({
-                    "role": msg.role,
-                    "content": msg.content
-                })
-
-            # Add current user message
-            messages.append({
-                "role": "user",
-                "content": content
-            })
-
-            # Check if this is the first message in the conversation (for title generation)
-            existing_message_count = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).count()
-
-            is_first_message = existing_message_count == 0
-
-            # Save user message first
+            # Save user message first (streaming persists optimistically before the LLM call)
             user_message = Message(
                 content=content,
                 role="user",
@@ -1250,13 +1252,6 @@ class ChatService:
             )
             db.add(user_message)
             db.flush()
-
-            # Stream OpenAI response
-            logger.debug(f"Calling OpenAI API with streaming for model {model}")
-
-            # Get adaptive token limit based on query complexity
-            max_tokens = self._get_adaptive_token_limit(query_classification['complexity'])
-            logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query (streaming)")
 
             try:
                 # messages[0] is the system message; LLMClient takes system separately.
@@ -1277,17 +1272,7 @@ class ChatService:
 
             except APIError as e:
                 logger.error(f"LLM API error during streaming: {str(e)}", exc_info=True)
-                error_msg = f"LLM API error: {str(e)}"
-                status_code = getattr(e, 'status_code', None)
-                if status_code:
-                    if status_code == 429:
-                        error_msg = "Rate limit exceeded. Please wait a moment and try again."
-                    elif status_code == 401:
-                        error_msg = "Invalid API key. Please check your API key in settings."
-                    elif status_code == 403:
-                        error_msg = "API access forbidden. Please check your API key permissions."
-                    elif status_code in [500, 502, 503, 504]:
-                        error_msg = "The LLM service is temporarily unavailable. Please try again later."
+                error_msg = self._llm_error_message(e)
                 yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
                 return
             except Exception as e:
@@ -1368,18 +1353,14 @@ class ChatService:
             db.add(assistant_message)
 
             # Generate and update conversation title if this is the first message
-            if is_first_message:
-                try:
-                    conversation = db.query(Conversation).filter(
-                        Conversation.id == conversation_id
-                    ).first()
-
-                    if conversation and not conversation.title:
-                        title = await self._generate_conversation_title(content, api_key, provider)
-                        conversation.title = title
-                        logger.info(f"Set conversation title to: {title}")
-                except Exception as e:
-                    logger.warning(f"Failed to generate conversation title: {e}")
+            await self._set_title_if_first_message(
+                db=db,
+                conversation_id=conversation_id,
+                is_first_message=is_first_message,
+                content=content,
+                api_key=api_key,
+                provider=provider,
+            )
 
             db.commit()
             db.refresh(user_message)

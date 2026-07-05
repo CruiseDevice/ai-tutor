@@ -64,6 +64,32 @@ def test_chat_service_still_delegates_extracted_methods():
     # Quality / citations
     assert callable(getattr(svc, "_verify_citations", None))
     assert _coro(getattr(svc, "_score_answer_quality", None))
+    # Phase 2 pipeline helpers
+    assert callable(getattr(svc, "_llm_error_message", None))
+    assert _coro(getattr(svc, "_set_title_if_first_message", None))
+    assert _coro(getattr(svc, "_prepare_generation_context", None))
+
+
+def test_llm_error_message_maps_status_codes():
+    """The shared status-code map covers 429/401/403/5xx + a generic fallback.
+
+    Both linear entry points previously kept their own copy of this map;
+    it's now centralized in _llm_error_message (regression net).
+    """
+    def err(code, message="boom"):
+        # _llm_error_message reads status_code via getattr, so a lightweight
+        # stand-in is sufficient (the helper never imports the real APIError).
+        e = Exception(message)
+        e.status_code = code
+        return e
+
+    svc = ChatService()
+    assert "Rate limit" in svc._llm_error_message(err(429))
+    assert "API key" in svc._llm_error_message(err(401))
+    assert "forbidden" in svc._llm_error_message(err(403))
+    assert "temporarily unavailable" in svc._llm_error_message(err(503))
+    # Missing/unknown status code -> generic message
+    assert "LLM API error" in svc._llm_error_message(err(None))
 
 
 _PHASE1_MODULES = [
