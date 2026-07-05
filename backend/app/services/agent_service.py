@@ -327,8 +327,9 @@ class RAGAgentService:
             if cached_classification:
                 classification = json.loads(cached_classification)
             else:
-                # Use existing classification logic from ChatService
-                classification = await self.chat_service._classify_query_type(
+                # Classify via PromptBuilder (extracted from ChatService)
+                from .prompt_builder import get_prompt_builder
+                classification = await get_prompt_builder().classify_query_type(
                     query=state["user_query"],
                     user_api_key=state["user_api_key"],
                     provider=Provider(state.get("provider") or Provider.OPENAI.value)
@@ -617,8 +618,9 @@ Output (JSON array only):"""
         logger.info(f"[Agent] Generating answer")
 
         try:
-            # Build system prompt using existing logic
-            system_prompt = self.chat_service._build_system_prompt(
+            # Build system prompt via PromptBuilder (extracted from ChatService)
+            from .prompt_builder import get_prompt_builder
+            system_prompt = get_prompt_builder().build_system_prompt(
                 context_text=state.get("context_text", ""),
                 query_type=state.get("query_type", "factual"),
                 complexity=state.get("complexity", "simple"),
