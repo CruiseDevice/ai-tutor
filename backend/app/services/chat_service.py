@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError, DatabaseError
-from dataclasses import dataclass
-from typing import List, Dict, Optional, AsyncGenerator
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, AsyncGenerator
 from openai import AsyncOpenAI, APIError
 import logging
 import json
@@ -51,9 +51,46 @@ class PreparedContext:
     chunk_stats: Dict[str, int]
     query_classification: Dict
     max_tokens: int
+    max_context_tokens: int
     cache_service: "object | None"
     query_embedding: List[float]
     is_first_message: bool
+
+
+@dataclass
+class PipelineEvent:
+    """Base type for events emitted by _run_linear_pipeline.
+
+    The two linear chat entry points share one pipeline generator; each
+    adapts the events to its output form (dict vs SSE). Subtypes below.
+    """
+
+
+@dataclass
+class ChunkEvent(PipelineEvent):
+    """An incremental piece of assistant content.
+
+    For streaming this is one token-fragment; for non-streaming it is the
+    full completion in a single event. Adapters decide how to surface it.
+    """
+    content: str
+
+
+@dataclass
+class ErrorEvent(PipelineEvent):
+    """Terminal failure. Non-stream raises ValueError(message); stream yields SSE."""
+    message: str
+
+
+@dataclass
+class DoneEvent(PipelineEvent):
+    """Terminal success carrying the persisted user/assistant Message objects.
+
+    `created_at` is the raw datetime here; the streaming adapter ISO-serializes
+    when building the SSE frame, the non-streaming adapter returns it as-is.
+    """
+    user_message: Any
+    assistant_message: Any
 
 
 class ChatService:
@@ -272,6 +309,7 @@ class ChatService:
             chunk_stats=chunk_stats,
             query_classification=query_classification,
             max_tokens=max_tokens,
+            max_context_tokens=max_context_tokens,
             cache_service=cache_service,
             query_embedding=query_embedding,
             is_first_message=is_first_message,
@@ -465,6 +503,335 @@ class ChatService:
             provider=provider,
         )
 
+    # ------------------------------------------------------------------
+    # Unified linear pipeline (shared by generate_chat_response and
+    # generate_chat_response_stream). The two entry points adapt the
+    # emitted PipelineEvents to their output form (dict vs SSE).
+    # ------------------------------------------------------------------
+
+    async def _complete_then_yield(
+        self,
+        client: LLMClient,
+        system_prompt: str,
+        chat_messages: List[Dict],
+        model: str,
+        max_tokens: int,
+    ) -> AsyncIterator[str]:
+        """Non-streaming LLM-call strategy: call complete() with retry, yield once."""
+        async def _create_completion():
+            return await client.complete(
+                system_prompt=system_prompt,
+                messages=chat_messages,
+                model=model,
+                temperature=0.7,
+                max_tokens=max_tokens,
+            )
+
+        content = await async_retry_openai_call(
+            _create_completion,
+            max_attempts=5,  # More retries for main chat completion
+            initial_wait=1.0,
+            max_wait=60.0,
+        )
+        yield content or ""
+
+    async def _stream_passthrough(
+        self,
+        client: LLMClient,
+        system_prompt: str,
+        chat_messages: List[Dict],
+        model: str,
+        max_tokens: int,
+    ) -> AsyncIterator[str]:
+        """Streaming LLM-call strategy: pass client.stream() fragments through.
+
+        NOTE: unlike _complete_then_yield, the streaming call is NOT wrapped in
+        async_retry_openai_call (preserving the original behavior — a dropped
+        stream fails fast rather than replaying tokens).
+        """
+        async for content_chunk in client.stream(
+            system_prompt=system_prompt,
+            messages=chat_messages,
+            model=model,
+            temperature=0.7,
+            max_tokens=max_tokens,
+        ):
+            if content_chunk:
+                yield content_chunk
+
+    async def _run_linear_pipeline(
+        self,
+        *,
+        db: Session,
+        user: User,
+        content: str,
+        conversation_id: str,
+        document_id: str,
+        model: str,
+        generate: Callable[
+            [LLMClient, str, List[Dict], str, int], AsyncIterator[str]
+        ],
+        chunk_cached_response: bool = False,
+        persist_user_before_llm: bool = False,
+        log_prefix: str = "",
+    ) -> AsyncGenerator[PipelineEvent, None]:
+        """Run the shared linear chat pipeline, emitting typed events.
+
+        Stages: resolve provider/key -> cache lookup -> prepare context ->
+        persist user message (optional, ordering-dependent) -> LLM call via
+        `generate` -> parse/verify/score -> persist assistant message ->
+        title -> cache response -> done. The two linear entry points pass
+        different `generate` strategies and persistence/output flags; the
+        body is otherwise identical.
+
+        Args:
+            generate: callable returning an async iterator of content
+                fragments. Use _complete_then_yield (non-stream) or
+                _stream_passthrough (stream).
+            chunk_cached_response: when True (stream), a cache hit is emitted
+                char-by-char as ChunkEvents, preserving the original UX; when
+                False (non-stream) it is emitted as one ChunkEvent.
+            persist_user_before_llm: when True (stream), the user message is
+                persisted before the LLM call so it survives a generation
+                failure; when False (non-stream) both messages are persisted
+                together after a successful generation.
+            log_prefix: optional "[Stream] " tag for path-specific log lines.
+        """
+        try:
+            # 1. Resolve provider + decrypt API key
+            provider = self._resolve_provider_for_model(model)
+            api_key = user.get_decrypted_key(provider.value)
+            if not api_key:
+                logger.error(f"User {user.id} has no {provider.value} API key configured")
+                yield ErrorEvent(
+                    message=(
+                        f"User has no {provider.value} API key configured. "
+                        "Please configure your API key in settings."
+                    )
+                )
+                return
+
+            logger.debug(
+                f"{log_prefix}Generating chat response for user {user.id}, conversation {conversation_id}"
+            )
+
+            # 2. Cache lookup (embedding + find_similar_response)
+            cache_service = await get_cache_service()
+            query_embedding = await cache_service.get_embedding(content)
+            if query_embedding is None:
+                query_embedding = await self.embedding_service.generate_embedding_async(content)
+                await cache_service.set_embedding(content, query_embedding)
+
+            history_count = db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).count()
+
+            if history_count == 0:  # Only cache responses for first message (no context)
+                cached_response = await cache_service.find_similar_response(query_embedding, document_id)
+                if cached_response:
+                    logger.info(f"{log_prefix}Using cached response")
+
+                    # Emit cached content as chunk(s). Streaming splits char-by-char
+                    # to preserve the original UX; non-stream emits one chunk.
+                    cached_content = cached_response['content']
+                    if chunk_cached_response:
+                        for char in cached_content:
+                            yield ChunkEvent(content=char)
+                    else:
+                        yield ChunkEvent(content=cached_content)
+
+                    # Persist both messages
+                    user_message = Message(
+                        content=content, role="user", conversation_id=conversation_id
+                    )
+                    db.add(user_message)
+                    db.flush()
+                    assistant_message = Message(
+                        content=cached_content,
+                        role="assistant",
+                        conversation_id=conversation_id,
+                        context={
+                            "chunks": cached_response['chunks'],
+                            "annotations": cached_response['annotations'],
+                        },
+                    )
+                    db.add(assistant_message)
+                    db.commit()
+                    db.refresh(user_message)
+                    db.refresh(assistant_message)
+                    yield DoneEvent(user_message=user_message, assistant_message=assistant_message)
+                    return
+
+            # 3. Prepare retrieval/classify/prompt context
+            ctx = await self._prepare_generation_context(
+                db=db,
+                content=content,
+                document_id=document_id,
+                model=model,
+                conversation_id=conversation_id,
+                api_key=api_key,
+                provider=provider,
+                stream_log_prefix=log_prefix,
+            )
+            client = get_llm_client(provider, api_key)
+            chat_messages = ctx.messages[1:]  # drop the system message (passed separately)
+            is_first_message = ctx.is_first_message
+
+            # 4. Optionally persist the user message before the LLM call
+            #    (streaming persists optimistically so it survives generation failure).
+            user_message: Optional[Message] = None
+            if persist_user_before_llm:
+                user_message = Message(
+                    content=content, role="user", conversation_id=conversation_id
+                )
+                db.add(user_message)
+                db.flush()
+
+            # 5. Run the LLM call via the injected strategy
+            accumulated_content = ""
+            try:
+                async for fragment in generate(
+                    client, ctx.system_prompt, chat_messages, model, ctx.max_tokens
+                ):
+                    if fragment:
+                        accumulated_content += fragment
+                        yield ChunkEvent(content=fragment)
+            except APIError as e:
+                logger.error(f"{log_prefix}LLM API error: {str(e)}", exc_info=True)
+                yield ErrorEvent(message=self._llm_error_message(e))
+                return
+            except Exception as e:
+                logger.error(f"{log_prefix}Unexpected error calling LLM API: {str(e)}", exc_info=True)
+                yield ErrorEvent(message=f"Failed to generate response: {str(e)}")
+                return
+
+            logger.info(f"{log_prefix}[Annotations] Raw LLM response: {accumulated_content[:500]}...")
+
+            # 6. Parse annotations, verify citations, score quality
+            assistant_content, annotations = self._parse_annotations(
+                accumulated_content, ctx.relevant_chunks
+            )
+            logger.info(f"{log_prefix}[Annotations] Parsed {len(annotations)} annotations from response")
+
+            citation_warnings = self._verify_citations(
+                response_text=assistant_content,
+                annotations=annotations,
+                relevant_chunks=ctx.relevant_chunks,
+            )
+
+            quality_scores = await self._score_answer_quality(
+                query=content,
+                answer=assistant_content,
+                context_chunks=ctx.relevant_chunks,
+                user_api_key=api_key,
+                provider=provider,
+            )
+
+            # 7. Estimate token usage (shared helper; previously duplicated)
+            token_usage = self._estimate_token_usage(
+                messages=ctx.messages,
+                content=accumulated_content,
+                model=model,
+                max_context_tokens=ctx.max_context_tokens,
+                log_prefix=log_prefix,
+            )
+
+            # 8. Persist messages
+            message_context = {
+                "chunks": ctx.relevant_chunks,
+                "annotations": annotations,
+                "token_usage": token_usage,
+                "chunk_selection_stats": ctx.chunk_stats,
+                "query_classification": ctx.query_classification,
+                "citation_warnings": citation_warnings,
+                "quality_scores": quality_scores,
+            }
+            if user_message is None:
+                # Non-stream path: persist user message now (after successful generation)
+                user_message = Message(
+                    content=content, role="user", conversation_id=conversation_id
+                )
+                db.add(user_message)
+                db.flush()
+            assistant_message = Message(
+                content=assistant_content,
+                role="assistant",
+                conversation_id=conversation_id,
+                context=message_context,
+            )
+            db.add(assistant_message)
+
+            # 9. Title (no-op when not the first message)
+            await self._set_title_if_first_message(
+                db=db,
+                conversation_id=conversation_id,
+                is_first_message=is_first_message,
+                content=content,
+                api_key=api_key,
+                provider=provider,
+            )
+
+            db.commit()
+            db.refresh(user_message)
+            db.refresh(assistant_message)
+            logger.debug(f"{log_prefix}Messages saved successfully")
+
+            # 10. Cache the response (first message only)
+            if is_first_message:
+                await cache_service.set_response(
+                    document_id, query_embedding,
+                    assistant_content, annotations, ctx.relevant_chunks,
+                )
+
+            yield DoneEvent(user_message=user_message, assistant_message=assistant_message)
+
+        except Exception as e:
+            logger.error(f"{log_prefix}Error in linear pipeline: {str(e)}", exc_info=True)
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            yield ErrorEvent(message=f"Error: {str(e)}")
+
+    def _estimate_token_usage(
+        self,
+        *,
+        messages: List[Dict],
+        content: str,
+        model: str,
+        max_context_tokens: int,
+        log_prefix: str = "",
+    ) -> Optional[Dict[str, int]]:
+        """Estimate prompt/completion/total token usage for a generation.
+
+        The chat-completion client returns only the assistant text (no usage
+        object), and streams likewise omit usage, so both paths estimate from
+        the assembled messages + generated content. Returns None on failure.
+        Previously duplicated verbatim (modulo log prefix) in both entry points.
+        """
+        try:
+            prompt_tokens = TokenService.estimate_context_tokens(messages, model)
+            completion_tokens = TokenService.count_tokens(content, model)
+            total_tokens = prompt_tokens + completion_tokens
+            token_usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            }
+            logger.info(
+                f"{log_prefix}Token usage: {prompt_tokens} prompt + "
+                f"{completion_tokens} completion = {total_tokens} total tokens"
+            )
+            logger.info(
+                f"{log_prefix}Token budget utilization: "
+                f"{total_tokens}/{max_context_tokens} "
+                f"({100 * total_tokens / max_context_tokens:.1f}%)"
+            )
+            return token_usage
+        except Exception as e:
+            logger.warning(f"{log_prefix}Failed to estimate token usage: {e}")
+            return None
+
     async def generate_chat_response(
         self,
         db: Session,
@@ -501,270 +868,47 @@ class ChatService:
                 model=model
             )
 
-        # Linear pipeline (existing implementation)
-        try:
-            # Get decrypted API key for the resolved provider
-            provider = self._resolve_provider_for_model(model)
-            api_key = user.get_decrypted_key(provider.value)
-            if not api_key:
-                logger.error(f"User {user.id} has no {provider.value} API key configured")
-                raise ValueError(
-                    f"User has no {provider.value} API key configured. "
-                    "Please configure your API key in settings."
-                )
-
-            logger.debug(f"Generating chat response for user {user.id}, conversation {conversation_id}")
-
-            # Initialize cache service
-            cache_service = await get_cache_service()
-
-            # Get query embedding for response cache lookup
-            query_embedding = await cache_service.get_embedding(content)
-            if query_embedding is None:
-                query_embedding = await self.embedding_service.generate_embedding_async(content)
-                await cache_service.set_embedding(content, query_embedding)
-
-            # Check for similar cached response (skip if conversation has history)
-            history_count = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).count()
-
-            if history_count == 0:  # Only cache responses for first message (no context)
-                cached_response = await cache_service.find_similar_response(query_embedding, document_id)
-                if cached_response:
-                    logger.info("Using cached response")
-                    # Still need to save messages to database
-                    user_message = Message(
-                        content=content,
-                        role="user",
-                        conversation_id=conversation_id
-                    )
-                    db.add(user_message)
-                    db.flush()
-
-                    assistant_message = Message(
-                        content=cached_response['content'],
-                        role="assistant",
-                        conversation_id=conversation_id,
-                        context={
-                            "chunks": cached_response['chunks'],
-                            "annotations": cached_response['annotations']
-                        }
-                    )
-                    db.add(assistant_message)
-                    db.commit()
-                    db.refresh(user_message)
-                    db.refresh(assistant_message)
-
-                    return {
-                        "user_message": {
-                            "id": user_message.id,
-                            "role": user_message.role,
-                            "content": user_message.content,
-                            "created_at": user_message.created_at,
-                            "context": None,
-                            "annotations": None
-                        },
-                        "assistant_message": {
-                            "id": assistant_message.id,
-                            "role": assistant_message.role,
-                            "content": assistant_message.content,
-                            "created_at": assistant_message.created_at,
-                            "context": cached_response['chunks'],
-                            "annotations": cached_response['annotations']
-                        }
-                    }
-
-            # Resolve provider + prepare retrieval/classify/prompt pipeline.
-            # Shared with generate_chat_response_stream via _prepare_generation_context.
-            ctx = await self._prepare_generation_context(
-                db=db,
-                content=content,
-                document_id=document_id,
-                model=model,
-                conversation_id=conversation_id,
-                api_key=api_key,
-                provider=provider,
-            )
-            client = get_llm_client(provider, api_key)
-            system_prompt_content = ctx.system_prompt
-            messages = ctx.messages
-            relevant_chunks = ctx.relevant_chunks
-            chunk_stats = ctx.chunk_stats
-            query_classification = ctx.query_classification
-            cache_service = ctx.cache_service
-            query_embedding = ctx.query_embedding
-            max_tokens = ctx.max_tokens
-            logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query")
-
-            try:
-                # messages[0] is the system message; LLMClient takes system separately.
-                chat_messages = messages[1:]
-
-                async def _create_completion():
-                    return await client.complete(
-                        system_prompt=system_prompt_content,
-                        messages=chat_messages,
-                        model=model,
-                        temperature=0.7,
-                        max_tokens=max_tokens,
-                    )
-
-                raw_assistant_content = await async_retry_openai_call(
-                    _create_completion,
-                    max_attempts=5,  # More retries for main chat completion
-                    initial_wait=1.0,
-                    max_wait=60.0
-                )
-            except APIError as e:
-                logger.error(f"LLM API error after retries: {str(e)}", exc_info=True)
-                raise ValueError(self._llm_error_message(e))
-            except Exception as e:
-                logger.error(f"Unexpected error calling LLM API: {str(e)}", exc_info=True)
-                raise ValueError(f"Failed to generate response: {str(e)}")
-
-            raw_assistant_content = raw_assistant_content or ""
-            logger.info(f"[Annotations] Raw OpenAI response: {raw_assistant_content[:500]}...")
-
-            # Estimate token usage. The chat-completion client returns only the
-            # assistant text (not a usage object), so mirror the streaming path
-            # and estimate from the assembled messages + generated content.
-            token_usage = None
-            try:
-                prompt_tokens = TokenService.estimate_context_tokens(messages, model)
-                completion_tokens = TokenService.count_tokens(raw_assistant_content, model)
-                total_tokens = prompt_tokens + completion_tokens
-
-                token_usage = {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens
+        # Linear pipeline: drain the shared generator, translate events to a dict.
+        # ChunkEvent content is accumulated (non-stream doesn't surface incremental
+        # output); ErrorEvent becomes a raised ValueError; DoneEvent carries the
+        # persisted messages.
+        assistant_content = ""
+        async for event in self._run_linear_pipeline(
+            db=db,
+            user=user,
+            content=content,
+            conversation_id=conversation_id,
+            document_id=document_id,
+            model=model,
+            generate=self._complete_then_yield,
+            chunk_cached_response=False,
+            persist_user_before_llm=False,
+        ):
+            if isinstance(event, ChunkEvent):
+                assistant_content += event.content
+            elif isinstance(event, ErrorEvent):
+                raise ValueError(event.message)
+            elif isinstance(event, DoneEvent):
+                return {
+                    "user_message": {
+                        "id": event.user_message.id,
+                        "role": event.user_message.role,
+                        "content": event.user_message.content,
+                        "created_at": event.user_message.created_at,
+                        "context": None,
+                        "annotations": None,
+                    },
+                    "assistant_message": {
+                        "id": event.assistant_message.id,
+                        "role": event.assistant_message.role,
+                        "content": event.assistant_message.content,
+                        "created_at": event.assistant_message.created_at,
+                        "context": event.assistant_message.context.get("chunks") if event.assistant_message.context else None,
+                        "annotations": event.assistant_message.context.get("annotations") if event.assistant_message.context else None,
+                    },
                 }
-                logger.info(
-                    f"Token usage: {token_usage['prompt_tokens']} prompt + "
-                    f"{token_usage['completion_tokens']} completion = "
-                    f"{token_usage['total_tokens']} total tokens"
-                )
-                logger.info(
-                    f"Token budget utilization: "
-                    f"{token_usage['total_tokens']}/{max_context_tokens} "
-                    f"({100 * token_usage['total_tokens'] / max_context_tokens:.1f}%)"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to estimate token usage: {e}")
-
-            # Parse annotations from the response
-            assistant_content, annotations = self._parse_annotations(
-                raw_assistant_content,
-                relevant_chunks
-            )
-            logger.info(f"[Annotations] Parsed {len(annotations)} annotations from response")
-            if annotations:
-                logger.info(f"[Annotations] Annotation details: {annotations}")
-
-            # Verify citations match available chunks
-            citation_warnings = self._verify_citations(
-                response_text=assistant_content,
-                annotations=annotations,
-                relevant_chunks=relevant_chunks
-            )
-
-            # Score answer quality
-            quality_scores = await self._score_answer_quality(
-                query=content,
-                answer=assistant_content,
-                context_chunks=relevant_chunks,
-                user_api_key=api_key,
-                provider=provider
-            )
-
-            # Check if this is the first message in the conversation (for title generation)
-            existing_message_count = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).count()
-
-            is_first_message = existing_message_count == 0
-
-            # Save user message
-            user_message = Message(
-                content=content,
-                role="user",
-                conversation_id=conversation_id
-            )
-            db.add(user_message)
-            db.flush()
-
-            # Save assistant message with context (store all metadata including quality metrics)
-            message_context = {
-                "chunks": relevant_chunks,
-                "annotations": annotations,
-                "token_usage": token_usage,
-                "chunk_selection_stats": chunk_stats,
-                "query_classification": query_classification,
-                "citation_warnings": citation_warnings,
-                "quality_scores": quality_scores
-            }
-            assistant_message = Message(
-                content=assistant_content,
-                role="assistant",
-                conversation_id=conversation_id,
-                context=message_context
-            )
-            db.add(assistant_message)
-
-            # Generate and update conversation title if this is the first message
-            await self._set_title_if_first_message(
-                db=db,
-                conversation_id=conversation_id,
-                is_first_message=is_first_message,
-                content=content,
-                api_key=api_key,
-                provider=provider,
-            )
-
-            db.commit()
-
-            db.refresh(user_message)
-            db.refresh(assistant_message)
-
-            logger.debug("Messages saved successfully")
-
-            # Cache the response (only for first message to avoid context issues)
-            if is_first_message:
-                await cache_service.set_response(
-                    document_id,
-                    query_embedding,
-                    assistant_content,
-                    annotations,
-                    relevant_chunks
-                )
-
-            return {
-                "user_message": {
-                    "id": user_message.id,
-                    "role": user_message.role,
-                    "content": user_message.content,
-                    "created_at": user_message.created_at,
-                    "context": None,
-                    "annotations": None
-                },
-                "assistant_message": {
-                    "id": assistant_message.id,
-                    "role": assistant_message.role,
-                    "content": assistant_message.content,
-                    "created_at": assistant_message.created_at,
-                    "context": relevant_chunks,
-                    "annotations": annotations
-                }
-            }
-        except ValueError:
-            # Re-raise ValueError as-is
-            raise
-        except Exception as e:
-            logger.error(f"Error in generate_chat_response: {str(e)}", exc_info=True)
-            # Rollback any pending transaction
-            db.rollback()
-            raise
+        # Pipeline ended without DoneEvent (shouldn't happen, but be safe).
+        raise ValueError("Chat pipeline ended without producing a response")
 
     async def generate_chat_response_with_agent(
         self,
@@ -1138,274 +1282,52 @@ class ChatService:
         Generate a streaming chat response using OpenAI with RAG.
         Yields chunks of text as they arrive from OpenAI.
         """
-        accumulated_content = ""
-        relevant_chunks = []
-
-        try:
-            # Get decrypted API key for the resolved provider
-            provider = self._resolve_provider_for_model(model)
-            api_key = user.get_decrypted_key(provider.value)
-            if not api_key:
-                logger.error(f"User {user.id} has no {provider.value} API key configured")
-                yield f"data: {json.dumps({'type': 'error', 'content': f'User has no {provider.value} API key configured. Please configure your API key in settings.'})}\n\n"
+        # Linear pipeline: forward each event as an SSE frame. ChunkEvents
+        # become incremental 'chunk' frames (cached responses stream char-by-char
+        # via chunk_cached_response=True); ErrorEvent and DoneEvent become
+        # terminal 'error' / 'done' frames. Datetimes are ISO-serialized here.
+        async for event in self._run_linear_pipeline(
+            db=db,
+            user=user,
+            content=content,
+            conversation_id=conversation_id,
+            document_id=document_id,
+            model=model,
+            generate=self._stream_passthrough,
+            chunk_cached_response=True,
+            persist_user_before_llm=True,
+            log_prefix="[Stream] ",
+        ):
+            if isinstance(event, ChunkEvent):
+                yield f"data: {json.dumps({'type': 'chunk', 'content': event.content})}\n\n"
+            elif isinstance(event, ErrorEvent):
+                yield f"data: {json.dumps({'type': 'error', 'content': event.message})}\n\n"
                 return
-
-            logger.debug(f"Generating streaming chat response for user {user.id}, conversation {conversation_id}")
-
-            # Initialize cache service
-            cache_service = await get_cache_service()
-
-            # Get query embedding for response cache lookup
-            query_embedding = await cache_service.get_embedding(content)
-            if query_embedding is None:
-                query_embedding = await self.embedding_service.generate_embedding_async(content)
-                await cache_service.set_embedding(content, query_embedding)
-
-            # Check for similar cached response (skip if conversation has history)
-            history_count = db.query(Message).filter(
-                Message.conversation_id == conversation_id
-            ).count()
-
-            if history_count == 0:  # Only cache responses for first message (no context)
-                cached_response = await cache_service.find_similar_response(query_embedding, document_id)
-                if cached_response:
-                    logger.info("Using cached response for streaming")
-                    # Stream the cached content
-                    for char in cached_response['content']:
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': char})}\n\n"
-
-                    # Save messages to database
-                    user_message = Message(
-                        content=content,
-                        role="user",
-                        conversation_id=conversation_id
-                    )
-                    db.add(user_message)
-                    db.flush()
-
-                    assistant_message = Message(
-                        content=cached_response['content'],
-                        role="assistant",
-                        conversation_id=conversation_id,
-                        context={
-                            "chunks": cached_response['chunks'],
-                            "annotations": cached_response['annotations']
-                        }
-                    )
-                    db.add(assistant_message)
-                    db.commit()
-                    db.refresh(user_message)
-                    db.refresh(assistant_message)
-
-                    # Send final message
-                    final_data = {
-                        'type': 'done',
-                        'user_message': {
-                            "id": user_message.id,
-                            "role": user_message.role,
-                            "content": user_message.content,
-                            "created_at": user_message.created_at.isoformat(),
-                            "context": None,
-                            "annotations": None
-                        },
-                        'assistant_message': {
-                            "id": assistant_message.id,
-                            "role": assistant_message.role,
-                            "content": assistant_message.content,
-                            "created_at": assistant_message.created_at.isoformat(),
-                            "context": cached_response['chunks'],
-                            "annotations": cached_response['annotations']
-                        }
-                    }
-                    yield f"data: {json.dumps(final_data)}\n\n"
-                    return
-
-            # Resolve provider + prepare retrieval/classify/prompt pipeline.
-            # Shared with generate_chat_response via _prepare_generation_context.
-            ctx = await self._prepare_generation_context(
-                db=db,
-                content=content,
-                document_id=document_id,
-                model=model,
-                conversation_id=conversation_id,
-                api_key=api_key,
-                provider=provider,
-                stream_log_prefix="[Stream] ",
-            )
-            client = get_llm_client(provider, api_key)
-            system_prompt_content = ctx.system_prompt
-            messages = ctx.messages
-            relevant_chunks = ctx.relevant_chunks
-            chunk_stats = ctx.chunk_stats
-            query_classification = ctx.query_classification
-            cache_service = ctx.cache_service
-            query_embedding = ctx.query_embedding
-            is_first_message = ctx.is_first_message
-            max_tokens = ctx.max_tokens
-            logger.info(f"Using {max_tokens} max completion tokens for {query_classification['complexity']} query (streaming)")
-
-            # Save user message first (streaming persists optimistically before the LLM call)
-            user_message = Message(
-                content=content,
-                role="user",
-                conversation_id=conversation_id
-            )
-            db.add(user_message)
-            db.flush()
-
-            try:
-                # messages[0] is the system message; LLMClient takes system separately.
-                chat_messages = messages[1:]
-
-                # Stream tokens directly from the provider-agnostic client.
-                async for content_chunk in client.stream(
-                    system_prompt=system_prompt_content,
-                    messages=chat_messages,
-                    model=model,
-                    temperature=0.7,
-                    max_tokens=max_tokens,
-                ):
-                    if content_chunk:
-                        accumulated_content += content_chunk
-                        # Send chunk to client
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': content_chunk})}\n\n"
-
-            except APIError as e:
-                logger.error(f"LLM API error during streaming: {str(e)}", exc_info=True)
-                error_msg = self._llm_error_message(e)
-                yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
-                return
-            except Exception as e:
-                logger.error(f"Unexpected error calling LLM API: {str(e)}", exc_info=True)
-                yield f"data: {json.dumps({'type': 'error', 'content': f'Failed to generate response: {str(e)}'})}\n\n"
-                return
-
-            # Parse annotations from the complete response
-            logger.info(f"[Annotations] Raw OpenAI response: {accumulated_content[:500]}...")
-            assistant_content, annotations = self._parse_annotations(
-                accumulated_content,
-                relevant_chunks
-            )
-            logger.info(f"[Annotations] Parsed {len(annotations)} annotations from response")
-
-            # Verify citations match available chunks
-            citation_warnings = self._verify_citations(
-                response_text=assistant_content,
-                annotations=annotations,
-                relevant_chunks=relevant_chunks
-            )
-
-            # Score answer quality
-            quality_scores = await self._score_answer_quality(
-                query=content,
-                answer=assistant_content,
-                context_chunks=relevant_chunks,
-                user_api_key=api_key,
-                provider=provider
-            )
-
-            # Estimate token usage for streaming response (OpenAI doesn't provide usage in streams)
-            token_usage = None
-            try:
-                # Count input tokens (context + user message + history)
-                prompt_tokens = TokenService.estimate_context_tokens(messages, model)
-
-                # Count output tokens
-                completion_tokens = TokenService.count_tokens(accumulated_content, model)
-
-                total_tokens = prompt_tokens + completion_tokens
-
-                token_usage = {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens
+            elif isinstance(event, DoneEvent):
+                um, am = event.user_message, event.assistant_message
+                ctx_chunks = am.context.get("chunks") if am.context else None
+                ctx_annotations = am.context.get("annotations") if am.context else None
+                final_data = {
+                    'type': 'done',
+                    'user_message': {
+                        "id": um.id,
+                        "role": um.role,
+                        "content": um.content,
+                        "created_at": um.created_at.isoformat(),
+                        "context": None,
+                        "annotations": None,
+                    },
+                    'assistant_message': {
+                        "id": am.id,
+                        "role": am.role,
+                        "content": am.content,
+                        "created_at": am.created_at.isoformat(),
+                        "context": ctx_chunks,
+                        "annotations": ctx_annotations,
+                    },
                 }
+                yield f"data: {json.dumps(final_data)}\n\n"
 
-                logger.info(
-                    f"[Stream] Estimated token usage: {token_usage['prompt_tokens']} prompt + "
-                    f"{token_usage['completion_tokens']} completion = "
-                    f"{token_usage['total_tokens']} total tokens"
-                )
-                logger.info(
-                    f"[Stream] Token budget utilization: "
-                    f"{token_usage['total_tokens']}/{max_context_tokens} "
-                    f"({100 * token_usage['total_tokens'] / max_context_tokens:.1f}%)"
-                )
-            except Exception as e:
-                logger.warning(f"[Stream] Failed to estimate token usage: {e}")
-
-            # Save assistant message with context (include all metadata including quality metrics)
-            message_context = {
-                "chunks": relevant_chunks,
-                "annotations": annotations,
-                "token_usage": token_usage,
-                "chunk_selection_stats": chunk_stats,
-                "query_classification": query_classification,
-                "citation_warnings": citation_warnings,
-                "quality_scores": quality_scores
-            }
-            assistant_message = Message(
-                content=assistant_content,
-                role="assistant",
-                conversation_id=conversation_id,
-                context=message_context
-            )
-            db.add(assistant_message)
-
-            # Generate and update conversation title if this is the first message
-            await self._set_title_if_first_message(
-                db=db,
-                conversation_id=conversation_id,
-                is_first_message=is_first_message,
-                content=content,
-                api_key=api_key,
-                provider=provider,
-            )
-
-            db.commit()
-            db.refresh(user_message)
-            db.refresh(assistant_message)
-
-            logger.debug("Messages saved successfully")
-
-            # Cache the response (only for first message to avoid context issues)
-            if is_first_message:
-                await cache_service.set_response(
-                    document_id,
-                    query_embedding,
-                    assistant_content,
-                    annotations,
-                    relevant_chunks
-                )
-
-            # Send final message with complete data
-            final_data = {
-                'type': 'done',
-                'user_message': {
-                    "id": user_message.id,
-                    "role": user_message.role,
-                    "content": user_message.content,
-                    "created_at": user_message.created_at.isoformat(),
-                    "context": None,
-                    "annotations": None
-                },
-                'assistant_message': {
-                    "id": assistant_message.id,
-                    "role": assistant_message.role,
-                    "content": assistant_message.content,
-                    "created_at": assistant_message.created_at.isoformat(),
-                    "context": relevant_chunks,
-                    "annotations": annotations
-                }
-            }
-            yield f"data: {json.dumps(final_data)}\n\n"
-
-        except ValueError as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-        except Exception as e:
-            logger.error(f"Error in generate_chat_response_stream: {str(e)}", exc_info=True)
-            db.rollback()
-            yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
 
     def _check_hierarchical_chunking(self, db: Session, document_id: str) -> bool:
         """Check if a document uses hierarchical chunking. Delegates to HybridRetriever."""

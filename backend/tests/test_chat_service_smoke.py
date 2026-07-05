@@ -68,6 +68,11 @@ def test_chat_service_still_delegates_extracted_methods():
     assert callable(getattr(svc, "_llm_error_message", None))
     assert _coro(getattr(svc, "_set_title_if_first_message", None))
     assert _coro(getattr(svc, "_prepare_generation_context", None))
+    # Phase 3 unified pipeline
+    assert callable(getattr(svc, "_estimate_token_usage", None))
+    assert _coro(getattr(svc, "_complete_then_yield", None))
+    assert _coro(getattr(svc, "_stream_passthrough", None))
+    assert inspect.isasyncgenfunction(svc._run_linear_pipeline)
 
 
 def test_llm_error_message_maps_status_codes():
