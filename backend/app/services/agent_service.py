@@ -720,8 +720,10 @@ Output (JSON array only):"""
         logger.info(f"[Agent] Verifying response quality")
 
         try:
-            # Score answer quality using existing logic
-            quality_scores = await self.chat_service._score_answer_quality(
+            # Score answer quality via QualityService (extracted from ChatService)
+            from .quality_service import get_quality_service
+            quality_service = get_quality_service()
+            quality_scores = await quality_service.score_answer_quality(
                 query=state["user_query"],
                 answer=state.get("clean_answer", ""),
                 context_chunks=state.get("retrieved_chunks", []),
@@ -730,8 +732,8 @@ Output (JSON array only):"""
 
             state["quality_score"] = quality_scores
 
-            # Verify citations using existing logic
-            citation_warnings = self.chat_service._verify_citations(
+            # Verify citations via QualityService
+            citation_warnings = quality_service.verify_citations(
                 response_text=state.get("answer", ""),
                 annotations=state.get("annotations", []),
                 relevant_chunks=state.get("retrieved_chunks", [])
