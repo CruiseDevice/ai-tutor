@@ -688,13 +688,48 @@ Title:"""
                             await cache_service.set_embedding(subquery, subquery_embedding)
                             logger.debug(f"Generated embedding for sub-query: {subquery[:40]}...")
 
-                        # Perform semantic search
-                        return await self._perform_semantic_search(
-                            db=db,
-                            query_embedding=subquery_embedding,
-                            document_id=document_id,
-                            limit=semantic_limit
+                        # Perform semantic search (inline SQL — mirrors search_single_variation below)
+                        embedding_str = '[' + ','.join(str(x) for x in subquery_embedding) + ']'
+
+                        query_sql = text("""
+                            SELECT
+                                id,
+                                content,
+                                page_number,
+                                document_id,
+                                position_data,
+                                chunk_type,
+                                1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                            FROM document_chunks
+                            WHERE document_id = :document_id
+                            ORDER BY embedding <=> CAST(:embedding AS vector)
+                            LIMIT :limit
+                        """)
+
+                        result = db.execute(
+                            query_sql,
+                            {
+                                "embedding": embedding_str,
+                                "document_id": document_id,
+                                "limit": semantic_limit
+                            }
                         )
+
+                        # Convert to list of dicts
+                        chunks = []
+                        for row in result:
+                            chunks.append({
+                                "id": row.id,
+                                "content": row.content,
+                                "pageNumber": row.page_number,
+                                "documentId": row.document_id,
+                                "positionData": row.position_data,
+                                "chunk_type": row.chunk_type,
+                                "similarity": float(row.similarity)
+                            })
+
+                        logger.debug(f"Found {len(chunks)} chunks for sub-query: {subquery[:40]}...")
+                        return chunks
 
                     # Execute all searches in parallel
                     subquery_results = await asyncio.gather(
