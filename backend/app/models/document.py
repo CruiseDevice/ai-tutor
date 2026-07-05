@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, Text, Index, UniqueConstraint, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -57,6 +57,27 @@ class Document(Base):
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
+    __table_args__ = (
+        # Foreign-key lookup indexes (created by the former imperative migrations)
+        Index("idx_document_chunks_document_id", "document_id"),
+        Index("idx_document_chunks_document_id_page_number", "document_id", "page_number"),
+        # HNSW vector index for cosine similarity search over embeddings
+        Index(
+            "idx_document_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+        # GIN full-text search index over chunk content.
+        # Expressed as raw SQL text because autogenerate cannot render the
+        # 'english' regconfig literal via func.to_tsvector().
+        Index(
+            "idx_document_chunks_content_fts",
+            text("to_tsvector('english', content)"),
+            postgresql_using="gin",
+        ),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     content = Column(Text, nullable=False)
@@ -99,6 +120,9 @@ class ParentChildRelationship(Base):
     - Flexible chunking: Different chunk sizes for indexing vs context delivery
     """
     __tablename__ = "parent_child_relationships"
+    __table_args__ = (
+        UniqueConstraint("parent_chunk_id", "child_chunk_id", name="uq_parent_child_relationship_pc_cc"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     parent_chunk_id = Column(String, ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False, index=True)

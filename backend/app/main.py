@@ -40,63 +40,13 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on startup."""
+    """Initialize services on startup.
+
+    Database schema is managed by Alembic and applied before the app starts (see
+    the `alembic upgrade head` entrypoint in docker-compose.yml). Nothing to do
+    here for the database.
+    """
     logger.info("Starting application initialization...")
-
-    try:
-        logger.info("Initializing database...")
-        from .database import engine, Base
-        from sqlalchemy import text
-
-        # Step 1: Create pgvector extension if it doesn't exist
-        # This is required for the Vector type in DocumentChunk model
-        logger.info("Ensuring pgvector extension exists...")
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            logger.info("pgvector extension is ready")
-        except Exception as ext_error:
-            logger.error(f"Failed to create pgvector extension: {ext_error}", exc_info=True)
-            raise
-
-        # Step 2: Create database tables
-        # Import models to register them with SQLAlchemy Base
-        from .models import user, document, conversation  # noqa: F401
-        Base.metadata.create_all(bind=engine)
-
-        # Run migrations for existing databases
-        logger.info("Running database migrations...")
-        from .database_migrations import (
-            add_title_column_if_missing,
-            remove_unique_constraint_from_document_id,
-            add_document_chunks_indexes,
-            add_pgvector_hnsw_index,
-            add_document_status_fields,
-            add_fulltext_search_index,
-            add_user_role_column,
-            add_processing_time_columns,
-            add_audit_logs_table,
-            add_chunk_type_column,
-            add_hierarchical_chunking_schema,
-            add_user_api_key_columns
-        )
-        add_title_column_if_missing(engine)
-        remove_unique_constraint_from_document_id(engine)
-        add_document_chunks_indexes(engine)
-        add_pgvector_hnsw_index(engine)
-        add_document_status_fields(engine)
-        add_fulltext_search_index(engine)  # Enable hybrid search with full-text index
-        add_user_role_column(engine)  # Add role column for RBAC
-        add_processing_time_columns(engine)
-        add_audit_logs_table(engine)
-        add_chunk_type_column(engine)
-        add_hierarchical_chunking_schema(engine) # Hierarchical parent-child chunking
-        add_user_api_key_columns(engine)  # Per-provider API keys (openai/anthropic/ollama)
-        logger.info("Database initialization complete")
-    except Exception as e:
-        logger.error(f"Database initialization error: {e}", exc_info=True)
-        # Don't crash - let the app start even if migrations fail
-        # The app can still function, though some features may not work
 
     # Initialize embedding service lazily (loads the model on first use)
     # This prevents blocking startup while downloading the model
